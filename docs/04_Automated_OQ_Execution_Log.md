@@ -6,7 +6,7 @@ FDA Computer Software Assurance (CSA) Operational Qualification (OQ) automated e
 
 ## Execution Environment
 
-- **Execution timestamp (UTC):** 2026-11-07 22:26:20 UTC
+- **Execution timestamp (UTC):** 2026-11-07 22:30:53 UTC
 - **Python version:** 3.11.15
 - **Platform:** Linux-6.1.189-236.400.amzn2023.x86_64-x86_64-with-glibc2.34
 - **Qualified package versions:**
@@ -33,7 +33,7 @@ FDA Computer Software Assurance (CSA) Operational Qualification (OQ) automated e
 | --- | --- | --- | --- |
 | tests/test_csa_oq_validation.py::test_oq_01_pid_split_range_deadband | Scripted Testing (High Process Risk) | PASSED | 0.0003 |
 | tests/test_csa_oq_validation.py::test_oq_02_automated_day7_temperature_shift | Scripted Testing (High Process Risk) | PASSED | 0.0001 |
-| tests/test_csa_oq_validation.py::test_oq_03_closed_loop_vs_static_titer_gain | Scripted Testing (High Process Risk) | PASSED | 0.0009 |
+| tests/test_csa_oq_validation.py::test_oq_03_closed_loop_vs_static_titer_gain | Scripted Testing (High Process Risk) | PASSED | 0.0008 |
 | tests/test_csa_oq_validation.py::test_oq_04_safety_shear_and_cip_sip_interlocks | Scripted Testing (High Process Risk) | PASSED | 0.0001 |
 | tests/test_csa_oq_validation.py::test_oq_05_ispe_amab_design_space_center_and_edges | Scripted Testing (High Process Risk) | PASSED | 0.0001 |
 | tests/test_csa_oq_validation.py::test_oq_06_mkt_and_vtb_damping | Scripted Testing (High Process Risk) | PASSED | 0.0005 |

@@ -110,6 +110,8 @@ Los resultados nominales del gemelo digital (14 d, parametros por defecto) son *
 
 Estos numeros se reportan tal como se miden, aun cuando algunos caen fuera de las bandas guia de referencia; el resultado cualitativo (el lazo cerrado supera claramente a la receta estatica con mayor viabilidad retenida) se mantiene con solidez. En el tablero la **ganancia de titulo se calcula en vivo** a partir de los resultados de la simulacion y nunca se fija como constante.
 
+La mayor ganancia porcentual (+57.8 %) se deriva del desacoplamiento de la viabilidad celular en la fase estacionaria tardía (66.6 % static vs 92.5 % closed_loop), y que la glucosa cae a ~1.86 g/L antes de cada bolo porque el modelo representa la latencia de muestreo previa a la inyección.
+
 ## Seccion 5: Bibliografia Academica, Industrial y Regulatoria
 Referencias Bibliográficas y Marco Regulatorio (References)
 
