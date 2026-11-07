@@ -1,0 +1,181 @@
+"""ISPE A-Mab multivariate design-space response surfaces and scale-up engineering.
+
+The quadratic response-surface models (RSMs) for the four N-glycan critical quality
+attributes (afucosylation max/min, galactosylation max/min) reproduce the A-Mab
+design-space case study (CMC Biotech Working Group, *A-Mab: A Case Study in Bioprocess
+Development*, v2.1, CASSS/ISPE, Oct. 2009, pp. 90-92 and 100-106). The five process
+factors (culture duration, pCO2, osmolality, pH, temperature) are normalized to their
+design-space centre so that the model intercepts correspond to the centre-point response.
+
+The scale-up correlation (kLa and OUR) follows the A-Mab oxygen-transfer treatment
+(A-Mab 2009, Fig. 3.11).
+"""
+
+
+def evaluate_amab_design_space(
+    cd_days: float = 17.0,
+    co2_mmHg: float = 100.0,
+    osm_mOsm: float = 400.0,
+    ph_val: float = 6.85,
+    temp_C: float = 35.0,
+) -> dict:
+    """Evaluate the A-Mab N-glycan design-space response surfaces.
+
+    Parameters are normalized to the design-space centre (A-Mab ISPE 2009,
+    pp. 90-92, 100-106). At the centre point all normalized inputs are zero and the
+    responses reduce to the model intercepts [14.70, 15.29, 13.15, 11.08].
+
+    Returns a dict with the four responses (``z1_afuc_max``, ``z2_afuc_min``,
+    ``z3_gal_max``, ``z4_gal_min``), whether the inputs are ``in_bounds`` of the
+    validated design space, and whether the design space ``holds`` (all responses
+    at or above the 4.60 acceptance limit while in bounds).
+    """
+    CD = (cd_days - 17.0) / 2.0
+    CO2 = (co2_mmHg - 100.0) / 60.0
+    Osm = (osm_mOsm - 400.0) / 40.0
+    pH = (ph_val - 6.85) / 0.25
+    T = temp_C - 35.0
+
+    z1 = (
+        14.70
+        + 0.62 * CD
+        + 0.84 * CO2
+        + 1.54 * Osm
+        + 2.83 * pH
+        + 1.42 * T
+        - 1.27 * CD * CO2
+        - 1.82 * CD * Osm
+        - 4.36 * CD * pH
+        - 2.26 * CD * T
+        - 0.31 * CO2 * Osm
+        + 3.11 * CO2 * pH
+        + 0.04 * CO2 * T
+        - 1.44 * Osm * pH
+        - 0.81 * Osm * T
+        + 3.00 * pH * T
+        - 2.09 * (CD ** 2)
+        - 0.15 * (CO2 ** 2)
+        - 1.66 * (Osm ** 2)
+        + 3.26 * (pH ** 2)
+        - 2.73 * (T ** 2)
+    )
+
+    z2 = (
+        15.29
+        + 0.35 * CD
+        - 1.53 * CO2
+        - 0.41 * Osm
+        - 0.28 * pH
+        - 1.90 * T
+        - 0.57 * CD * CO2
+        + 2.80 * CD * Osm
+        + 0.18 * CD * pH
+        + 0.81 * CD * T
+        - 1.05 * CO2 * Osm
+        - 1.89 * CO2 * pH
+        - 0.41 * CO2 * T
+        - 0.73 * Osm * pH
+        - 0.22 * Osm * T
+        - 2.91 * pH * T
+        + 0.31 * (CD ** 2)
+        - 0.51 * (CO2 ** 2)
+        - 0.42 * (Osm ** 2)
+        - 5.32 * (pH ** 2)
+        + 1.70 * (T ** 2)
+    )
+
+    z3 = (
+        13.15
+        + 2.31 * CD
+        + 1.81 * CO2
+        + 1.86 * Osm
+        + 2.82 * pH
+        - 1.63 * T
+        - 1.44 * CD * CO2
+        - 0.26 * CD * Osm
+        - 4.12 * CD * pH
+        + 0.76 * CD * T
+        - 0.12 * CO2 * Osm
+        - 2.80 * CO2 * pH
+        + 0.50 * CO2 * T
+        - 0.22 * Osm * pH
+        - 2.20 * Osm * T
+        - 2.27 * pH * T
+        - 2.49 * (CD ** 2)
+        - 0.43 * (CO2 ** 2)
+        - 0.32 * (Osm ** 2)
+        - 0.33 * (pH ** 2)
+        + 0.06 * (T ** 2)
+    )
+
+    z4 = (
+        11.08
+        - 3.06 * CD
+        - 2.87 * CO2
+        - 1.61 * Osm
+        - 2.27 * pH
+        + 1.21 * T
+        - 0.34 * CD * CO2
+        - 0.63 * CD * Osm
+        + 3.65 * CD * pH
+        + 1.79 * CD * T
+        - 0.19 * CO2 * Osm
+        + 2.61 * CO2 * pH
+        + 0.11 * CO2 * T
+        - 0.13 * Osm * pH
+        + 2.35 * Osm * T
+        + 3.16 * pH * T
+        - 0.23 * (CD ** 2)
+        + 0.41 * (CO2 ** 2)
+        + 0.33 * (Osm ** 2)
+        - 0.20 * (pH ** 2)
+        - 0.16 * (T ** 2)
+    )
+
+    in_bounds = (
+        (15.0 <= cd_days <= 19.0)
+        and (40.0 <= co2_mmHg <= 160.0)
+        and (360.0 <= osm_mOsm <= 440.0)
+        and (6.6 <= ph_val <= 7.1)
+        and (34.0 <= temp_C <= 36.0)
+    )
+    holds = bool(
+        in_bounds and z1 >= 4.60 and z2 >= 4.60 and z3 >= 4.60 and z4 >= 4.60
+    )
+
+    return {
+        "z1_afuc_max": round(z1, 2),
+        "z2_afuc_min": round(z2, 2),
+        "z3_gal_max": round(z3, 2),
+        "z4_gal_min": round(z4, 2),
+        "in_bounds": in_bounds,
+        "design_space_holds": holds,
+    }
+
+
+def compute_scale_up_engineering(
+    superficial_gas_vel_m_s: float,
+    power_per_vol_W_m3: float,
+    vcc_1e6_cells_mL: float = 15.0,
+    qo2_mmol_cell_h: float = 1.0e-10,
+) -> dict:
+    """Compute oxygen-transfer scale-up engineering parameters.
+
+    kLa correlation and maximum oxygen uptake rate (OUR) follow the A-Mab ISPE
+    2009 oxygen-transfer treatment (Fig. 3.11). The ``qo2_mmol_cell_h`` argument is
+    carried as the per-cell oxygen demand context for the OUR reference basis.
+
+    Returns ``kla_h_inv`` (volumetric mass-transfer coefficient, 1/h) and
+    ``our_max_mmol_L_h`` (maximum oxygen uptake rate, mmol/(L*h)).
+    """
+    kla_h_inv = (
+        287.0
+        * (superficial_gas_vel_m_s ** 0.481)
+        * (power_per_vol_W_m3 ** 0.194)
+    )
+    our_max_mmol_L_h = 1.5 * (vcc_1e6_cells_mL / 15.0)
+
+    return {
+        "kla_h_inv": round(kla_h_inv, 2),
+        "our_max_mmol_L_h": round(our_max_mmol_L_h, 2),
+    }
