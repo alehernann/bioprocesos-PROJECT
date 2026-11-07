@@ -1,3 +1,5 @@
+![FDA CSA OQ Validation](https://github.com/alehernann/bioprocesos-portafolio/actions/workflows/csa_validation.yml/badge.svg)
+
 # bioprocesos-portafolio
 
 Portafolio de bioprocesos, control y validacion GxP de **Alejandro Timaran**, estudiante de **Ingenieria Biologica** de la **Universidad Nacional de Colombia (UNAL)**.

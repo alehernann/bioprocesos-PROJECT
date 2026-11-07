@@ -167,6 +167,84 @@ with tab1:
     v2.metric("Viabilidad final lazo cerrado (%)", f"{closed_res['final_viability_pct']:.2f}")
     v3.metric("VCD pico lazo cerrado (1e6 cel/mL)", f"{closed_res['peak_vcd']:.2f}")
 
+    # -----------------------------------------------------------------------
+    # KPIs EXTENSIVOS acoplados al volumen del biorreactor (vessel_volume_L).
+    # Las concentraciones (g/L) son variables INTENSIVAS: no cambian con el
+    # volumen y por eso las curvas de arriba se dejan intactas. La MASA (g o kg)
+    # y el VOLUMEN de alimentacion (mL o L) son variables EXTENSIVAS: escalan
+    # linealmente con el volumen del vaso, asi que se calculan aqui a partir del
+    # slider vessel_volume_L sin tocar nada en src/.
+    # -----------------------------------------------------------------------
+
+    def _format_mass(titer_g_L: float, volume_L: float) -> tuple[str, str]:
+        """Convierte un titulo (g/L) y un volumen (L) en masa total mostrada.
+
+        total_mass_g = titer_g_L * volume_L. Se expresa en kg (valor/1000) cuando
+        el vaso es >= 1000 L (escala industrial), de lo contrario en g.
+        """
+        total_mass_g = titer_g_L * volume_L
+        if volume_L >= 1000.0:
+            return f"{total_mass_g / 1000.0:.3f} kg", f"{total_mass_g:,.0f} g"
+        return f"{total_mass_g:.2f} g", f"{total_mass_g / 1000.0:.4f} kg"
+
+    static_mass_label, static_mass_alt = _format_mass(
+        static_res["final_titer_g_L"], vessel_volume_L
+    )
+    closed_mass_label, closed_mass_alt = _format_mass(
+        closed_res["final_titer_g_L"], vessel_volume_L
+    )
+
+    # Volumen de alimentacion acumulado (variable EXTENSIVA) derivado del
+    # cronograma de alimentacion deterministico de simulate_cho_fed_batch
+    # (dias de feed [2,4,6,8,10,12]) SIN importar ni modificar src/. Se mide el
+    # incremento real de glucosa (g/L) en cada cruce de dia de feed directamente
+    # sobre la serie glucose_g_L que ya devuelve la simulacion: cada salto
+    # positivo entre dos puntos consecutivos es el bolo entregado. Se suma el
+    # total de glucosa anadida (g/L acumulados) por modo.
+    def _cumulative_feed_glucose_g_L(res: dict) -> float:
+        g = res["glucose_g_L"]
+        added = 0.0
+        for a, b in zip(g[:-1], g[1:]):
+            if b > a:  # un salto hacia arriba solo ocurre en un bolo de feed
+                added += (b - a)
+        return added
+
+    # Suposicion de escalado g/L -> volumen de medio de alimentacion:
+    # el medio de feed concentrado se asume a FEED_MEDIA_GLUCOSE_G_PER_L g/L de
+    # glucosa. Para entregar X g/L de glucosa a un vaso de vessel_volume_L se
+    # requiere un volumen de feed = (X g/L * vessel_volume_L) / FEED_MEDIA_GLUCOSE_G_PER_L
+    # (masa de glucosa entregada [g] dividida por la concentracion del medio [g/L]).
+    FEED_MEDIA_GLUCOSE_G_PER_L = 500.0  # medio de alimentacion concentrado tipico CHO
+    closed_feed_glucose_g_L = _cumulative_feed_glucose_g_L(closed_res)
+    closed_feed_volume_L = (
+        closed_feed_glucose_g_L * vessel_volume_L
+    ) / FEED_MEDIA_GLUCOSE_G_PER_L
+    if closed_feed_volume_L < 1.0:
+        closed_feed_label = f"{closed_feed_volume_L * 1000.0:.1f} mL"
+    else:
+        closed_feed_label = f"{closed_feed_volume_L:.3f} L"
+
+    st.markdown("**KPIs extensivos acoplados al volumen del vaso (variables extensivas)**")
+    e1, e2, e3 = st.columns(3)
+    e1.metric(
+        "Masa total de mAb estatica",
+        static_mass_label,
+        help=f"final_titer_g_L * vessel_volume_L = {static_mass_alt}",
+    )
+    e2.metric(
+        "Masa total de mAb lazo cerrado",
+        closed_mass_label,
+        help=f"final_titer_g_L * vessel_volume_L = {closed_mass_alt}",
+    )
+    e3.metric(
+        "Volumen de feed acumulado (lazo cerrado)",
+        closed_feed_label,
+        help=(
+            f"{closed_feed_glucose_g_L:.2f} g/L de glucosa entregada x "
+            f"{vessel_volume_L:.2f} L / {FEED_MEDIA_GLUCOSE_G_PER_L:.0f} g/L de medio de feed"
+        ),
+    )
+
     metrics = [
         ("vcd", "VCD (1e6 cel/mL)"),
         ("viability_pct", "Viabilidad (%)"),
@@ -204,7 +282,47 @@ with tab1:
             height=320,
             margin=dict(l=40, r=20, t=50, b=40),
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
+
+    # -----------------------------------------------------------------------
+    # Grafico SECUNDARIO (variable EXTENSIVA): masa acumulada de mAb en el
+    # tiempo = titulo(t) * vessel_volume_L para ambas corridas. El titulo (g/L)
+    # es intensivo, pero al multiplicarlo por el volumen del vaso obtenemos la
+    # masa total producida (g o kg), que SI escala con vessel_volume_L.
+    # -----------------------------------------------------------------------
+    mass_in_kg = vessel_volume_L >= 1000.0
+    mass_scale = vessel_volume_L / 1000.0 if mass_in_kg else vessel_volume_L
+    mass_unit = "kg" if mass_in_kg else "g"
+    static_mass_curve = [y * mass_scale for y in static_res["titer_g_L"]]
+    closed_mass_curve = [y * mass_scale for y in closed_res["titer_g_L"]]
+
+    fig_mass = go.Figure()
+    fig_mass.add_trace(
+        go.Scatter(
+            x=t_static,
+            y=static_mass_curve,
+            mode="lines",
+            name="Static Recipe",
+            line=dict(color="#d62728", dash="dash"),
+        )
+    )
+    fig_mass.add_trace(
+        go.Scatter(
+            x=t_closed,
+            y=closed_mass_curve,
+            mode="lines",
+            name="Closed-Loop Digital Twin",
+            line=dict(color="#1f77b4"),
+        )
+    )
+    fig_mass.update_layout(
+        title="Masa Acumulada de mAb (g o kg) vs Tiempo",
+        xaxis_title="Tiempo (dias)",
+        yaxis_title=f"Masa acumulada de mAb ({mass_unit})",
+        height=320,
+        margin=dict(l=40, r=20, t=50, b=40),
+    )
+    st.plotly_chart(fig_mass, width="stretch")
 
     st.divider()
     st.subheader("Panel de estado de interlocks de seguridad")
@@ -367,7 +485,7 @@ with tab2:
         yaxis_title="pH",
         height=420,
     )
-    st.plotly_chart(heat, use_container_width=True)
+    st.plotly_chart(heat, width="stretch")
 
     st.divider()
     st.subheader("Calculadora de kLa y OUR (escalamiento)")
@@ -449,7 +567,7 @@ with tab3:
         yaxis_title="Temperatura (C)",
         height=420,
     )
-    st.plotly_chart(fig_t, use_container_width=True)
+    st.plotly_chart(fig_t, width="stretch")
 
     st.subheader("Temperatura Cinetica Media (MKT) por curva")
     mkt_air = calculate_mkt_celsius(air)
@@ -481,7 +599,7 @@ with tab3:
         yaxis_title="Amplitud",
         height=360,
     )
-    st.plotly_chart(fig_f, use_container_width=True)
+    st.plotly_chart(fig_f, width="stretch")
 
     f1, f2, f3 = st.columns(3)
     f1.metric("Limite de Nyquist (cph)", f"{fft_res['nyquist_limit_cph']:.2f}")
@@ -523,7 +641,7 @@ with tab4:
         title="Carta de control: puntos con UCL/LCL (+/- 3 sigma)",
         xaxis_title="Muestra", yaxis_title="Torque (N)", height=380
     )
-    st.plotly_chart(fig_sh, use_container_width=True)
+    st.plotly_chart(fig_sh, width="stretch")
 
     sc = st.columns(5)
     sc[0].metric("Media", f"{cap['mean']:.2f}")
@@ -546,7 +664,7 @@ with tab4:
         title=f"Distribucion de torque | Cp={cap['cp']:.2f}, Cpk={cap['cpk']:.2f}",
         xaxis_title="Torque (N)", yaxis_title="Frecuencia", height=360
     )
-    st.plotly_chart(fig_h, use_container_width=True)
+    st.plotly_chart(fig_h, width="stretch")
 
     st.divider()
     st.subheader("Intervalo de tolerancia ISO 16269-6 (n=10, Tabla 6-1)")
@@ -642,7 +760,7 @@ with tab5:
 
     st.subheader("Audit trail")
     if logger.records:
-        st.dataframe(pd.DataFrame(logger.records), use_container_width=True)
+        st.dataframe(pd.DataFrame(logger.records), width="stretch")
     else:
         st.info("Aun no hay registros en la cadena de auditoria.")
 
