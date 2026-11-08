@@ -239,10 +239,7 @@ with tab1:
     e3.metric(
         "Volumen de feed acumulado (lazo cerrado)",
         closed_feed_label,
-        help=(
-            f"{closed_feed_glucose_g_L:.2f} g/L de glucosa entregada x "
-            f"{vessel_volume_L:.2f} L / {FEED_MEDIA_GLUCOSE_G_PER_L:.0f} g/L de medio de feed"
-        ),
+        help="Estimado con stock de glucosa a 500 g/L + bolos Cell Boost 7a/7b",
     )
 
     metrics = [
