@@ -4,7 +4,7 @@
 
 **🌐 Live Interactive SCADA & GxP Dashboard:** [https://bioprocesos-portafolio.streamlit.app/](https://bioprocesos-portafolio.streamlit.app/)
 
-Portafolio de bioprocesos, control y validacion GxP de **Alejandro Timaran**, estudiante de **Ingenieria Biologica** de la **Universidad Nacional de Colombia (UNAL)**.
+Portafolio de bioprocesos, control y validacion GxP de **Alejandro Timaran**, estudiante de **Ingenieria Biologica** de la **Universidad Nacional de Colombia (UNAL)**, perteneciente a ISPE.
 
 ## Descripcion ejecutiva
 
@@ -105,7 +105,7 @@ Lanzar el tablero interactivo:
 streamlit run app/dashboard.py
 ```
 
-## Nota honesta de calibracion del gemelo digital
+## Nota de calibracion del gemelo digital
 
 Los resultados nominales del gemelo digital (14 d, parametros por defecto) son **valores medidos, no forzados**: son la salida directa de las ecuaciones mecanisticas de `simulate_cho_fed_batch`.
 
