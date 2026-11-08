@@ -12,6 +12,8 @@ Development*, v2.1, CASSS/ISPE, Oct. 2009). Field bounds encode the validated
 operating ranges used throughout the GxP validation package (URS-01, URS-07/08).
 """
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -36,4 +38,4 @@ class ProcessDescription(BaseModel):
     glucose_min_threshold_g_L: float = Field(default=2.0, ge=0.5, le=10.0)
     glucose_refill_target_g_L: float = Field(default=5.0, ge=2.0, le=15.0)
     duration_days: int = Field(default=14, ge=5, le=21)
-    mode: str = Field(default="closed_loop")  # "static" o "closed_loop"
+    mode: Literal["static", "closed_loop"] = Field(default="closed_loop")

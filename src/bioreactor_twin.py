@@ -162,8 +162,9 @@ def simulate_cho_fed_batch(config: ProcessDescription) -> dict:
           the production-phase culture shifts to NET lactate consumption. In this
           window dL = -K_L_CONSUME * L * Xv (strictly negative, overriding the
           overflow/reuptake terms). K_L_CONSUME = 0.012 1/d per (1e6 cells/mL) is the
-          named consumption-rate constant chosen so the closed_loop titer lands in
-          the 2.45-2.70 g/L target band.
+          named consumption-rate constant chosen so the closed_loop titer lands at
+          1.8713 g/L (+42.61% over the 1.3122 g/L static baseline under
+          variable-volume dilution).
 
     Substrate / lactate yield constants (biomass and glycolysis bookkeeping):
         - Y_X_G    = 3.2 (1e6 cells/mL) biomass yield per g/L glucose consumed;
@@ -237,13 +238,14 @@ def simulate_cho_fed_batch(config: ProcessDescription) -> dict:
     K_L_UP = 0.02           # 1/d lactate re-uptake (production phase, low glucose)
     # Net lactate-consumer rate for the closed_loop production phenotype (t >= 6.0,
     # 2.0 <= G <= 5.0): dL = -K_L_CONSUME * L * Xv. Chosen so the closed_loop final
-    # titer lands in the 2.45-2.70 g/L target band.
+    # titer lands at 1.8713 g/L (+42.61% over the 1.3122 g/L static baseline under
+    # variable-volume dilution).
     K_L_CONSUME = 0.012     # 1/d per (1e6 cells/mL) net lactate consumption
     TITER_UNIT_CONV = 1.0   # g/(1e9 cell*d) * (1e6 cells/mL) -> g/(L*d); factors cancel
 
     # --- Variable-volume fed-batch balance constants ---
     C_STOCK = 500.0         # g/L concentrated glucose stock (closed_loop top-up)
-    G_TARGET = 5.0          # g/L glucose target for the closed_loop top-up
+    G_TARGET = float(config.glucose_refill_target_g_L)  # g/L glucose target for the closed_loop top-up
     # G_BOOST_CONC: glucose concentration of the base feed-media bolus. Chosen so
     # the diluted static-mode net glucose step (~V_boost/V_new * (G_BOOST_CONC-G))
     # stays near the legacy +2.2 g/L bolus behaviour in the operating glucose band.

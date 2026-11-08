@@ -19,4 +19,4 @@ References
 - 21 CFR Part 11 / EudraLex Vol. 4 Annex 11 and Draft Annex 22.
 """
 
-__version__ = "0.2.0"
+__version__ = "1.1.2"

@@ -215,7 +215,7 @@ def compute_scale_up_engineering(
         * (superficial_gas_vel_m_s ** 0.481)
         * (power_per_vol_W_m3 ** 0.194)
     )
-    our_max_mmol_L_h = 1.5 * (vcc_1e6_cells_mL / 15.0)
+    our_max_mmol_L_h = vcc_1e6_cells_mL * 1.0e9 * qo2_mmol_cell_h
 
     # OTR = kLa * (C* - C_L); saturation driving force in mmol/L for air-sparged
     # culture at the DO setpoint (A-Mab oxygen-transfer basis).

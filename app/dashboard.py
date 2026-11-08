@@ -525,7 +525,7 @@ with tab1:
                 step=0.01,
                 help="Bounds ph_deadband (0, 1]. Minimo 0.01 para evitar ValidationError.",
             )
-            _leyenda("A la derecha la banda es mas ancha y el controlador actua mas tarde. A la izquierda actua ante un desvio chico.")
+            _leyenda("A la derecha la banda es mas ancha y el controlador actua mas tarde. A la izquierda actua ante un desvio chico. Gobierna el controlador split-range del expansor inferior.")
 
     shared = dict(
         vessel_volume_L=vessel_volume_L,
@@ -1540,7 +1540,7 @@ with tab5:
     with st.container(border=True):
         _band("Que significa ACCEPTABLE")
         st.markdown(
-            "Bajo la guia FDA *Computer Software Assurance* (borrador 2022, final 2025), el log "
+            "Bajo la guia FDA *Computer Software Assurance* (Feb 2026), el log "
             "OQ es la **evidencia objetiva** de que el software hace lo que debe para su uso "
             "segun riesgo. El veredicto **no es un texto fijo**: lo calcula `tests/conftest.py` "
             "al cerrar cada corrida de pytest con los resultados reales de las pruebas. "

@@ -42,11 +42,14 @@ requirement (no **orphan tests**).
 | `test_oq_03_closed_loop_vs_static_titer_gain` | Adaptive glucose feed vs. static feed titer gain. |
 | `test_oq_04_safety_shear_and_cip_sip_interlocks` | Shear P/V, CIP velocity, SIP F0 interlocks. |
 | `test_oq_05_ispe_amab_design_space_center_and_edges` | Design Space center point and edges of failure. |
+| `test_oq_05b_amab_scale_up_kla_pilot_commercial_range` | A-Mab scale-up kLa over the pilot/commercial range. |
 | `test_oq_06_mkt_and_vtb_damping` | MKT computation and VTB thermal damping. |
 | `test_oq_07_fft_nyquist_sampling_validation` | FFT / Nyquist sampling criterion validation. |
 | `test_oq_08_gorsky_spc_tolerance_and_capability` | Gorsky SPC tolerance intervals and capability. |
 | `test_oq_09_part11_audit_trail_and_annex22_guardrail` | Part 11 audit trail and Annex 22 AI guardrail. |
 | `test_exploratory_10_invalid_pydantic_inputs` | Exploratory / error-guessing on invalid inputs. |
+| `test_exploratory_11_audit_trail_requires_reason` | Exploratory / error-guessing: audit-trail entry without a reason. |
+| `test_exploratory_12_welch_ttest_identical_groups_not_significant` | Exploratory / error-guessing: Welch t-test on identical groups. |
 
 ## 4. Master Traceability Matrix
 
@@ -65,8 +68,11 @@ requirement (no **orphan tests**).
 | **URS-11** | CIP velocity interlock ≥ 1.52 m/s (ASME BPE) | `bioreactor_twin.py` | High Process Risk | `test_oq_04_safety_shear_and_cip_sip_interlocks` |
 | **URS-12** | SIP F0 ≥ 15 min at ≥ 121.1 °C | `bioreactor_twin.py` | High Process Risk | `test_oq_04_safety_shear_and_cip_sip_interlocks` |
 | **URS-13** | A-Mab Design Space center/edges | `amab_design_space.py` | High Process Risk | `test_oq_05_ispe_amab_design_space_center_and_edges` |
+| **URS-13** | A-Mab scale-up kLa pilot/commercial range | `amab_design_space.py` | High Process Risk | `test_oq_05b_amab_scale_up_kla_pilot_commercial_range` |
 | **URS-14** | MKT and VTB thermal damping | `thermal_vtb_mkt.py` | High Process Risk | `test_oq_06_mkt_and_vtb_damping` |
 | **URS-15** | Part 11 Audit Trail + SPC capability | `audit_trail_part11.py`, `spc_six_sigma.py` | High Process Risk | `test_oq_09_part11_audit_trail_and_annex22_guardrail`, `test_oq_08_gorsky_spc_tolerance_and_capability` |
+| **URS-15** | Part 11 Audit Trail requires a reason | `audit_trail_part11.py` | Exploratory / Error-Guessing | `test_exploratory_11_audit_trail_requires_reason` |
+| **URS-15** | Welch t-test on identical groups is not significant | `spc_six_sigma.py` | Exploratory / Error-Guessing | `test_exploratory_12_welch_ttest_identical_groups_not_significant` |
 
 ## 5. Reverse Traceability (Test → Requirement)
 
@@ -77,11 +83,14 @@ requirement (no **orphan tests**).
 | `test_oq_03_closed_loop_vs_static_titer_gain` | URS-07, URS-08 | `bioreactor_twin.py` | High |
 | `test_oq_04_safety_shear_and_cip_sip_interlocks` | URS-09, URS-10, URS-11, URS-12 | `bioreactor_twin.py` | High |
 | `test_oq_05_ispe_amab_design_space_center_and_edges` | URS-13 | `amab_design_space.py` | High |
+| `test_oq_05b_amab_scale_up_kla_pilot_commercial_range` | URS-13 | `amab_design_space.py` | High |
 | `test_oq_06_mkt_and_vtb_damping` | URS-14 | `thermal_vtb_mkt.py` | High |
-| `test_oq_07_fft_nyquist_sampling_validation` | NFR-03 (Nyquist sampling) | `bioreactor_twin.py` / signal utils | High |
+| `test_oq_07_fft_nyquist_sampling_validation` | NFR-03 (Nyquist sampling) | `thermal_vtb_mkt.py` | High |
 | `test_oq_08_gorsky_spc_tolerance_and_capability` | URS-15 (SPC/Cpk) | `spc_six_sigma.py` | High |
 | `test_oq_09_part11_audit_trail_and_annex22_guardrail` | URS-15 (Audit Trail) | `audit_trail_part11.py` | High |
 | `test_exploratory_10_invalid_pydantic_inputs` | NFR-02, NFR-04 (validation) | `models.py` | High (guard) / exploratory |
+| `test_exploratory_11_audit_trail_requires_reason` | URS-15 (Audit Trail) | `audit_trail_part11.py` | Exploratory / Error-Guessing |
+| `test_exploratory_12_welch_ttest_identical_groups_not_significant` | URS-15 (SPC) | `spc_six_sigma.py` | Exploratory / Error-Guessing |
 
 ## 6. Coverage Analysis
 

@@ -68,6 +68,10 @@ def test_oq_01_pid_split_range_deadband():
     assert low["base_pump_pct"] > 0.0
     assert low["co2_valve_pct"] == pytest.approx(0.0, abs=1e-9)
 
+    cfg = ProcessDescription()
+    assert cfg.temp_initial_C == pytest.approx(36.5, abs=1e-9)
+    assert cfg.do_setpoint_pct == pytest.approx(30.0, abs=1e-9)
+
 
 def test_oq_02_automated_day7_temperature_shift():
     """Biphasic temperature-shift schedule crosses at shift_day = 7.0."""
@@ -151,6 +155,7 @@ def test_oq_05b_amab_scale_up_kla_pilot_commercial_range():
 def test_oq_06_mkt_and_vtb_damping():
     """MKT of an isothermal trace equals the temperature; bulk VTB damps more."""
     assert calculate_mkt_celsius([5.0] * 288) == pytest.approx(5.0, abs=0.01)
+    assert calculate_mkt_celsius([2.0, 18.0]) > 10.0
 
     # Build a thermal-excursion trace (steady 5 C with a transient spike + noise).
     rng = np.random.default_rng(0)

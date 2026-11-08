@@ -158,6 +158,9 @@ custom-code (GAMP Category 5) core, consistent with the CSA least-burdensome pri
   `tests/test_csa_oq_validation.py`.
 - The Not-High-Risk and the invalid-input exploration map to
   `test_exploratory_10_invalid_pydantic_inputs`.
+- The suite covers 10 scripted tests (`test_oq_01` through `test_oq_09`, including
+  `test_oq_05b_amab_scale_up_kla_pilot_commercial_range`) and 3 exploratory tests
+  (`test_exploratory_10` through `test_exploratory_12`).
 - Full forward/backward traceability is maintained in `03_RTM_Traceability_Matrix.md`.
 
 ## 8. Conclusion
