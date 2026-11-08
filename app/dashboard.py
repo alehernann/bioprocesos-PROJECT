@@ -49,15 +49,198 @@ from src.audit_trail_part11 import AuditTrailLogger
 
 st.set_page_config(
     page_title="Portafolio Bioprocesos GxP | Alejandro Timaran UNAL",
-    page_icon="🧫",
+    page_icon="B",
     layout="wide",
+    initial_sidebar_state="collapsed",
 )
 
-st.title("🧫 Portafolio de Bioprocesos, Control y Validacion GxP")
-st.caption(
-    "Alejandro Timaran | Ingenieria Biologica, Universidad Nacional de Colombia (UNAL). "
-    "Tablero interactivo que consume las funciones reales de src/ (sin duplicar logica)."
+
+# ---------------------------------------------------------------------------
+# Capa visual. No calcula nada: solo tema, tipografia y estilo de figuras.
+# La logica sigue llamando a src/ con los mismos argumentos.
+# ---------------------------------------------------------------------------
+_INK = "#1A2421"
+_PAPER = "#F7F4EE"
+
+st.markdown(
+    """
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap');
+
+    html, body, [class*="css"] {
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+    }
+    .stApp {
+        background:
+            linear-gradient(180deg, rgba(20, 92, 86, 0.05), rgba(20, 92, 86, 0) 220px),
+            #F3EFE7;
+        color: #1A2421;
+    }
+    header[data-testid="stHeader"] { background: transparent; }
+    .block-container {
+        padding-top: 1.4rem;
+        padding-bottom: 3rem;
+        max-width: 1240px;
+    }
+    .bp-mast {
+        border-top: 3px solid #145C56;
+        border-bottom: 1px solid #DDD4C6;
+        padding: 1.15rem 0 1rem;
+        margin: 0 0 1.15rem;
+    }
+    .bp-kicker {
+        margin: 0 0 0.35rem;
+        font-size: 0.74rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #6A6256;
+        font-weight: 500;
+    }
+    .bp-mast h1 {
+        font-family: Newsreader, "Iowan Old Style", Georgia, serif;
+        font-weight: 500;
+        font-size: 2.35rem;
+        line-height: 1.08;
+        letter-spacing: -0.02em;
+        color: #14211E;
+        margin: 0;
+    }
+    .bp-lead {
+        margin: 0.55rem 0 0;
+        max-width: 72ch;
+        color: #3E4744;
+        font-size: 1.02rem;
+        line-height: 1.45;
+    }
+    .bp-lead code {
+        font-family: "IBM Plex Mono", ui-monospace, monospace;
+        font-size: 0.86em;
+        background: #E7E1D6;
+        padding: 0.05rem 0.3rem;
+    }
+    h2, h3 {
+        font-family: Newsreader, Georgia, serif;
+        letter-spacing: -0.015em;
+        color: #14211E;
+    }
+    div[data-testid="stMetric"] {
+        background: #FBF9F4;
+        border: 1px solid #E3DACB;
+        border-top: 3px solid #145C56;
+        padding: 0.72rem 0.9rem 0.55rem;
+    }
+    div[data-testid="stMetricLabel"] {
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        font-size: 0.68rem !important;
+        color: #665F54 !important;
+    }
+    div[data-testid="stMetricValue"] {
+        font-family: "IBM Plex Mono", ui-monospace, monospace;
+        font-weight: 500;
+        color: #14211E;
+    }
+    div[data-testid="stMetricDelta"] {
+        font-family: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 0;
+        border-bottom: 1px solid #DDD4C6;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 2.7rem;
+        padding: 0 1rem;
+        background: transparent;
+        color: #5C564C;
+        font-weight: 500;
+        border-radius: 0;
+    }
+    .stTabs [aria-selected="true"] {
+        color: #145C56 !important;
+        border-bottom: 2px solid #145C56;
+    }
+    div[data-testid="stAlert"] {
+        border-radius: 0;
+        border-width: 1px;
+    }
+    .stButton > button, .stFormSubmitButton > button {
+        border-radius: 0;
+        border: 1px solid #145C56;
+        background: #145C56;
+        color: #F7F4EE;
+        font-weight: 500;
+    }
+    .stButton > button:hover, .stFormSubmitButton > button:hover {
+        background: #0E433E;
+        border-color: #0E433E;
+        color: #F7F4EE;
+    }
+    div[data-testid="stForm"] {
+        border: 1px solid #E3DACB;
+        background: #FBF9F4;
+        padding: 0.4rem 0.9rem 0.8rem;
+    }
+    div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {
+        border: 1px solid #E3DACB;
+    }
+    hr { border-color: #DDD4C6 !important; }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
+
+st.markdown(
+    """
+    <div class="bp-mast">
+      <p class="bp-kicker">Ingenieria Biologica · Universidad Nacional de Colombia</p>
+      <h1>Control y validacion de bioprocesos</h1>
+      <p class="bp-lead">Alejandro Timaran. Tablero de presentacion sobre las funciones reales de <code>src/</code>: gemelo CHO-K1, espacio de diseno A-Mab, cadena de frio, SPC y audit trail. La interfaz no duplica la logica.</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+def _apply_figure(fig):
+    """Unifica fondo, ejes y tipografia de Plotly sin tocar los datos."""
+    height = fig.layout.height
+    fig.update_layout(
+        template="plotly_white",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(251,249,244,0.9)",
+        font=dict(family="IBM Plex Sans, Segoe UI, sans-serif", color=_INK, size=13),
+        title=dict(
+            font=dict(family="Newsreader, Georgia, serif", size=18, color=_INK),
+            x=0,
+            xanchor="left",
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            x=0,
+            bgcolor="rgba(0,0,0,0)",
+            font=dict(size=12),
+        ),
+        margin=dict(l=52, r=20, t=72, b=42),
+        hoverlabel=dict(
+            bgcolor=_INK,
+            font=dict(color=_PAPER, family="IBM Plex Sans, sans-serif"),
+        ),
+    )
+    fig.update_xaxes(
+        showgrid=True, gridcolor="#E7E0D4", zeroline=False,
+        linecolor="#D5CBBA", tickfont=dict(size=11), title_font=dict(size=12),
+    )
+    fig.update_yaxes(
+        showgrid=True, gridcolor="#E7E0D4", zeroline=False,
+        linecolor="#D5CBBA", tickfont=dict(size=11), title_font=dict(size=12),
+    )
+    if height:
+        fig.update_layout(height=height)
+    return fig
+
+
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(
     [
@@ -252,7 +435,41 @@ with tab1:
     t_static = static_res["time_days"]
     t_closed = closed_res["time_days"]
 
-    for key, label in metrics:
+    grid_keys = metrics[:4]
+    hero_keys = metrics[4:]
+    for row_start in range(0, len(grid_keys), 2):
+        left, right = st.columns(2)
+        for slot, item in zip((left, right), grid_keys[row_start:row_start + 2]):
+            key, label = item
+            fig = go.Figure()
+            fig.add_trace(
+                go.Scatter(
+                    x=t_static,
+                    y=static_res[key],
+                    mode="lines",
+                    name="Static Recipe",
+                    line=dict(color="#A33B2B", dash="dash", width=2),
+                )
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=t_closed,
+                    y=closed_res[key],
+                    mode="lines",
+                    name="Closed-Loop Digital Twin",
+                    line=dict(color="#145C56", width=2.2),
+                )
+            )
+            fig.update_layout(
+                title=label,
+                xaxis_title="Tiempo (dias)",
+                yaxis_title=label,
+                height=300,
+            )
+            with slot:
+                st.plotly_chart(_apply_figure(fig), width="stretch")
+
+    for key, label in hero_keys:
         fig = go.Figure()
         fig.add_trace(
             go.Scatter(
@@ -260,7 +477,7 @@ with tab1:
                 y=static_res[key],
                 mode="lines",
                 name="Static Recipe",
-                line=dict(color="#d62728", dash="dash"),
+                line=dict(color="#A33B2B", dash="dash", width=2),
             )
         )
         fig.add_trace(
@@ -269,17 +486,16 @@ with tab1:
                 y=closed_res[key],
                 mode="lines",
                 name="Closed-Loop Digital Twin",
-                line=dict(color="#1f77b4"),
+                line=dict(color="#145C56", width=2.4),
             )
         )
         fig.update_layout(
-            title=f"{label}: Static vs Closed-Loop",
+            title=label,
             xaxis_title="Tiempo (dias)",
             yaxis_title=label,
-            height=320,
-            margin=dict(l=40, r=20, t=50, b=40),
+            height=340,
         )
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(_apply_figure(fig), width="stretch")
 
     # -----------------------------------------------------------------------
     # Grafico SECUNDARIO (variable EXTENSIVA): masa acumulada de mAb en el
@@ -300,7 +516,7 @@ with tab1:
             y=static_mass_curve,
             mode="lines",
             name="Static Recipe",
-            line=dict(color="#d62728", dash="dash"),
+            line=dict(color="#A33B2B", dash="dash", width=2),
         )
     )
     fig_mass.add_trace(
@@ -309,7 +525,7 @@ with tab1:
             y=closed_mass_curve,
             mode="lines",
             name="Closed-Loop Digital Twin",
-            line=dict(color="#1f77b4"),
+            line=dict(color="#145C56", width=2.4),
         )
     )
     fig_mass.update_layout(
@@ -319,7 +535,7 @@ with tab1:
         height=320,
         margin=dict(l=40, r=20, t=50, b=40),
     )
-    st.plotly_chart(fig_mass, width="stretch")
+    st.plotly_chart(_apply_figure(fig_mass), width="stretch")
 
     st.divider()
     st.subheader("Panel de estado de interlocks de seguridad")
@@ -470,7 +686,7 @@ with tab2:
             z=z_grid,
             x=[f"{t:.2f}" for t in temp_axis],
             y=[f"{p:.3f}" for p in ph_axis],
-            colorscale=[[0.0, "#d62728"], [1.0, "#2ca02c"]],
+            colorscale=[[0.0, "#A33B2B"], [1.0, "#2F6B4F"]],
             zmin=0.0,
             zmax=1.0,
             colorbar=dict(title="holds", tickvals=[0, 1], ticktext=["No", "Si"]),
@@ -482,7 +698,7 @@ with tab2:
         yaxis_title="pH",
         height=420,
     )
-    st.plotly_chart(heat, width="stretch")
+    st.plotly_chart(_apply_figure(heat), width="stretch")
 
     st.divider()
     st.subheader("Calculadora de kLa y OUR (escalamiento)")
@@ -548,15 +764,15 @@ with tab3:
     fig_t = go.Figure()
     fig_t.add_trace(
         go.Scatter(x=t_hours, y=air, mode="lines", name="Aire crudo",
-                   line=dict(color="#7f7f7f", width=1))
+                   line=dict(color="#6E675C", width=1))
     )
-    colors = {"1 mL": "#1f77b4", "20 mL (Glycol Ref)": "#2ca02c", "300 mL (Bulk)": "#9467bd"}
+    colors = {"1 mL": "#145C56", "20 mL (Glycol Ref)": "#2F6B4F", "300 mL (Bulk)": "#6B5344"}
     for k in volume_keys:
         fig_t.add_trace(
             go.Scatter(x=t_hours, y=vtb_traces[k], mode="lines", name=f"VTB {k}",
                        line=dict(color=colors[k]))
         )
-    fig_t.add_hrect(y0=2.0, y1=8.0, fillcolor="green", opacity=0.08, line_width=0,
+    fig_t.add_hrect(y0=2.0, y1=8.0, fillcolor="#2F6B4F", opacity=0.08, line_width=0,
                     annotation_text="Rango 2-8 C", annotation_position="top left")
     fig_t.update_layout(
         title="Aire crudo vs trazas VTB por volumen",
@@ -564,7 +780,7 @@ with tab3:
         yaxis_title="Temperatura (C)",
         height=420,
     )
-    st.plotly_chart(fig_t, width="stretch")
+    st.plotly_chart(_apply_figure(fig_t), width="stretch")
 
     st.subheader("Temperatura Cinetica Media (MKT) por curva")
     mkt_air = calculate_mkt_celsius(air)
@@ -583,10 +799,10 @@ with tab3:
     freqs_cph = np.fft.rfftfreq(signal.size, d=sampling_interval_min) * 60.0
 
     fig_f = go.Figure()
-    fig_f.add_trace(go.Scatter(x=freqs_cph, y=spectrum, mode="lines", name="|FFT|"))
+    fig_f.add_trace(go.Scatter(x=freqs_cph, y=spectrum, mode="lines", name="|FFT|", line=dict(color="#145C56", width=1.6)))
     fig_f.add_vline(
         x=fft_res["nyquist_limit_cph"],
-        line=dict(color="red", dash="dash"),
+        line=dict(color="#A33B2B", dash="dash"),
         annotation_text=f"Nyquist {fft_res['nyquist_limit_cph']:.2f} cph",
         annotation_position="top",
     )
@@ -596,7 +812,7 @@ with tab3:
         yaxis_title="Amplitud",
         height=360,
     )
-    st.plotly_chart(fig_f, width="stretch")
+    st.plotly_chart(_apply_figure(fig_f), width="stretch")
 
     f1, f2, f3 = st.columns(3)
     f1.metric("Limite de Nyquist (cph)", f"{fft_res['nyquist_limit_cph']:.2f}")
@@ -626,19 +842,19 @@ with tab4:
     fig_sh = go.Figure()
     fig_sh.add_trace(
         go.Scatter(x=x_idx, y=GORSKY_TABLE_6_2_TORQUE_N30, mode="lines+markers",
-                   name="Torque (N)")
+                   name="Torque (N)", line=dict(color="#145C56"), marker=dict(color="#145C56", size=6))
     )
-    fig_sh.add_hline(y=cap["ucl"], line=dict(color="red", dash="dash"),
+    fig_sh.add_hline(y=cap["ucl"], line=dict(color="#A33B2B", dash="dash"),
                      annotation_text=f"UCL {cap['ucl']:.2f}")
-    fig_sh.add_hline(y=cap["lcl"], line=dict(color="red", dash="dash"),
+    fig_sh.add_hline(y=cap["lcl"], line=dict(color="#A33B2B", dash="dash"),
                      annotation_text=f"LCL {cap['lcl']:.2f}")
-    fig_sh.add_hline(y=cap["mean"], line=dict(color="green"),
+    fig_sh.add_hline(y=cap["mean"], line=dict(color="#2F6B4F"),
                      annotation_text=f"Media {cap['mean']:.2f}")
     fig_sh.update_layout(
         title="Carta de control: puntos con UCL/LCL (+/- 3 sigma)",
         xaxis_title="Muestra", yaxis_title="Torque (N)", height=380
     )
-    st.plotly_chart(fig_sh, width="stretch")
+    st.plotly_chart(_apply_figure(fig_sh), width="stretch")
 
     sc = st.columns(5)
     sc[0].metric("Media", f"{cap['mean']:.2f}")
@@ -654,14 +870,14 @@ with tab4:
 
     st.subheader("Histograma de capacidad vs LSL/USL")
     fig_h = go.Figure()
-    fig_h.add_trace(go.Histogram(x=GORSKY_TABLE_6_2_TORQUE_N30, nbinsx=12, name="Torque"))
-    fig_h.add_vline(x=5.0, line=dict(color="red", dash="dash"), annotation_text="LSL 5.0")
-    fig_h.add_vline(x=12.0, line=dict(color="red", dash="dash"), annotation_text="USL 12.0")
+    fig_h.add_trace(go.Histogram(x=GORSKY_TABLE_6_2_TORQUE_N30, nbinsx=12, name="Torque", marker_color="#145C56"))
+    fig_h.add_vline(x=5.0, line=dict(color="#A33B2B", dash="dash"), annotation_text="LSL 5.0")
+    fig_h.add_vline(x=12.0, line=dict(color="#A33B2B", dash="dash"), annotation_text="USL 12.0")
     fig_h.update_layout(
         title=f"Distribucion de torque | Cp={cap['cp']:.2f}, Cpk={cap['cpk']:.2f}",
         xaxis_title="Torque (N)", yaxis_title="Frecuencia", height=360
     )
-    st.plotly_chart(fig_h, width="stretch")
+    st.plotly_chart(_apply_figure(fig_h), width="stretch")
 
     st.divider()
     st.subheader("Intervalo de tolerancia ISO 16269-6 (n=10, Tabla 6-1)")
