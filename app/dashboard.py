@@ -150,7 +150,7 @@ def _css(c: dict) -> str:
         font-size: 0.72rem;
         letter-spacing: 0.14em;
         text-transform: uppercase;
-        color: {c["muted"]};
+        color: inherit !important;
         font-weight: 500;
     }}
     .bp-band {{
@@ -164,19 +164,19 @@ def _css(c: dict) -> str:
         font-size: 2.2rem;
         line-height: 1.08;
         letter-spacing: -0.02em;
-        color: {c["ink"]};
+        color: inherit !important;
         margin: 0;
     }}
     .bp-lead {{
         margin: 0.45rem 0 0;
         max-width: 68ch;
-        color: {c["muted"]};
+        color: inherit !important;
         font-size: 1rem;
         line-height: 1.45;
     }}
     .bp-note {{
         margin: 0.05rem 0 0.55rem;
-        color: {c["muted"]};
+        color: inherit !important;
         font-size: 0.86rem;
         line-height: 1.35;
     }}
