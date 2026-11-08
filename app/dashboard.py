@@ -1,14 +1,16 @@
 """Tablero Streamlit del portafolio de bioprocesos GxP (FASE 4 de 4).
 
 Dashboard interactivo con 5 pestanas que consume EXCLUSIVAMENTE las funciones
-reales de src/. Se lanza con:
+reales de src/: ningun KPI se estima ni se fija en el tablero. Se lanza con:
 
     streamlit run app/dashboard.py
 
 Autor del portafolio: Alejandro Timaran, Ingenieria Biologica, UNAL.
 """
 
+import copy
 import os
+import re
 import sys
 
 # Inserta la raiz del repositorio en sys.path para que 'from src...' resuelva
@@ -346,13 +348,72 @@ def _apply_figure(fig):
     return fig
 
 
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OQ_LOG_PATH = os.path.join(ROOT_DIR, "docs", "04_Automated_OQ_Execution_Log.md")
+
+
+# ---------------------------------------------------------------------------
+# Formato y graficos compartidos. Solo dan formato a valores que ya vienen de src/.
+# ---------------------------------------------------------------------------
+def _fmt_mass(mass_g: float, in_kg: bool, signed: bool = False) -> str:
+    """Masa en g o kg segun la escala. No calcula nada nuevo."""
+    sign = "+" if signed else ""
+    if in_kg:
+        return f"{mass_g / 1000.0:{sign},.3f} kg"
+    return f"{mass_g:{sign},.3f} g"
+
+
+def _fmt_volume(volume_L: float, signed: bool = False) -> str:
+    """Volumen en mL por debajo de 1 L, en L por encima."""
+    sign = "+" if signed else ""
+    if abs(volume_L) < 1.0:
+        return f"{volume_L * 1000.0:{sign},.1f} mL"
+    return f"{volume_L:{sign},.3f} L"
+
+
+def _pct_gain(new: float, ref: float) -> float:
+    return (new - ref) / ref * 100.0 if ref > 0 else float("nan")
+
+
+def _bolus_days(res: dict) -> list[float]:
+    """Dias en que V(t) del modelo sube: los bolos de feed que aplico simulate_cho_fed_batch."""
+    vol = res["volume_L"]
+    t = res["time_days"]
+    return [t[i] for i in range(1, len(vol)) if vol[i] > vol[i - 1]]
+
+
+def _compare_fig(t_s, y_s, t_c, y_c, title, ytitle, height=300, bolus_days=(), line_shape="linear"):
+    """Figura estatico (rojo, discontinuo) vs lazo cerrado (azul) con bolos opcionales."""
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=t_s, y=y_s, mode="lines", name="Static Recipe", line_shape=line_shape,
+            line=dict(color=P["static"], dash="dash", width=2.6),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=t_c, y=y_c, mode="lines", name="Closed-Loop Digital Twin", line_shape=line_shape,
+            line=dict(color=P["closed"], width=2.6),
+        )
+    )
+    for d in bolus_days:
+        fig.add_vline(
+            x=d, line=dict(color=P["axis"], dash="dot", width=1.4),
+            annotation_text=f"d{d:g}", annotation_position="top",
+            annotation_font_size=10,
+        )
+    fig.update_layout(title=title, xaxis_title="Tiempo (d)", yaxis_title=ytitle, height=height)
+    return _apply_figure(fig)
+
+
 tab1, tab2, tab3, tab4, tab5 = st.tabs(
     [
         "1. Gemelo Digital CHO-K1",
         "2. Espacio de Diseno A-Mab y Escalamiento",
-        "3. Termico, MKT y Filtro VTB",
+        "3. Cadena de Frio: MKT, VTB y FFT",
         "4. SPC Six Sigma",
-        "5. Gobernanza GxP",
+        "5. Gobernanza GxP y OQ",
     ]
 )
 
@@ -364,65 +425,67 @@ with tab1:
     st.header("Gemelo Digital CHO-K1 Fed-Batch y Lazo Cerrado (Bionova / Ark)")
     st.markdown(
         "Comparacion en vivo entre la receta **estatica** (Static Recipe) y el "
-        "**gemelo digital de lazo cerrado** (Closed-Loop Digital Twin), con la "
-        "ganancia de titulo calculada en vivo a partir de `simulate_cho_fed_batch`."
+        "**gemelo digital de lazo cerrado** (Closed-Loop Digital Twin). Todos los "
+        "indicadores salen de `simulate_cho_fed_batch`, incluido el balance de "
+        "volumen variable V(t)."
     )
 
-    _band("Parametros del cultivo")
-    g1, g2, g3 = st.columns(3)
-    with g1:
-        power_density_W_m3 = st.slider(
-            "Densidad de potencia P/V (W/m3)",
-            min_value=2.0,
-            max_value=100.0,
-            value=30.0,
-            step=0.5,
-            help="Ventana operativa recomendada 19-30 W/m3. Bounds [2, 100].",
-        )
-        _leyenda("A la derecha, hasta 30 W/m3, el titulo sube un poco. Si pasas 47.6 y el sparge esta por encima de 0.15, hay cizalla: caen viabilidad y titulo.")
-    with g2:
-        temp_shift_day = st.slider(
-            "Dia del cambio termico",
-            min_value=1.0,
-            max_value=14.0,
-            value=7.0,
-            step=0.5,
-            help="Bounds temp_shift_day [1, 14] d.",
-        )
-        _leyenda("A la izquierda el cultivo baja antes a 34 C y crece mas lento. A la derecha sigue mas tiempo a 36.5 C, creciendo mas rapido.")
-    with g3:
-        sparge_vvm = st.slider(
-            "Flujo de burbujeo sparge (vvm)",
-            min_value=0.0,
-            max_value=1.0,
-            value=0.10,
-            step=0.01,
-            help="Bounds sparge_vvm [0, 1].",
-        )
-        _leyenda("Hasta 0.15 las curvas no se mueven. Por encima de 0.15, si P/V ya paso 47.6, la cizalla baja viabilidad y titulo.")
+    with st.container(border=True):
+        _band("Parametros del cultivo")
+        g1, g2, g3 = st.columns(3)
+        with g1:
+            power_density_W_m3 = st.slider(
+                "Densidad de potencia P/V (W/m3)",
+                min_value=2.0,
+                max_value=100.0,
+                value=30.0,
+                step=0.5,
+                help="Ventana operativa recomendada 19-30 W/m3. Bounds [2, 100].",
+            )
+            _leyenda("A la derecha, hasta 30 W/m3, el titulo sube un poco. Si pasas 47.6 y el sparge esta por encima de 0.15, hay cizalla: caen viabilidad y titulo.")
+        with g2:
+            temp_shift_day = st.slider(
+                "Dia del cambio termico (d)",
+                min_value=1.0,
+                max_value=14.0,
+                value=7.0,
+                step=0.5,
+                help="Bounds temp_shift_day [1, 14] d.",
+            )
+            _leyenda("A la izquierda el cultivo pasa antes a la temperatura de produccion y crece mas lento. A la derecha crece mas tiempo a la temperatura inicial.")
+        with g3:
+            sparge_vvm = st.slider(
+                "Flujo de burbujeo sparge (vvm)",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.10,
+                step=0.01,
+                help="Bounds sparge_vvm [0, 1].",
+            )
+            _leyenda("Hasta 0.15 las curvas no se mueven. Por encima de 0.15, si P/V ya paso 47.6, la cizalla baja viabilidad y titulo.")
 
-    _band("Volumen y controlador de pH")
-    g4, g5 = st.columns(2)
-    with g4:
-        vessel_volume_L = st.slider(
-            "Volumen del biorreactor (L)",
-            min_value=0.25,
-            max_value=35000.0,
-            value=2.0,
-            step=0.25,
-            help="Bounds ProcessDescription: (0, 35000] L.",
-        )
-        _leyenda("A la derecha hay mas litros: suben la masa de anticuerpo y el feed. Los g/L de las curvas siguen igual.")
-    with g5:
-        ph_deadband = st.slider(
-            "Banda muerta de pH",
-            min_value=0.01,
-            max_value=1.0,
-            value=0.20,
-            step=0.01,
-            help="Bounds ph_deadband (0, 1]. Minimo 0.01 para evitar ValidationError.",
-        )
-        _leyenda("A la derecha la banda es mas ancha y el controlador actua mas tarde. A la izquierda actua ante un desvio chico: pH alto abre CO2, pH bajo prende la base.")
+        _band("Volumen y controlador de pH")
+        g4, g5 = st.columns(2)
+        with g4:
+            vessel_volume_L = st.slider(
+                "Volumen nominal del biorreactor (L)",
+                min_value=0.25,
+                max_value=35000.0,
+                value=2.0,
+                step=0.25,
+                help="Bounds ProcessDescription: (0, 35000] L. El modelo arranca con V_0 = 76 % del nominal.",
+            )
+            _leyenda("A la derecha hay mas litros: suben la masa de anticuerpo, el feed y V(t). Los g/L de las curvas no cambian.")
+        with g5:
+            ph_deadband = st.slider(
+                "Banda muerta de pH",
+                min_value=0.01,
+                max_value=1.0,
+                value=0.20,
+                step=0.01,
+                help="Bounds ph_deadband (0, 1]. Minimo 0.01 para evitar ValidationError.",
+            )
+            _leyenda("A la derecha la banda es mas ancha y el controlador actua mas tarde. A la izquierda actua ante un desvio chico.")
 
     shared = dict(
         vessel_volume_L=vessel_volume_L,
@@ -431,276 +494,191 @@ with tab1:
         ph_deadband=ph_deadband,
         sparge_vvm=sparge_vvm,
     )
-    static_cfg = ProcessDescription(mode="static", **shared)
-    closed_cfg = ProcessDescription(mode="closed_loop", **shared)
+    static_res = simulate_cho_fed_batch(ProcessDescription(mode="static", **shared))
+    closed_res = simulate_cho_fed_batch(ProcessDescription(mode="closed_loop", **shared))
 
-    static_res = simulate_cho_fed_batch(static_cfg)
-    closed_res = simulate_cho_fed_batch(closed_cfg)
-
-    # Ganancia de titulo calculada EN VIVO (nunca un numero fijo).
-    static_titer = static_res["final_titer_g_L"]
-    closed_titer = closed_res["final_titer_g_L"]
-    if static_titer > 0:
-        titer_gain_pct = (closed_titer - static_titer) / static_titer * 100.0
-    else:
-        titer_gain_pct = float("nan")
-
-    _band("Concentraciones al cierre")
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Titulo final estatico (g/L)", f"{static_titer:.3f}")
-    m2.metric(
-        "Titulo final lazo cerrado (g/L)",
-        f"{closed_titer:.3f}",
-        delta=f"{closed_titer - static_titer:+.3f} g/L",
-    )
-    m3.metric(
-        "Ganancia de titulo EN VIVO",
-        f"{titer_gain_pct:+.2f} %",
-        help="(closed.final_titer - static.final_titer) / static.final_titer * 100",
-    )
-
-    v1, v2, v3 = st.columns(3)
-    v1.metric("Viabilidad final estatica (%)", f"{static_res['final_viability_pct']:.2f}")
-    v2.metric("Viabilidad final lazo cerrado (%)", f"{closed_res['final_viability_pct']:.2f}")
-    v3.metric("VCD pico lazo cerrado (1e6 cel/mL)", f"{closed_res['peak_vcd']:.2f}")
-
-    # -----------------------------------------------------------------------
-    # KPIs EXTENSIVOS tomados DIRECTAMENTE del modelo. El balance de volumen
-    # variable fed-batch de simulate_cho_fed_batch ahora devuelve volume_L (serie
-    # de tiempo), harvested_mass_g = final_titer_g_L * final_volume_L y
-    # total_feed_volume_L = final_volume_L - V_0. Ya no se estiman en el tablero:
-    # se leen de los dicts del modelo (static_res / closed_res).
-    # -----------------------------------------------------------------------
-
-    def _mass_label(mass_g: float) -> tuple[str, str]:
-        """Formatea una masa (g) mostrando kg a escala industrial (>= 1000 g)."""
-        if mass_g >= 1000.0:
-            return f"{mass_g / 1000.0:.3f} kg", f"{mass_g:,.0f} g"
-        return f"{mass_g:.2f} g", f"{mass_g / 1000.0:.4f} kg"
-
-    static_mass_label, static_mass_alt = _mass_label(static_res["harvested_mass_g"])
-    closed_mass_label, closed_mass_alt = _mass_label(closed_res["harvested_mass_g"])
-
-    closed_feed_volume_L = closed_res["total_feed_volume_L"]
-    if closed_feed_volume_L < 1.0:
-        closed_feed_label = f"{closed_feed_volume_L * 1000.0:.1f} mL"
-    else:
-        closed_feed_label = f"{closed_feed_volume_L:.3f} L"
-
-    _band("Masa cosechada y alimentacion (balance de volumen del modelo)")
-    e1, e2, e3 = st.columns(3)
-    e1.metric(
-        "Masa cosechada de mAb estatica",
-        static_mass_label,
-        help=f"harvested_mass_g = final_titer_g_L * final_volume_L = {static_mass_alt}",
-    )
-    e2.metric(
-        "Masa cosechada de mAb lazo cerrado",
-        closed_mass_label,
-        help=f"harvested_mass_g = final_titer_g_L * final_volume_L = {closed_mass_alt}",
-    )
-    e3.metric(
-        "Volumen de feed total (lazo cerrado)",
-        closed_feed_label,
-        help="total_feed_volume_L = final_volume_L - V_0 (balance fed-batch del modelo)",
-    )
-
-    _band("Trayectorias")
-    metrics = [
-        ("vcd", "VCD (1e6 cel/mL)"),
-        ("viability_pct", "Viabilidad (%)"),
-        ("glucose_g_L", "Glucosa (g/L)"),
-        ("lactate_g_L", "Lactato (g/L)"),
-        ("titer_g_L", "Titulo (g/L)"),
-    ]
-    t_static = static_res["time_days"]
-    t_closed = closed_res["time_days"]
-
-    grid_keys = metrics[:4]
-    hero_keys = metrics[4:]
-    for row_start in range(0, len(grid_keys), 2):
-        left, right = st.columns(2)
-        for slot, item in zip((left, right), grid_keys[row_start:row_start + 2]):
-            key, label = item
-            fig = go.Figure()
-            fig.add_trace(
-                go.Scatter(
-                    x=t_static,
-                    y=static_res[key],
-                    mode="lines",
-                    name="Static Recipe",
-                    line=dict(color=P["static"], dash="dash", width=2.6),
-                )
-            )
-            fig.add_trace(
-                go.Scatter(
-                    x=t_closed,
-                    y=closed_res[key],
-                    mode="lines",
-                    name="Closed-Loop Digital Twin",
-                    line=dict(color=P["closed"], width=2.6),
-                )
-            )
-            fig.update_layout(
-                title=label,
-                xaxis_title="Tiempo (dias)",
-                yaxis_title=label,
-                height=300,
-            )
-            with slot:
-                st.plotly_chart(_apply_figure(fig), width="stretch")
-
-    for key, label in hero_keys:
-        fig = go.Figure()
-        fig.add_trace(
-            go.Scatter(
-                x=t_static,
-                y=static_res[key],
-                mode="lines",
-                name="Static Recipe",
-                line=dict(color=P["static"], dash="dash", width=2.6),
-            )
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=t_closed,
-                y=closed_res[key],
-                mode="lines",
-                name="Closed-Loop Digital Twin",
-                line=dict(color=P["closed"], width=2.6),
-            )
-        )
-        fig.update_layout(
-            title=label,
-            xaxis_title="Tiempo (dias)",
-            yaxis_title=label,
-            height=340,
-        )
-        st.plotly_chart(_apply_figure(fig), width="stretch")
-
-    # -----------------------------------------------------------------------
-    # Grafico SECUNDARIO (variable EXTENSIVA): masa acumulada de mAb en el
-    # tiempo = titulo(t) * volumen(t), usando la serie volume_L del balance de
-    # volumen variable del modelo (ya no se asume vessel_volume_L constante).
-    # -----------------------------------------------------------------------
-    # Trayectoria de volumen liquido V(t) del balance fed-batch del modelo.
-    fig_vol = go.Figure()
-    fig_vol.add_trace(
-        go.Scatter(
-            x=t_static,
-            y=static_res["volume_L"],
-            mode="lines",
-            name="Static Recipe",
-            line=dict(color=P["static"], dash="dash", width=2.6),
-        )
-    )
-    fig_vol.add_trace(
-        go.Scatter(
-            x=t_closed,
-            y=closed_res["volume_L"],
-            mode="lines",
-            name="Closed-Loop Digital Twin",
-            line=dict(color=P["closed"], width=2.6),
-        )
-    )
-    fig_vol.update_layout(
-        title="Volumen liquido V(t) del balance fed-batch (L)",
-        xaxis_title="Tiempo (dias)",
-        yaxis_title="Volumen (L)",
-        height=320,
-        margin=dict(l=40, r=20, t=50, b=40),
-    )
-    st.plotly_chart(_apply_figure(fig_vol), width="stretch")
-
-    mass_in_kg = vessel_volume_L >= 1000.0
-    mass_div = 1000.0 if mass_in_kg else 1.0
+    # Todos los KPI se leen de los dicts del modelo. Nada se estima en el tablero.
+    s_titer = static_res["final_titer_g_L"]
+    c_titer = closed_res["final_titer_g_L"]
+    s_via = static_res["final_viability_pct"]
+    c_via = closed_res["final_viability_pct"]
+    s_mass = static_res["harvested_mass_g"]
+    c_mass = closed_res["harvested_mass_g"]
+    s_feed = static_res["total_feed_volume_L"]
+    c_feed = closed_res["total_feed_volume_L"]
+    titer_gain_pct = _pct_gain(c_titer, s_titer)
+    mass_gain_pct = _pct_gain(c_mass, s_mass)
+    mass_in_kg = max(s_mass, c_mass) >= 1000.0
     mass_unit = "kg" if mass_in_kg else "g"
-    static_mass_curve = [
-        tt * vv / mass_div for tt, vv in zip(static_res["titer_g_L"], static_res["volume_L"])
+
+    _band("Cosecha al dia final: receta estatica vs lazo cerrado")
+    col_s, col_c = st.columns(2)
+    with col_s:
+        with st.container(border=True):
+            st.markdown("**Static Recipe**")
+            r1 = st.columns(2)
+            r1[0].metric("Titulo final (g/L)", f"{s_titer:.4f}")
+            r1[1].metric("Viabilidad final (%)", f"{s_via:.2f}")
+            r2 = st.columns(2)
+            r2[0].metric(
+                f"Masa cosechada de mAb ({mass_unit})",
+                _fmt_mass(s_mass, mass_in_kg),
+                help="harvested_mass_g = final_titer_g_L * final_volume_L (modelo).",
+            )
+            r2[1].metric(
+                "Volumen de feed acumulado",
+                _fmt_volume(s_feed),
+                help="total_feed_volume_L = final_volume_L - V_0 (modelo).",
+            )
+    with col_c:
+        with st.container(border=True):
+            st.markdown("**Closed-Loop Digital Twin**")
+            r1 = st.columns(2)
+            r1[0].metric(
+                "Titulo final (g/L)", f"{c_titer:.4f}", delta=f"{c_titer - s_titer:+.4f} g/L"
+            )
+            r1[1].metric(
+                "Viabilidad final (%)", f"{c_via:.2f}", delta=f"{c_via - s_via:+.2f} pp"
+            )
+            r2 = st.columns(2)
+            r2[0].metric(
+                f"Masa cosechada de mAb ({mass_unit})",
+                _fmt_mass(c_mass, mass_in_kg),
+                delta=_fmt_mass(c_mass - s_mass, mass_in_kg, signed=True),
+                help="harvested_mass_g = final_titer_g_L * final_volume_L (modelo).",
+            )
+            r2[1].metric(
+                "Volumen de feed acumulado",
+                _fmt_volume(c_feed),
+                delta=_fmt_volume(c_feed - s_feed, signed=True),
+                delta_color="off",
+                help="total_feed_volume_L = final_volume_L - V_0 (modelo).",
+            )
+
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric(
+        "Ganancia real de titulo (%)",
+        f"{titer_gain_pct:+.2f}",
+        help="(closed.final_titer_g_L - static.final_titer_g_L) / static.final_titer_g_L * 100",
+    )
+    k2.metric(
+        "Ganancia de masa cosechada (%)",
+        f"{mass_gain_pct:+.2f}",
+        help="(closed.harvested_mass_g - static.harvested_mass_g) / static.harvested_mass_g * 100",
+    )
+    k3.metric("Volumen final lazo cerrado", _fmt_volume(closed_res["volume_L"][-1]))
+    k4.metric("VCD pico lazo cerrado (1e6 cel/mL)", f"{closed_res['peak_vcd']:.2f}")
+
+    _band("Balance de volumen fed-batch y masa acumulada")
+    bolus = _bolus_days(closed_res)
+    vc1, vc2 = st.columns(2)
+    with vc1:
+        st.plotly_chart(
+            _compare_fig(
+                static_res["time_days"], static_res["volume_L"],
+                closed_res["time_days"], closed_res["volume_L"],
+                "Volumen liquido V(t)", "Volumen (L)", height=340,
+                bolus_days=bolus, line_shape="hv",
+            ),
+            width="stretch",
+        )
+    with vc2:
+        div = 1000.0 if mass_in_kg else 1.0
+        s_mass_curve = [tt * vv / div for tt, vv in zip(static_res["titer_g_L"], static_res["volume_L"])]
+        c_mass_curve = [tt * vv / div for tt, vv in zip(closed_res["titer_g_L"], closed_res["volume_L"])]
+        st.plotly_chart(
+            _compare_fig(
+                static_res["time_days"], s_mass_curve,
+                closed_res["time_days"], c_mass_curve,
+                "Masa acumulada de IgG = titulo(t) x V(t)", f"Masa de IgG ({mass_unit})",
+                height=340, bolus_days=bolus,
+            ),
+            width="stretch",
+        )
+    _leyenda(
+        "Lineas punteadas: dias en que V(t) del modelo sube por un bolo de feed "
+        f"({', '.join(f'd{d:g}' for d in bolus)}). El escalon de volumen diluye el titulo, "
+        "pero la masa de IgG sigue creciendo. El slider de volumen escala V(t) y la masa; "
+        "los g/L no cambian."
+    )
+
+    _band("Trayectorias de concentracion")
+    traj = [
+        ("vcd", "VCD", "VCD (1e6 cel/mL)"),
+        ("viability_pct", "Viabilidad", "Viabilidad (%)"),
+        ("glucose_g_L", "Glucosa", "Glucosa (g/L)"),
+        ("lactate_g_L", "Lactato", "Lactato (g/L)"),
+        ("titer_g_L", "Titulo de mAb", "Titulo (g/L)"),
+        ("temp_C", "Setpoint de temperatura", "Temperatura (C)"),
     ]
-    closed_mass_curve = [
-        tt * vv / mass_div for tt, vv in zip(closed_res["titer_g_L"], closed_res["volume_L"])
-    ]
+    for row_start in range(0, len(traj), 2):
+        cols = st.columns(2)
+        for slot, (key, title, ytitle) in zip(cols, traj[row_start:row_start + 2]):
+            with slot:
+                st.plotly_chart(
+                    _compare_fig(
+                        static_res["time_days"], static_res[key],
+                        closed_res["time_days"], closed_res[key],
+                        title, ytitle, height=300,
+                        line_shape="hv" if key == "temp_C" else "linear",
+                    ),
+                    width="stretch",
+                )
 
-    fig_mass = go.Figure()
-    fig_mass.add_trace(
-        go.Scatter(
-            x=t_static,
-            y=static_mass_curve,
-            mode="lines",
-            name="Static Recipe",
-            line=dict(color=P["static"], dash="dash", width=2.6),
+    with st.container(border=True):
+        _band("Limpieza y esterilizacion")
+        st.subheader("Panel de estado de interlocks de seguridad")
+        ic1, ic2, ic3, ic4 = st.columns(4)
+        with ic1:
+            cip_valve_requested = st.toggle("CIP solicitado (valvula)", value=False)
+            _leyenda("Encendido con lote activo: la valvula de limpieza queda bloqueada.")
+        with ic2:
+            cip_pipe_velocity_m_s = st.slider(
+                "Velocidad de tuberia CIP (m/s)",
+                min_value=0.5,
+                max_value=3.0,
+                value=1.52,
+                step=0.01,
+                help="ASME BPE-2014: cumple si >= 1.52 m/s (5 ft/s).",
+            )
+            _leyenda("A la izquierda de 1.52 m/s la limpieza no cumple.")
+        with ic3:
+            sip_temp_C = st.slider(
+                "Temperatura SIP (C)",
+                min_value=100.0,
+                max_value=135.0,
+                value=123.0,
+                step=0.1,
+            )
+            _leyenda("Desde 121.1 C el F0 puede alcanzar los 15 min de esterilidad.")
+        with ic4:
+            n_sip = st.slider(
+                "Lecturas SIP (1 min c/u)", min_value=1, max_value=10, value=5,
+                help="Cada lectura aporta dt_min = 1 min a la integral de F0.",
+            )
+            _leyenda("Mas lecturas suman mas F0. Bajo 121.1 C el lote no queda esteril.")
+
+        interlocks = check_safety_interlocks(
+            power_density_W_m3=power_density_W_m3,
+            sparge_vvm=sparge_vvm,
+            batch_active=True,
+            cip_valve_requested=cip_valve_requested,
+            cip_pipe_velocity_m_s=cip_pipe_velocity_m_s,
+            sip_temps_C=[sip_temp_C] * int(n_sip),
+            dt_min=1.0,
         )
-    )
-    fig_mass.add_trace(
-        go.Scatter(
-            x=t_closed,
-            y=closed_mass_curve,
-            mode="lines",
-            name="Closed-Loop Digital Twin",
-            line=dict(color=P["closed"], width=2.6),
-        )
-    )
-    fig_mass.update_layout(
-        title="Masa Acumulada de mAb (g o kg) vs Tiempo",
-        xaxis_title="Tiempo (dias)",
-        yaxis_title=f"Masa acumulada de mAb ({mass_unit})",
-        height=320,
-        margin=dict(l=40, r=20, t=50, b=40),
-    )
-    st.plotly_chart(_apply_figure(fig_mass), width="stretch")
 
-    _band("Limpieza y esterilizacion")
-    st.subheader("Panel de estado de interlocks de seguridad")
-    ic1, ic2, ic3 = st.columns(3)
-    with ic1:
-        cip_valve_requested = st.toggle("CIP solicitado (valvula)", value=False)
-        _leyenda("Encendido: la valvula de limpieza queda bloqueada.")
-    with ic2:
-        cip_pipe_velocity_m_s = st.slider(
-            "Velocidad de tuberia CIP (m/s)",
-            min_value=0.5,
-            max_value=3.0,
-            value=1.52,
-            step=0.01,
-            help="ASME BPE-2014: cumple si >= 1.52 m/s (5 ft/s).",
-        )
-        _leyenda("A la izquierda de 1.52 m/s la limpieza no cumple. De ahi a la derecha, si.")
-    with ic3:
-        sip_temp_C = st.slider(
-            "Temperatura SIP (C)",
-            min_value=100.0,
-            max_value=135.0,
-            value=123.0,
-            step=0.1,
-        )
-        _leyenda("A la derecha el F0 sube muy rapido. Desde 121.1 C puede alcanzar los 15 min de esterilidad.")
-    n_sip = st.slider("Numero de sensores SIP", min_value=1, max_value=10, value=20 // 4)
-    _leyenda("A la derecha se suman mas sensores y el F0 crece. Bajo 121.1 C el lote no queda esteril.")
+        k1, k2, k3, k4, k5 = st.columns(5)
 
-    interlocks = check_safety_interlocks(
-        power_density_W_m3=power_density_W_m3,
-        sparge_vvm=sparge_vvm,
-        batch_active=True,
-        cip_valve_requested=cip_valve_requested,
-        cip_pipe_velocity_m_s=cip_pipe_velocity_m_s,
-        sip_temps_C=[sip_temp_C] * int(n_sip),
-        dt_min=1.0,
-    )
+        def _flag(col, label, ok_true_is_good, value, yes_word, no_word):
+            good = bool(value) if ok_true_is_good else (not bool(value))
+            _chip(col, label, good, yes_word if value else no_word, "True" if value else "False")
 
-    k1, k2, k3, k4, k5 = st.columns(5)
-
-    def _flag(col, label, ok_true_is_good, value, yes_word, no_word):
-        good = bool(value) if ok_true_is_good else (not bool(value))
-        _chip(col, label, good, yes_word if value else no_word, "True" if value else "False")
-
-    _flag(k1, "Alarma de cizalla", False, interlocks["high_shear_alarm"], "Alarma", "Normal")
-    _flag(k2, "CIP bloqueado", False, interlocks["cip_interlock_blocked"], "Bloqueado", "Libre")
-    _flag(k3, "Velocidad CIP", True, interlocks["cip_velocity_compliant"], "Cumple", "No cumple")
-    with k4:
-        st.caption("F0 acumulado (min)")
-        st.metric("F0", f"{interlocks['f0_minutes']:.2f}")
-    _flag(k5, "SIP", True, interlocks["sip_sterile_compliant"], "Esteril", "No esteril")
+        _flag(k1, "Alarma de cizalla", False, interlocks["high_shear_alarm"], "Alarma", "Normal")
+        _flag(k2, "CIP bloqueado", False, interlocks["cip_interlock_blocked"], "Bloqueado", "Libre")
+        _flag(k3, "Velocidad CIP", True, interlocks["cip_velocity_compliant"], "Cumple", "No cumple")
+        k4.metric("F0 acumulado (min)", f"{interlocks['f0_minutes']:.2f}")
+        _flag(k5, "SIP", True, interlocks["sip_sterile_compliant"], "Esteril", "No esteril")
 
     with st.expander("Controlador split-range de pH (CO2 vs bomba de base)"):
         current_ph = st.slider(
@@ -710,54 +688,104 @@ with tab1:
             value=7.0,
             step=0.01,
         )
-        _leyenda("A la derecha, mas basico, abre CO2. A la izquierda, mas acido, prende la base. En el medio los dos quedan quietos.")
+        _leyenda("A la derecha, mas basico, abre CO2. A la izquierda, mas acido, prende la base. Dentro de la banda muerta los dos quedan quietos.")
         act = compute_split_range_ph_actuators(
             current_ph, setpoint=7.0, deadband=ph_deadband, kp=150.0
         )
-        a1, a2 = st.columns(2)
+        a1, a2, a3 = st.columns(3)
         a1.metric("Valvula CO2 (%)", f"{act['co2_valve_pct']:.2f}")
         a2.metric("Bomba de base (%)", f"{act['base_pump_pct']:.2f}")
-        st.caption(
-            f"Setpoint termico dia {temp_shift_day:.1f}: "
-            f"{get_temperature_setpoint(temp_shift_day, shift_day=temp_shift_day):.2f} C "
-            "(fase de produccion)."
+        a3.metric(
+            "Setpoint termico (C)",
+            f"{get_temperature_setpoint(0.0, shift_day=temp_shift_day):.1f} -> "
+            f"{get_temperature_setpoint(temp_shift_day, shift_day=temp_shift_day):.1f}",
+            help=f"get_temperature_setpoint antes y desde el dia {temp_shift_day:.1f}.",
         )
+
+    st.caption(
+        "Fuentes: Quint et al., Ark Biotech & Culture Biosciences 2026 (lazo cerrado); "
+        "Kulkarni et al., Culture Biosciences & Bionova Scientific 2026 (base 0.25 L Stratyx); "
+        "ASME BPE-2014 (CIP). Valores calculados en vivo por src/bioreactor_twin.py."
+    )
 
 
 # ---------------------------------------------------------------------------
 # TAB 2 - Espacio de Diseno Multivariado ISPE A-Mab y Escalamiento
 # ---------------------------------------------------------------------------
+# Constantes de referencia de entrada (no son KPI): punto de referencia A-Mab a
+# 15,000 L (Fig. 3.11 / Table 3.22) y rango validado de Vs (Table 3.22, p.105).
+AMAB_REF_VS_M_S = 0.015
+AMAB_REF_PV_W_M3 = 26.0
+VS_VALID_MIN, VS_VALID_MAX = 0.005, 0.017
+SCALE_VALID_MIN_L, SCALE_VALID_MAX_L = 500.0, 25000.0
+PV_WINDOW_W_M3 = (19.0, 30.0)
+SCALE_PRESETS = {
+    "Personalizado": None,
+    "0.25 L Stratyx (micro-escala)": 0.25,
+    "500 L piloto": 500.0,
+    "2,000 L clinico": 2000.0,
+    "15,000 L comercial (referencia A-Mab)": 15000.0,
+}
+
+st.session_state.setdefault("scale_preset", "15,000 L comercial (referencia A-Mab)")
+st.session_state.setdefault("scale_vs", AMAB_REF_VS_M_S)
+st.session_state.setdefault("scale_pv", AMAB_REF_PV_W_M3)
+
+
+def _apply_scale_preset() -> None:
+    """Presets: escalamiento a P/V y Vs constantes desde la referencia A-Mab 15,000 L."""
+    if SCALE_PRESETS[st.session_state.scale_preset] is not None:
+        st.session_state.scale_vs = AMAB_REF_VS_M_S
+        st.session_state.scale_pv = AMAB_REF_PV_W_M3
+
+
 with tab2:
-    st.header("Espacio de Diseno Multivariado ISPE A-Mab y Escalamiento (2 L a 15,000 L)")
+    st.header("Espacio de Diseno Multivariado ISPE A-Mab y Escalamiento (0.25 L a 15,000 L)")
     st.markdown(
         "Evaluador en tiempo real de las 4 inecuaciones de respuesta N-glicano "
         "(z1..z4). El espacio de diseno se sostiene (`design_space_holds`) cuando "
         "los parametros estan en limites **y** z1..z4 >= 4.60."
     )
 
-    _band("Factores del espacio de diseno")
-    _leyenda("Centro: 17 dias, 100 mmHg, 400 mOsm, pH 6.85 y 35 C. Si una z baja de 4.60, el espacio se cae.")
-    s1, s2, s3 = st.columns(3)
-    with s1:
-        cd_days = st.slider("Duracion de cultivo (dias)", 15.0, 19.0, 17.0, 0.1)
-        _leyenda("Hacia 17 dias esta el centro. Hacia 15 o hacia 19, alguna z puede bajar de 4.60.")
-        co2_mmHg = st.slider("pCO2 (mmHg)", 40.0, 160.0, 100.0, 1.0)
-        _leyenda("Hacia 100 mmHg esta el centro. Hacia 40 o hacia 160 cambia la glicosilacion.")
-    with s2:
-        osm_mOsm = st.slider("Osmolalidad (mOsm)", 360.0, 440.0, 400.0, 1.0)
-        _leyenda("Hacia 400 mOsm esta el centro. Si sube o baja, se mueven z1 a z4.")
-        ph_val = st.slider("pH", 6.6, 7.1, 6.85, 0.01)
-        _leyenda("A la izquierda el cultivo queda mas acido; a la derecha, mas basico. El mapa dice donde las cuatro z siguen arriba de 4.60.")
-    with s3:
-        temp_C = st.slider("Temperatura (C)", 34.0, 36.0, 35.0, 0.05)
-        _leyenda("Hacia 35 C esta el centro. Hacia 34 o 36, con el pH, el mapa pasa a rojo si el espacio se cae.")
+    with st.container(border=True):
+        _band("Fuente del coeficiente de osmolalidad en z1")
+        mode_label = st.radio(
+            "table_3_8_mode",
+            [
+                "Tabla Fig. 3.8 (p.92): Osm +1.54, aFuc < 11 %",
+                "Texto p.90: Osm +0.51, aFuc < 13 %",
+            ],
+            horizontal=True,
+            key="amab_mode",
+            help="evaluate_amab_design_space(table_3_8_mode=True/False). True es el valor validado por defecto.",
+        )
+        table_3_8_mode = mode_label.startswith("Tabla")
+        _leyenda(
+            "El caso A-Mab trae dos valores para el efecto principal de Osm en la inecuacion 1: "
+            "la tabla de la Fig. 3.8 (p.92, aFuc < 11 %) usa +1.54 y el texto de la p.90 "
+            "(aFuc < 13 %) usa +0.51. Solo cambia z1; en el centro (400 mOsm) da lo mismo."
+        )
+
+        _band("Factores del espacio de diseno")
+        _leyenda("Centro: 17 dias, 100 mmHg, 400 mOsm, pH 6.85 y 35 C. Si una z baja de 4.60, el espacio se cae.")
+        s1, s2, s3 = st.columns(3)
+        with s1:
+            cd_days = st.slider("Duracion de cultivo (d)", 15.0, 19.0, 17.0, 0.1)
+            co2_mmHg = st.slider("pCO2 (mmHg)", 40.0, 160.0, 100.0, 1.0)
+        with s2:
+            osm_mOsm = st.slider("Osmolalidad (mOsm/kg)", 360.0, 440.0, 400.0, 1.0)
+            ph_val = st.slider("pH", 6.6, 7.1, 6.85, 0.01)
+        with s3:
+            temp_C = st.slider("Temperatura (C)", 34.0, 36.0, 35.0, 0.05)
+            _leyenda("Mueve osmolalidad lejos de 400 para ver la diferencia entre las dos fuentes de z1.")
 
     ds = evaluate_amab_design_space(
-        cd_days=cd_days, co2_mmHg=co2_mmHg, osm_mOsm=osm_mOsm, ph_val=ph_val, temp_C=temp_C
+        cd_days=cd_days, co2_mmHg=co2_mmHg, osm_mOsm=osm_mOsm, ph_val=ph_val,
+        temp_C=temp_C, table_3_8_mode=table_3_8_mode,
     )
 
     _band("Respuestas de N-glicano")
-    z1, z2, z3, z4 = st.columns(4)
+    z1, z2, z3, z4, z5 = st.columns(5)
     LIMIT = 4.60
 
     def _z(col, label, value):
@@ -769,11 +797,9 @@ with tab2:
     _z(z2, "z2 afuc min", ds["z2_afuc_min"])
     _z(z3, "z3 gal max", ds["z3_gal_max"])
     _z(z4, "z4 gal min", ds["z4_gal_min"])
-
-    b1, b2 = st.columns(2)
-    _chip(b1, "in_bounds", ds["in_bounds"], "Dentro" if ds["in_bounds"] else "Fuera", str(ds["in_bounds"]))
+    _chip(z5, "in_bounds", ds["in_bounds"], "Dentro" if ds["in_bounds"] else "Fuera", str(ds["in_bounds"]))
     _chip(
-        b2,
+        z5,
         "design_space_holds",
         ds["design_space_holds"],
         "Se sostiene" if ds["design_space_holds"] else "No se sostiene",
@@ -781,8 +807,7 @@ with tab2:
     )
 
     _band("Mapa de cumplimiento")
-    st.subheader("Mapa de calor de cumplimiento: Temperatura vs pH")
-    _leyenda("El mapa solo mueve temperatura y pH. Lo demas se queda como lo dejaste arriba.")
+    _leyenda("El mapa solo mueve temperatura y pH, con la fuente de z1 elegida arriba. Lo demas queda como lo dejaste.")
     n_grid = 25
     temp_axis = np.linspace(34.0, 36.0, n_grid)
     ph_axis = np.linspace(6.6, 7.1, n_grid)
@@ -795,17 +820,19 @@ with tab2:
                 osm_mOsm=osm_mOsm,
                 ph_val=float(ph_i),
                 temp_C=float(t_j),
+                table_3_8_mode=table_3_8_mode,
             )
             z_grid[i, j] = 1.0 if cell["design_space_holds"] else 0.0
 
     heat = go.Figure(
         data=go.Heatmap(
             z=z_grid,
-            x=[f"{t:.2f}" for t in temp_axis],
-            y=[f"{p:.3f}" for p in ph_axis],
+            x=temp_axis,
+            y=ph_axis,
             colorscale=[[0.0, P["heat_no"]], [1.0, P["heat_yes"]]],
             zmin=0.0,
             zmax=1.0,
+            hovertemplate="T %{x:.2f} C<br>pH %{y:.3f}<extra></extra>",
             colorbar=dict(
                 title="espacio",
                 tickvals=[0, 1],
@@ -814,8 +841,14 @@ with tab2:
             ),
         )
     )
+    heat.add_trace(
+        go.Scatter(
+            x=[temp_C], y=[ph_val], mode="markers", name="Punto actual",
+            marker=dict(symbol="x", size=13, color=P["ink"], line=dict(width=2)),
+        )
+    )
     heat.update_layout(
-        title="Rojo: no se sostiene. Verde: se sostiene.",
+        title="Temperatura vs pH: rojo no se sostiene, verde se sostiene",
         xaxis_title="Temperatura (C)",
         yaxis_title="pH",
         height=420,
@@ -824,97 +857,169 @@ with tab2:
         f'<p class="bp-note"><span class="bp-swatch" style="background:{P["heat_no"]}"></span>'
         "Rojo: design_space_holds es falso. "
         f'<span class="bp-swatch" style="background:{P["heat_yes"]}"></span>'
-        "Verde: es verdadero. El rojo no pasa a ser el verde en modo noche.</p>",
+        "Verde: es verdadero. La X marca el punto de los sliders.</p>",
         unsafe_allow_html=True,
     )
     st.plotly_chart(_apply_figure(heat), width="stretch")
 
-    _band("Transferencia de oxigeno")
-    st.subheader("Calculadora de kLa y OUR (escalamiento)")
-    e1, e2, e3 = st.columns(3)
-    with e1:
-        superficial_gas_vel_m_s = st.slider(
-            "Velocidad superficial de gas (m/s)", 0.001, 0.05, 0.01, 0.001
+    with st.container(border=True):
+        _band("Transferencia de oxigeno")
+        st.subheader("Calculadora de kLa, OTR y OUR (escalamiento)")
+        st.selectbox(
+            "Preset de escala",
+            list(SCALE_PRESETS.keys()),
+            key="scale_preset",
+            on_change=_apply_scale_preset,
+            help="Los presets fijan Vs = 0.015 m/s y P/V = 26.0 W/m3 (referencia A-Mab 15,000 L) "
+                 "bajo un criterio de escalamiento a P/V y Vs constantes.",
         )
-        _leyenda("A la derecha entra mas gas y sube el kLa.")
-    with e2:
-        power_per_vol_W_m3 = st.slider(
-            "Potencia por volumen (W/m3)", 2.0, 250.0, 50.0, 1.0
-        )
-        _leyenda("A la derecha tambien sube el kLa, menos que con el gas.")
-    with e3:
-        vcc = st.slider("VCC (1e6 cel/mL)", 1.0, 60.0, 15.0, 0.5)
-        _leyenda("A la derecha hay mas celulas y el OUR sube. En 15 queda en 1.5 mmol/L/h.")
+        preset_volume_L = SCALE_PRESETS[st.session_state.scale_preset]
+        e1, e2, e3 = st.columns(3)
+        with e1:
+            superficial_gas_vel_m_s = st.slider(
+                "Velocidad superficial de gas Vs (m/s)",
+                VS_VALID_MIN, VS_VALID_MAX, step=0.0005, format="%.4f", key="scale_vs",
+                help="Rango validado A-Mab Table 3.22 (p.105): 0.005-0.017 m/s.",
+            )
+        with e2:
+            power_per_vol_W_m3 = st.slider(
+                "Potencia por volumen P/V (W/m3)", 2.0, 100.0, step=0.5, key="scale_pv",
+                help="Ventana operativa A-Mab 19-30 W/m3.",
+            )
+        with e3:
+            vcc = st.slider("VCC (1e6 cel/mL)", 1.0, 60.0, 15.0, 0.5)
 
-    scale = compute_scale_up_engineering(
-        superficial_gas_vel_m_s=superficial_gas_vel_m_s,
-        power_per_vol_W_m3=power_per_vol_W_m3,
-        vcc_1e6_cells_mL=vcc,
-    )
-    sc1, sc2, sc3, sc4 = st.columns(4)
-    sc1.metric("kLa (1/h)", f"{scale['kla_h_inv']:.2f}")
-    sc2.metric("OUR max (mmol/L/h)", f"{scale['our_max_mmol_L_h']:.2f}")
-    sc3.metric(
-        "OTR (mmol/L/h)",
-        f"{scale['otr_mmol_L_h']:.2f}",
-        help="OTR = kLa * (0.21 - 0.063) mmol/L (fuerza impulsora de saturacion A-Mab).",
-    )
-    with sc4:
-        st.caption("Oxigeno suficiente (OTR >= OUR)")
+        scale = compute_scale_up_engineering(
+            superficial_gas_vel_m_s=superficial_gas_vel_m_s,
+            power_per_vol_W_m3=power_per_vol_W_m3,
+            vcc_1e6_cells_mL=vcc,
+        )
+        sc1, sc2, sc3, sc4 = st.columns(4)
+        sc1.metric("kLa (1/h)", f"{scale['kla_h_inv']:.2f}")
+        sc2.metric(
+            "OTR (mmol/L/h)",
+            f"{scale['otr_mmol_L_h']:.2f}",
+            help="OTR = kLa * (0.21 - 0.063) mmol/L (fuerza impulsora A-Mab).",
+        )
+        sc3.metric("OUR max (mmol/L/h)", f"{scale['our_max_mmol_L_h']:.2f}")
         _chip(
             sc4,
-            "OTR >= OUR",
+            "oxygen_sufficient (OTR >= OUR)",
             scale["oxygen_sufficient"],
             "Suficiente" if scale["oxygen_sufficient"] else "Insuficiente",
             str(scale["oxygen_sufficient"]),
         )
 
+        v1, v2, v3 = st.columns(3)
+        if preset_volume_L is None:
+            _chip(v1, "Escala de la correlacion", True, "Sin escala", "preset personalizado")
+        else:
+            scale_ok = SCALE_VALID_MIN_L <= preset_volume_L <= SCALE_VALID_MAX_L
+            _chip(
+                v1, "Escala de la correlacion", scale_ok,
+                "Validada" if scale_ok else "Fuera de rango",
+                f"{preset_volume_L:,.2f} L vs 500-25,000 L",
+            )
+        vs_ok = VS_VALID_MIN <= superficial_gas_vel_m_s <= VS_VALID_MAX
+        _chip(v2, "Vs validado", vs_ok, "Dentro" if vs_ok else "Fuera", f"{superficial_gas_vel_m_s:.4f} m/s")
+        pv_ok = PV_WINDOW_W_M3[0] <= power_per_vol_W_m3 <= PV_WINDOW_W_M3[1]
+        _chip(v3, "P/V ventana 19-30", pv_ok, "Dentro" if pv_ok else "Fuera", f"{power_per_vol_W_m3:.1f} W/m3")
+        if preset_volume_L is not None and preset_volume_L < SCALE_VALID_MIN_L:
+            _banner(
+                "warn",
+                "0.25 L Stratyx esta fuera del rango de escala validado de la correlacion "
+                "(A-Mab Table 3.22: 500-25,000 L, Vs 0.005-0.017 m/s). El resultado es una "
+                "extrapolacion no validada; los sliders no se fuerzan.",
+            )
 
-# ---------------------------------------------------------------------------
-# TAB 3 - Monitoreo Termico, MKT y Filtro VTB (USP <1079.2>)
-# ---------------------------------------------------------------------------
-with tab3:
-    st.header("Monitoreo Termico, MKT y Filtro VTB (USP <1079.2>)")
-    st.markdown(
-        "Simulador de excursion de un refrigerador farmaceutico 2-8 C, comparando "
-        "el **aire crudo** contra viales filtrados por el buffer termico virtual "
-        "(VTB) de 1 mL, 20 mL y 300 mL (Rusnack, Pharm. Eng. 2026)."
+        vs_axis = np.linspace(VS_VALID_MIN, VS_VALID_MAX, 25)
+        otr_axis = [
+            compute_scale_up_engineering(float(v), power_per_vol_W_m3, vcc)["otr_mmol_L_h"]
+            for v in vs_axis
+        ]
+        fig_o = go.Figure()
+        fig_o.add_trace(
+            go.Scatter(x=vs_axis, y=otr_axis, mode="lines", name="OTR a P/V actual",
+                       line=dict(color=P["closed"], width=2.6))
+        )
+        fig_o.add_hline(
+            y=scale["our_max_mmol_L_h"], line=dict(color=P["limit"], dash="dash", width=2.6),
+            annotation_text=f"OUR max {scale['our_max_mmol_L_h']:.2f}", annotation_position="top left",
+        )
+        fig_o.add_trace(
+            go.Scatter(x=[superficial_gas_vel_m_s], y=[scale["otr_mmol_L_h"]], mode="markers",
+                       name="Punto actual", marker=dict(color=P["ink"], size=11, symbol="x"))
+        )
+        fig_o.update_layout(
+            title="OTR vs Vs en el rango validado",
+            xaxis_title="Velocidad superficial Vs (m/s)",
+            yaxis_title="OTR / OUR (mmol/L/h)",
+            height=320,
+        )
+        st.plotly_chart(_apply_figure(fig_o), width="stretch")
+
+    st.caption(
+        "Fuente: CMC Biotech Working Group, A-Mab Case Study v2.1, CASSS/ISPE 2009 "
+        "(pp. 90-92 y 100-106; Fig. 3.11 y Table 3.22). Los presets aplican P/V y Vs "
+        "constantes desde el punto de referencia de 15,000 L. Valores en vivo de "
+        "src/amab_design_space.py."
     )
 
-    _band("Registro termico")
-    e1, e2, e3 = st.columns(3)
-    with e1:
-        duration_h = st.slider("Duracion del registro (horas)", 6, 72, 24, 1)
-        _leyenda("A la derecha el registro dura mas y el pico de calor se ensancha.")
-    with e2:
-        sampling_interval_min = st.selectbox(
-            "Intervalo de muestreo (min)", [1.0, 2.0, 5.0, 10.0, 15.0], index=2
-        )
-        _leyenda("Hacia intervalos mas largos se ve menos detalle y puede aparecer aliasing.")
-    with e3:
-        excursion_peak_C = st.slider("Pico de excursion (C)", 8.0, 25.0, 15.0, 0.5)
-        _leyenda("A la derecha el pico esta mas caliente y la MKT sube. El vial de 1 mL lo sigue; el de 300 mL casi no.")
 
-    n_samples = int((duration_h * 60.0) / sampling_interval_min) + 1
-    t_min = np.arange(n_samples) * sampling_interval_min
+# ---------------------------------------------------------------------------
+# TAB 3 - Cadena de frio: MKT, filtro VTB y FFT/Nyquist (Rusnack 2026)
+# ---------------------------------------------------------------------------
+BASE_DT_MIN = 5.0  # analyze_fft_nyquist siempre recibe una senal de 5 min
+
+with tab3:
+    st.header("Cadena de Frio: MKT, Filtro VTB y FFT/Nyquist (USP <1079.2>)")
+    st.markdown(
+        "Registro sintetico de aire de un refrigerador farmaceutico 2-8 C a 5 min, con "
+        "ciclado de compresor y una excursion. Se compara el **aire crudo** contra viales "
+        "filtrados por el buffer termico virtual (VTB) de 1 mL, 20 mL y 300 mL "
+        "(Rusnack, Pharm. Eng. 2026)."
+    )
+
+    with st.container(border=True):
+        _band("Senal base de aire (5 min)")
+        e1, e2, e3, e4 = st.columns(4)
+        with e1:
+            duration_h = st.slider("Duracion del registro (h)", 6, 72, 24, 1)
+        with e2:
+            excursion_peak_C = st.slider("Pico de excursion (C)", 8.0, 25.0, 15.0, 0.5)
+        with e3:
+            compressor_cph = st.slider(
+                "Ciclado del compresor (cph)", 2.8, 3.0, 2.9, 0.05,
+                help="Rusnack (Pharm. Eng. 2026): compresor de ~2.8-3.0 ciclos/hora.",
+            )
+        with e4:
+            compressor_amp_C = st.slider("Amplitud del compresor (C)", 0.2, 2.0, 1.0, 0.1)
+        _leyenda(
+            "La excursion sube la MKT; el vial de 1 mL la sigue y el de 300 mL casi no. "
+            "El compresor es la oscilacion rapida que debe resolver el monitor."
+        )
+
+    n_samples = int((duration_h * 60.0) / BASE_DT_MIN) + 1
+    t_min = np.arange(n_samples) * BASE_DT_MIN
     t_hours = t_min / 60.0
 
     rng = np.random.default_rng(42)
     baseline = 5.0 + 0.4 * np.sin(2.0 * np.pi * t_hours / 6.0)
-    # Excursion transitoria centrada hacia la mitad del registro.
+    compressor = compressor_amp_C * np.sin(2.0 * np.pi * compressor_cph * t_hours)
     center = duration_h * 0.45
     width = max(1.0, duration_h * 0.08)
     excursion = (excursion_peak_C - 5.0) * np.exp(-0.5 * ((t_hours - center) / width) ** 2)
     noise = rng.normal(0.0, 0.15, size=n_samples)
-    air = (baseline + excursion + noise).tolist()
+    air_steady = baseline + compressor + noise
+    air = (air_steady + excursion).tolist()
 
     volume_keys = ["1 mL", "20 mL (Glycol Ref)", "300 mL (Bulk)"]
     vtb_traces = {k: apply_vtb_filter(air, volume_key=k) for k in volume_keys}
 
     fig_t = go.Figure()
     fig_t.add_trace(
-        go.Scatter(x=t_hours, y=air, mode="lines", name="Aire crudo",
-                   line=dict(color=P["air"], width=2.6))
+        go.Scatter(x=t_hours, y=air, mode="lines", name="Aire crudo (5 min)",
+                   line=dict(color=P["air"], width=1.4))
     )
     colors = {"1 mL": P["v1"], "20 mL (Glycol Ref)": P["v20"], "300 mL (Bulk)": P["v300"]}
     for k in volume_keys:
@@ -926,76 +1031,133 @@ with tab3:
                     annotation_text="Rango 2-8 C", annotation_position="top left")
     fig_t.update_layout(
         title="Aire crudo vs trazas VTB por volumen",
-        xaxis_title="Tiempo (horas)",
+        xaxis_title="Tiempo (h)",
         yaxis_title="Temperatura (C)",
         height=420,
     )
     st.plotly_chart(_apply_figure(fig_t), width="stretch")
 
-    st.subheader("Temperatura Cinetica Media (MKT) por curva")
-    mkt_air = calculate_mkt_celsius(air)
+    _band("Temperatura cinetica media (MKT)")
     mk_cols = st.columns(4)
-    mk_cols[0].metric("MKT aire crudo (C)", f"{mkt_air:.3f}")
+    mk_cols[0].metric("MKT aire crudo (C)", f"{calculate_mkt_celsius(air):.3f}")
     for idx, k in enumerate(volume_keys):
         mk_cols[idx + 1].metric(f"MKT VTB {k} (C)", f"{calculate_mkt_celsius(vtb_traces[k]):.3f}")
 
-    st.divider()
-    st.subheader("Espectro FFT y limite de Nyquist")
-    # El analisis FFT siempre corre sobre la senal base de 5 min para hallar la
-    # frecuencia dominante real; el intervalo de muestreo elegido arriba se pasa
-    # como el candidato a cualificar (target_sampling_interval_min).
-    fft_res = analyze_fft_nyquist(
-        air, target_sampling_interval_min=sampling_interval_min
-    )
-
-    # El espectro que se grafica se calcula sobre la base de 5 min (dt_base = 5)
-    # para ser coherente con el contrato de analyze_fft_nyquist. La linea de
-    # Nyquist se alinea al target_nyquist_cph del intervalo bajo cualificacion.
-    dt_base_min = 5.0
-    signal = np.asarray(air, dtype=float)
-    signal = signal - signal.mean()
-    spectrum = np.abs(np.fft.rfft(signal))
-    freqs_cph = np.fft.rfftfreq(signal.size, d=dt_base_min) * 60.0
-
-    fig_f = go.Figure()
-    fig_f.add_trace(go.Scatter(x=freqs_cph, y=spectrum, mode="lines", name="|FFT|", line=dict(color=P["closed"], width=2.6)))
-    fig_f.add_vline(
-        x=fft_res["target_nyquist_cph"],
-        line=dict(color=P["limit"], dash="dash", width=2.6),
-        annotation_text=f"Nyquist objetivo {fft_res['target_nyquist_cph']:.2f} cph",
-        annotation_position="top",
-    )
-    fig_f.add_vline(
-        x=fft_res["true_dominant_freq_cph"],
-        line=dict(color=P["mean"], width=2.6),
-        annotation_text=f"Dominante {fft_res['true_dominant_freq_cph']:.2f} cph",
-        annotation_position="bottom",
-    )
-    fig_f.update_layout(
-        title="Espectro de amplitud (cph, base 5 min) con Nyquist objetivo",
-        xaxis_title="Frecuencia (cph)",
-        yaxis_title="Amplitud",
-        height=360,
-    )
-    st.plotly_chart(_apply_figure(fig_f), width="stretch")
+    with st.container(border=True):
+        _band("Cualificacion del intervalo de muestreo (FFT / Nyquist)")
+        q1, q2 = st.columns(2)
+        with q1:
+            target_dt = st.selectbox(
+                "target_sampling_interval_min (min)", [5.0, 15.0, 30.0, 60.0], index=0,
+                format_func=lambda v: f"{v:g} min",
+                help="Intervalo del monitor candidato que se cualifica contra la senal base de 5 min.",
+            )
+        with q2:
+            fft_source = st.radio(
+                "Senal analizada",
+                ["Linea base estable (sin excursion)", "Registro completo (con excursion)"],
+                horizontal=True,
+                help="Una excursion lenta concentra energia cerca de 0 cph y puede tapar el compresor como pico dominante.",
+            )
+        fft_signal = air_steady.tolist() if fft_source.startswith("Linea") else air
+        fft_res = analyze_fft_nyquist(fft_signal, target_sampling_interval_min=target_dt)
 
     f1, f2, f3, f4 = st.columns(4)
-    f1.metric("Nyquist objetivo (cph)", f"{fft_res['target_nyquist_cph']:.2f}")
-    f2.metric("Frecuencia dominante real (cph)", f"{fft_res['true_dominant_freq_cph']:.2f}")
+    f1.metric("Frecuencia dominante real (cph)", f"{fft_res['true_dominant_freq_cph']:.2f}")
+    f2.metric("Nyquist objetivo (cph)", f"{fft_res['target_nyquist_cph']:.2f}",
+              help="target_nyquist_cph = 60 / (2 * dt)")
     f3.metric(
         "Alias plegado (cph)",
         f"{fft_res['folded_alias_freq_cph']:.2f}",
-        help="abs(dominante real - 60/dt) cuando hay aliasing; 0 si no lo hay.",
+        help="|f_real - fs * round(f_real / fs)| con fs = 60/dt cuando hay aliasing; 0 si no.",
     )
-    with f4:
-        st.caption("Riesgo de aliasing")
-        _chip(
-            f4,
-            "Aliasing",
-            not fft_res["aliasing_risk"],
-            "Con aliasing" if fft_res["aliasing_risk"] else "Sin aliasing",
-            str(fft_res["aliasing_risk"]),
+    _chip(
+        f4,
+        "aliasing_risk",
+        not fft_res["aliasing_risk"],
+        "Con aliasing" if fft_res["aliasing_risk"] else "Sin aliasing",
+        str(fft_res["aliasing_risk"]),
+    )
+    if fft_res["aliasing_risk"]:
+        _banner(
+            "bad",
+            f"Riesgo de aliasing: un monitor a {target_dt:g} min (Nyquist "
+            f"{fft_res['target_nyquist_cph']:.2f} cph) no resuelve la senal de "
+            f"{fft_res['true_dominant_freq_cph']:.2f} cph y la veria como "
+            f"{fft_res['folded_alias_freq_cph']:.2f} cph.",
         )
+    else:
+        _banner(
+            "ok",
+            f"Sin aliasing: a {target_dt:g} min el Nyquist ({fft_res['target_nyquist_cph']:.2f} cph) "
+            f"supera la frecuencia dominante ({fft_res['true_dominant_freq_cph']:.2f} cph).",
+        )
+
+    # Espectro para visualizar: mismo calculo que analyze_fft_nyquist (rfft de la
+    # senal de 5 min sin media). Los KPI de arriba salen de src; esto solo dibuja.
+    sig = np.asarray(fft_signal, dtype=float)
+    sig = sig - sig.mean()
+    spectrum = np.abs(np.fft.rfft(sig))
+    freqs_cph = np.fft.rfftfreq(sig.size, d=BASE_DT_MIN) * 60.0
+    plot_dom = float(freqs_cph[int(np.argmax(spectrum[1:]) + 1)]) if spectrum.size > 1 else 0.0
+    if round(plot_dom, 2) != fft_res["true_dominant_freq_cph"]:
+        _banner("warn", "El espectro dibujado no coincide con analyze_fft_nyquist; revisar.")
+
+    sp1, sp2 = st.columns(2)
+    with sp1:
+        fig_f = go.Figure()
+        fig_f.add_trace(go.Scatter(x=freqs_cph, y=spectrum, mode="lines", name="|FFT|",
+                                   line=dict(color=P["closed"], width=2.2)))
+        fig_f.add_vline(
+            x=fft_res["target_nyquist_cph"],
+            line=dict(color=P["limit"], dash="dash", width=2.4),
+            annotation_text=f"Nyquist {fft_res['target_nyquist_cph']:.2f}",
+            annotation_position="top",
+        )
+        fig_f.add_vline(
+            x=fft_res["true_dominant_freq_cph"],
+            line=dict(color=P["mean"], width=2.4),
+            annotation_text=f"Dominante {fft_res['true_dominant_freq_cph']:.2f}",
+            annotation_position="bottom right",
+        )
+        if fft_res["aliasing_risk"]:
+            fig_f.add_vline(
+                x=fft_res["folded_alias_freq_cph"],
+                line=dict(color=P["v20"], dash="dot", width=2.4),
+                annotation_text=f"Alias {fft_res['folded_alias_freq_cph']:.2f}",
+                annotation_position="bottom left",
+            )
+        fig_f.update_layout(
+            title="Espectro de amplitud (base 5 min)",
+            xaxis_title="Frecuencia (cph)",
+            yaxis_title="Amplitud |FFT| (C)",
+            height=360,
+        )
+        st.plotly_chart(_apply_figure(fig_f), width="stretch")
+    with sp2:
+        step = int(round(target_dt / BASE_DT_MIN))
+        win = t_hours <= min(6.0, float(duration_h))
+        sig_arr = np.asarray(fft_signal, dtype=float)
+        fig_a = go.Figure()
+        fig_a.add_trace(go.Scatter(x=t_hours[win], y=sig_arr[win], mode="lines",
+                                   name="Senal base 5 min", line=dict(color=P["air"], width=1.4)))
+        fig_a.add_trace(go.Scatter(x=t_hours[::step][win[::step]], y=sig_arr[::step][win[::step]],
+                                   mode="lines+markers", name=f"Monitor cada {target_dt:g} min",
+                                   line=dict(color=P["v20"], width=2.4), marker=dict(size=7)))
+        fig_a.update_layout(
+            title="Lo que ve el monitor (primeras 6 h)",
+            xaxis_title="Tiempo (h)",
+            yaxis_title="Temperatura (C)",
+            height=360,
+        )
+        st.plotly_chart(_apply_figure(fig_a), width="stretch")
+
+    st.caption(
+        "Fuente: Rusnack, Quantifying the Limitations of Fixed Physical Temperature Buffers, "
+        "Pharm. Eng. 46(5), 2026. La FFT corre siempre sobre la senal base de 5 min "
+        "(Nyquist base 6.0 cph); la resolucion espectral es 1/duracion. Valores en vivo de "
+        "src/thermal_vtb_mkt.py."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1005,99 +1167,79 @@ with tab4:
     st.header("SPC Six Sigma (Gorsky 2020 / ISO 16269 / ASTM E2281)")
     st.markdown(
         "Control estadistico de procesos usando los datasets de torque de Gorsky "
-        "(Tablas 6-1 n=10 y 6-2 n=30)."
+        "(Tablas 6-1 n=10 y 6-2 n=30), con LSL 5.0 N y USL 12.0 N."
     )
 
     cap = compute_process_capability(GORSKY_TABLE_6_2_TORQUE_N30, lsl=5.0, usl=12.0)
+    ti = compute_iso16269_tolerance_interval(GORSKY_TABLE_6_1_TORQUE_N10)
 
-    _band("Carta fija de Gorsky")
-    st.subheader("Grafica de control de Shewhart (n=30, Tabla 6-2)")
-    _leyenda("Esta carta esta fija. Los numeros de abajo no la mueven.")
-    x_idx = list(range(1, len(GORSKY_TABLE_6_2_TORQUE_N30) + 1))
-    fig_sh = go.Figure()
-    fig_sh.add_trace(
-        go.Scatter(x=x_idx, y=GORSKY_TABLE_6_2_TORQUE_N30, mode="lines+markers",
-                   name="Torque (N)", line=dict(color=P["closed"]), marker=dict(color=P["closed"], size=6))
-    )
-    fig_sh.add_hline(y=cap["ucl"], line=dict(color=P["limit"], dash="dash", width=2.6),
-                     annotation_text=f"UCL {cap['ucl']:.2f}")
-    fig_sh.add_hline(y=cap["lcl"], line=dict(color=P["limit"], dash="dash", width=2.6),
-                     annotation_text=f"LCL {cap['lcl']:.2f}")
-    fig_sh.add_hline(y=cap["mean"], line=dict(color=P["mean"], width=2.6),
-                     annotation_text=f"Media {cap['mean']:.2f}")
-    fig_sh.update_layout(
-        title="Carta de control: puntos con UCL/LCL (+/- 3 sigma)",
-        xaxis_title="Muestra", yaxis_title="Torque (N)", height=380
-    )
-    st.plotly_chart(_apply_figure(fig_sh), width="stretch")
+    c_perf, c_within = st.columns(2)
+    with c_perf:
+        with st.container(border=True):
+            st.markdown("**Desempeno global (largo plazo)**: std global, ddof=1")
+            p = st.columns(4)
+            p[0].metric("Pp", f"{cap['pp']:.2f}", help="Pp = (USL-LSL)/(6*std_global)")
+            p[1].metric("Ppk", f"{cap['ppk']:.2f}", help="Ppk = min(Ppu, Ppl)")
+            p[2].metric("Ppu", f"{cap['ppu']:.2f}")
+            p[3].metric("Ppl", f"{cap['ppl']:.2f}")
+    with c_within:
+        with st.container(border=True):
+            st.markdown("**Capacidad within (corto plazo)**: MR-bar / d2, d2 = 1.128")
+            w = st.columns(4)
+            w[0].metric("Cp within", f"{cap['cp_within']:.2f}", help="Cp = (USL-LSL)/(6*std_within)")
+            w[1].metric("Cpk within", f"{cap['cpk_within']:.2f}", help="Cpk = min(Cpu, Cpl) within")
+            w[2].metric("Cpu within", f"{cap['cpu_within']:.2f}")
+            w[3].metric("Cpl within", f"{cap['cpl_within']:.2f}")
 
-    sc = st.columns(5)
-    sc[0].metric("Media", f"{cap['mean']:.2f}")
-    sc[1].metric("Desv. std (global)", f"{cap['std']:.2f}")
-    sc[2].metric(
-        "Pp (desempeno global)",
-        f"{cap['pp']:.2f}",
-        help="Pp = (USL-LSL)/(6*std_global). Indice de desempeno de largo plazo.",
-    )
-    sc[3].metric(
-        "Ppk (desempeno global)",
-        f"{cap['ppk']:.2f}",
-        help="Ppk = min(Ppu, Ppl). Gorsky Tabla 6.2 (n=30): Ppk ~0.51.",
-    )
-    with sc[4]:
-        st.caption("Capaz 4 sigma (Cpk>=1.33)")
-        _chip(
-            sc[4],
-            "Cpk >= 1.33",
-            cap["capable_4sigma"],
-            "Capaz" if cap["capable_4sigma"] else "No capaz",
-            str(cap["capable_4sigma"]),
+    n1, n2, n3, n4 = st.columns(4)
+    n1.metric("Shapiro-Wilk p-value", f"{cap['normality_p_value']:.4f}")
+    _chip(n2, "is_normal (p >= 0.05)", cap["is_normal"],
+          "Normal" if cap["is_normal"] else "No normal", str(cap["is_normal"]))
+    _chip(n3, "capable_4sigma (Ppk >= 1.33)", cap["capable_4sigma"],
+          "Capaz" if cap["capable_4sigma"] else "No capaz", str(cap["capable_4sigma"]))
+    n4.metric("Media / std global (N)", f"{cap['mean']:.2f} / {cap['std']:.2f}")
+
+    ch1, ch2 = st.columns(2)
+    with ch1:
+        x_idx = list(range(1, len(GORSKY_TABLE_6_2_TORQUE_N30) + 1))
+        fig_sh = go.Figure()
+        fig_sh.add_trace(
+            go.Scatter(x=x_idx, y=GORSKY_TABLE_6_2_TORQUE_N30, mode="lines+markers",
+                       name="Torque (N)", line=dict(color=P["closed"]), marker=dict(color=P["closed"], size=6))
         )
-
-    sc2row = st.columns(4)
-    sc2row[0].metric(
-        "Cpk within (corto plazo)",
-        f"{cap['cpk_within']:.2f}",
-        help="Cpk within con std_within = MR_bar/d2 (d2=1.128). Gorsky Fig 6.5 ~0.42.",
-    )
-    sc2row[1].metric("Cpk (compat = round(Ppk,2))", f"{cap['cpk']:.2f}")
-    sc2row[2].metric(
-        "Shapiro p-value",
-        f"{cap['normality_p_value']:.4f}",
-        help="Prueba de normalidad Shapiro-Wilk. Los indices de capacidad asumen normalidad aproximada.",
-    )
-    with sc2row[3]:
-        st.caption("Datos normales (p >= 0.05)")
-        _chip(
-            sc2row[3],
-            "Shapiro p >= 0.05",
-            cap["is_normal"],
-            "Normal" if cap["is_normal"] else "No normal",
-            str(cap["is_normal"]),
+        fig_sh.add_hline(y=cap["ucl"], line=dict(color=P["limit"], dash="dash", width=2.4),
+                         annotation_text=f"UCL {cap['ucl']:.2f}")
+        fig_sh.add_hline(y=cap["lcl"], line=dict(color=P["limit"], dash="dash", width=2.4),
+                         annotation_text=f"LCL {cap['lcl']:.2f}")
+        fig_sh.add_hline(y=cap["mean"], line=dict(color=P["mean"], width=2.4),
+                         annotation_text=f"Media {cap['mean']:.2f}")
+        fig_sh.update_layout(
+            title="Carta de Shewhart, Tabla 6-2 (n=30)",
+            xaxis_title="Muestra (#)", yaxis_title="Torque (N)", height=360,
         )
+        st.plotly_chart(_apply_figure(fig_sh), width="stretch")
+    with ch2:
+        fig_h = go.Figure()
+        fig_h.add_trace(go.Histogram(x=GORSKY_TABLE_6_2_TORQUE_N30, nbinsx=12, name="Torque",
+                                     marker_color=P["closed"]))
+        fig_h.add_vline(x=5.0, line=dict(color=P["limit"], dash="dash", width=2.4), annotation_text="LSL 5.0")
+        fig_h.add_vline(x=12.0, line=dict(color=P["limit"], dash="dash", width=2.4), annotation_text="USL 12.0")
+        fig_h.update_layout(
+            title=f"Distribucion de torque | Pp {cap['pp']:.2f}, Ppk {cap['ppk']:.2f}",
+            xaxis_title="Torque (N)", yaxis_title="Frecuencia (conteo)", height=360,
+        )
+        st.plotly_chart(_apply_figure(fig_h), width="stretch")
+    _leyenda("UCL/LCL = media +/- 3 std global, como las calcula compute_process_capability. Los datos de Gorsky son fijos.")
 
-    st.subheader("Histograma de capacidad vs LSL/USL")
-    fig_h = go.Figure()
-    fig_h.add_trace(go.Histogram(x=GORSKY_TABLE_6_2_TORQUE_N30, nbinsx=12, name="Torque", marker_color=P["closed"]))
-    fig_h.add_vline(x=5.0, line=dict(color=P["limit"], dash="dash", width=2.6), annotation_text="LSL 5.0")
-    fig_h.add_vline(x=12.0, line=dict(color=P["limit"], dash="dash", width=2.6), annotation_text="USL 12.0")
-    fig_h.update_layout(
-        title=f"Distribucion de torque | Pp={cap['pp']:.2f}, Ppk={cap['ppk']:.2f}",
-        xaxis_title="Torque (N)", yaxis_title="Frecuencia", height=360
-    )
-    st.plotly_chart(_apply_figure(fig_h), width="stretch")
+    with st.container(border=True):
+        _band("Intervalo de tolerancia ISO 16269-6 (n=10, Tabla 6-1)")
+        ti_cols = st.columns(5)
+        ti_cols[0].metric("Factor k", f"{ti['k_factor']:.3f}", help="k_factor por defecto de compute_iso16269_tolerance_interval.")
+        ti_cols[1].metric("Media (N)", f"{ti['mean']:.2f}")
+        ti_cols[2].metric("Desv. std (N)", f"{ti['std']:.2f}")
+        ti_cols[3].metric("Limite inferior (N)", f"{ti['lower_tolerance']:.2f}")
+        ti_cols[4].metric("Limite superior (N)", f"{ti['upper_tolerance']:.2f}")
 
-    st.divider()
-    st.subheader("Intervalo de tolerancia ISO 16269-6 (n=10, Tabla 6-1)")
-    ti = compute_iso16269_tolerance_interval(GORSKY_TABLE_6_1_TORQUE_N10, k_factor=3.394)
-    ti_cols = st.columns(5)
-    ti_cols[0].metric("Media", f"{ti['mean']:.2f}")
-    ti_cols[1].metric("Desv. std", f"{ti['std']:.2f}")
-    ti_cols[2].metric("Factor k", f"{ti['k_factor']:.2f}")
-    ti_cols[3].metric("Limite inferior", f"{ti['lower_tolerance']:.2f}")
-    ti_cols[4].metric("Limite superior", f"{ti['upper_tolerance']:.2f}")
-
-    st.divider()
     _band("Comparar dos reactores")
     st.subheader("Prueba t de Welch entre dos reactores (datos editables)")
     _leyenda("Si separas los valores de A y de B, el p-valor baja y la prueba marca diferencia.")
@@ -1105,9 +1247,9 @@ with tab4:
     default_b = pd.DataFrame({"Reactor B": [8.6, 8.9, 9.1, 8.7, 9.0, 8.8]})
     ca, cb = st.columns(2)
     with ca:
-        edited_a = st.data_editor(default_a, num_rows="dynamic", key="reactor_a")
+        edited_a = st.data_editor(default_a, num_rows="dynamic", key="reactor_a", width="stretch")
     with cb:
-        edited_b = st.data_editor(default_b, num_rows="dynamic", key="reactor_b")
+        edited_b = st.data_editor(default_b, num_rows="dynamic", key="reactor_b", width="stretch")
 
     def _clean(df, col):
         series = pd.to_numeric(df[col], errors="coerce").dropna()
@@ -1121,29 +1263,105 @@ with tab4:
         tc = st.columns(3)
         tc[0].metric("t-stat", f"{tt['t_stat']:.4f}")
         tc[1].metric("p-value", f"{tt['p_value']:.6f}")
-        with tc[2]:
-            st.caption("Diferencia significativa (alpha=0.05)")
-            _chip(
-                tc[2],
-                "p < 0.05",
-                not tt["statistically_significant_diff"],
-                "Hay diferencia" if tt["statistically_significant_diff"] else "Sin diferencia",
-                f"{tt['p_value']:.4f}",
-            )
+        _chip(
+            tc[2],
+            "Diferencia significativa (alpha 0.05)",
+            not tt["statistically_significant_diff"],
+            "Hay diferencia" if tt["statistically_significant_diff"] else "Sin diferencia",
+            f"p = {tt['p_value']:.4f}",
+        )
     else:
         _banner("warn", "Hacen falta al menos dos numeros validos en cada reactor.")
 
-
-# ---------------------------------------------------------------------------
-# TAB 5 - Gobernanza GxP (21 CFR Part 11 / Annex 22)
-# ---------------------------------------------------------------------------
-with tab5:
-    st.header("Gobernanza GxP: Audit Trail 21 CFR Part 11 / Annex 22")
-    st.markdown(
-        "Registro de cambios de parametro con firma electronica (aprobacion humana) "
-        "y cadena de hashes SHA-256 a prueba de manipulacion."
+    st.caption(
+        "Fuentes: Gorsky, Principles of Parenteral Solution Validation, Elsevier 2020, cap. 6; "
+        "ISO 16269-6:2014; ASTM E2281. Valores en vivo de src/spc_six_sigma.py."
     )
 
+
+# ---------------------------------------------------------------------------
+# TAB 5 - Gobernanza GxP (21 CFR Part 11 / Annex 22 / FDA CSA OQ)
+# ---------------------------------------------------------------------------
+def _load_oq_log(path: str):
+    """Lee el log OQ generado por tests/conftest.py. Devuelve None si no existe."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return None
+    meta, packages, rows = {}, [], []
+    for line in text.splitlines():
+        s = line.strip()
+        m = re.match(r"^- \*\*(.+?):\*\*\s*(.*)$", s)
+        if m:
+            meta[m.group(1)] = m.group(2)
+            continue
+        m = re.match(r"^- ([A-Za-z0-9_.\-]+): (.+)$", s)
+        if m:
+            packages.append({"Paquete": m.group(1), "Version": m.group(2)})
+            continue
+        if s.startswith("| tests/"):
+            cells = [c.strip() for c in s.strip("|").split("|")]
+            if len(cells) == 4:
+                try:
+                    duration = float(cells[3])
+                except ValueError:
+                    duration = None
+                rows.append(
+                    {
+                        "Prueba": cells[0].split("::")[-1],
+                        "Categoria CSA": cells[1],
+                        "Resultado": cells[2],
+                        "Duracion (s)": duration,
+                    }
+                )
+    verdict = re.search(r"declared \*\*(NOT ACCEPTABLE|ACCEPTABLE)\*\*", text)
+    return {
+        "text": text,
+        "meta": meta,
+        "packages": packages,
+        "rows": rows,
+        "verdict": verdict.group(1) if verdict else None,
+    }
+
+
+with tab5:
+    st.header("Gobernanza GxP: 21 CFR Part 11, Annex 22 y FDA CSA OQ")
+    st.markdown(
+        "Evidencia de calificacion operacional automatizada (OQ) y registro de cambios "
+        "de parametro con firma electronica y cadena de hashes SHA-256."
+    )
+
+    _band("Evidencia OQ automatizada (docs/04_Automated_OQ_Execution_Log.md)")
+    oq = _load_oq_log(OQ_LOG_PATH)
+    if oq is None:
+        _banner("warn", "No se encontro docs/04_Automated_OQ_Execution_Log.md. Ejecuta python -m pytest -v.")
+    else:
+        passed = sum(1 for r in oq["rows"] if r["Resultado"] == "PASSED")
+        total = len(oq["rows"])
+        not_passed = total - passed
+        o1, o2, o3, o4 = st.columns(4)
+        o1.metric("Pruebas aprobadas", f"{passed}/{total}")
+        o2.metric("Fallidas o con error", f"{not_passed}")
+        o3.metric("Ejecucion (UTC)", oq["meta"].get("Execution timestamp (UTC)", "n/d").replace(" UTC", ""))
+        verdict = oq["verdict"] or "SIN VEREDICTO"
+        _chip(o4, "FDA CSA V.A.6", verdict == "ACCEPTABLE" and not_passed == 0, verdict,
+              f"exit status {oq['meta'].get('Pytest exit status', 'n/d')}")
+        if oq["rows"]:
+            st.dataframe(
+                pd.DataFrame(oq["rows"]),
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "Duracion (s)": st.column_config.NumberColumn(format="%.4f"),
+                },
+            )
+        with st.expander("Entorno calificado y log completo"):
+            if oq["packages"]:
+                st.dataframe(pd.DataFrame(oq["packages"]), hide_index=True)
+            st.markdown(oq["text"])
+
+    _band("Audit trail 21 CFR Part 11 / Annex 22")
     if "audit_logger" not in st.session_state:
         st.session_state.audit_logger = AuditTrailLogger()
     logger = st.session_state.audit_logger
@@ -1185,27 +1403,43 @@ with tab5:
         except ValueError as exc:
             _banner("bad", f"ValueError: {exc}")
 
-    st.subheader("Audit trail")
+    st.subheader("Cadena de hashes SHA-256")
     if logger.records:
-        st.dataframe(pd.DataFrame(logger.records), width="stretch")
+        st.dataframe(
+            pd.DataFrame(logger.records),
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "prev_hash": st.column_config.TextColumn("prev_hash", width="medium"),
+                "sha256_hash": st.column_config.TextColumn("sha256_hash", width="medium"),
+                "human_approved": st.column_config.CheckboxColumn("human_approved"),
+            },
+        )
     else:
         _banner("warn", "Aun no hay registros en la cadena de auditoria.")
 
     bcol1, bcol2 = st.columns(2)
     with bcol1:
-        _leyenda("Recorre los hashes. Si un dato fue cambiado, la cadena sale rota.")
+        _leyenda("Recorre los hashes desde el bloque genesis. Si un dato fue cambiado, la cadena sale rota.")
         if st.button("Verificar cadena SHA-256"):
             ok = logger.verify_chain_integrity()
-            _banner("ok" if ok else "bad", f"Integridad de la cadena: {ok}")
+            _banner("ok" if ok else "bad", f"verify_chain_integrity() = {ok} ({len(logger.records)} registros)")
     with bcol2:
-        _leyenda("Altera el primer registro para que la cadena deje de cerrar.")
+        _leyenda("Altera records[0] en una COPIA de la cadena. El registro real no se toca.")
         if st.button("Demostrar falla de integridad"):
             if logger.records:
-                logger.records[0]["new_value"] = "TAMPERED"
-                ok = logger.verify_chain_integrity()
+                demo = AuditTrailLogger()
+                demo.records = copy.deepcopy(logger.records)
+                demo.records[0]["new_value"] = "TAMPERED"
                 _banner(
                     "bad",
-                    f"Se altero records[0]['new_value'] = 'TAMPERED'. verify_chain_integrity() = {ok}",
+                    f"Copia con records[0]['new_value'] = 'TAMPERED': verify_chain_integrity() = "
+                    f"{demo.verify_chain_integrity()}. Cadena real: {logger.verify_chain_integrity()}.",
                 )
             else:
                 _banner("warn", "No hay registros para alterar. Agrega uno primero.")
+
+    st.caption(
+        "Marco: 21 CFR Part 11; EudraLex Vol. 4 Annex 11 y Draft Annex 22; FDA Computer "
+        "Software Assurance, Section V.A.6. El log OQ lo genera tests/conftest.py en cada pytest."
+    )
