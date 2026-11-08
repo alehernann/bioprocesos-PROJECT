@@ -465,78 +465,44 @@ with tab1:
     v3.metric("VCD pico lazo cerrado (1e6 cel/mL)", f"{closed_res['peak_vcd']:.2f}")
 
     # -----------------------------------------------------------------------
-    # KPIs EXTENSIVOS acoplados al volumen del biorreactor (vessel_volume_L).
-    # Las concentraciones (g/L) son variables INTENSIVAS: no cambian con el
-    # volumen y por eso las curvas de arriba se dejan intactas. La MASA (g o kg)
-    # y el VOLUMEN de alimentacion (mL o L) son variables EXTENSIVAS: escalan
-    # linealmente con el volumen del vaso, asi que se calculan aqui a partir del
-    # slider vessel_volume_L sin tocar nada en src/.
+    # KPIs EXTENSIVOS tomados DIRECTAMENTE del modelo. El balance de volumen
+    # variable fed-batch de simulate_cho_fed_batch ahora devuelve volume_L (serie
+    # de tiempo), harvested_mass_g = final_titer_g_L * final_volume_L y
+    # total_feed_volume_L = final_volume_L - V_0. Ya no se estiman en el tablero:
+    # se leen de los dicts del modelo (static_res / closed_res).
     # -----------------------------------------------------------------------
 
-    def _format_mass(titer_g_L: float, volume_L: float) -> tuple[str, str]:
-        """Convierte un titulo (g/L) y un volumen (L) en masa total mostrada.
+    def _mass_label(mass_g: float) -> tuple[str, str]:
+        """Formatea una masa (g) mostrando kg a escala industrial (>= 1000 g)."""
+        if mass_g >= 1000.0:
+            return f"{mass_g / 1000.0:.3f} kg", f"{mass_g:,.0f} g"
+        return f"{mass_g:.2f} g", f"{mass_g / 1000.0:.4f} kg"
 
-        total_mass_g = titer_g_L * volume_L. Se expresa en kg (valor/1000) cuando
-        el vaso es >= 1000 L (escala industrial), de lo contrario en g.
-        """
-        total_mass_g = titer_g_L * volume_L
-        if volume_L >= 1000.0:
-            return f"{total_mass_g / 1000.0:.3f} kg", f"{total_mass_g:,.0f} g"
-        return f"{total_mass_g:.2f} g", f"{total_mass_g / 1000.0:.4f} kg"
+    static_mass_label, static_mass_alt = _mass_label(static_res["harvested_mass_g"])
+    closed_mass_label, closed_mass_alt = _mass_label(closed_res["harvested_mass_g"])
 
-    static_mass_label, static_mass_alt = _format_mass(
-        static_res["final_titer_g_L"], vessel_volume_L
-    )
-    closed_mass_label, closed_mass_alt = _format_mass(
-        closed_res["final_titer_g_L"], vessel_volume_L
-    )
-
-    # Volumen de alimentacion acumulado (variable EXTENSIVA) derivado del
-    # cronograma de alimentacion deterministico de simulate_cho_fed_batch
-    # (dias de feed [2,4,6,8,10,12]) SIN importar ni modificar src/. Se mide el
-    # incremento real de glucosa (g/L) en cada cruce de dia de feed directamente
-    # sobre la serie glucose_g_L que ya devuelve la simulacion: cada salto
-    # positivo entre dos puntos consecutivos es el bolo entregado. Se suma el
-    # total de glucosa anadida (g/L acumulados) por modo.
-    def _cumulative_feed_glucose_g_L(res: dict) -> float:
-        g = res["glucose_g_L"]
-        added = 0.0
-        for a, b in zip(g[:-1], g[1:]):
-            if b > a:  # un salto hacia arriba solo ocurre en un bolo de feed
-                added += (b - a)
-        return added
-
-    # Suposicion de escalado g/L -> volumen de medio de alimentacion:
-    # el medio de feed concentrado se asume a FEED_MEDIA_GLUCOSE_G_PER_L g/L de
-    # glucosa. Para entregar X g/L de glucosa a un vaso de vessel_volume_L se
-    # requiere un volumen de feed = (X g/L * vessel_volume_L) / FEED_MEDIA_GLUCOSE_G_PER_L
-    # (masa de glucosa entregada [g] dividida por la concentracion del medio [g/L]).
-    FEED_MEDIA_GLUCOSE_G_PER_L = 500.0  # medio de alimentacion concentrado tipico CHO
-    closed_feed_glucose_g_L = _cumulative_feed_glucose_g_L(closed_res)
-    closed_feed_volume_L = (
-        closed_feed_glucose_g_L * vessel_volume_L
-    ) / FEED_MEDIA_GLUCOSE_G_PER_L
+    closed_feed_volume_L = closed_res["total_feed_volume_L"]
     if closed_feed_volume_L < 1.0:
         closed_feed_label = f"{closed_feed_volume_L * 1000.0:.1f} mL"
     else:
         closed_feed_label = f"{closed_feed_volume_L:.3f} L"
 
-    _band("Masa y alimentacion, solo por el volumen")
+    _band("Masa cosechada y alimentacion (balance de volumen del modelo)")
     e1, e2, e3 = st.columns(3)
     e1.metric(
-        "Masa total de mAb estatica",
+        "Masa cosechada de mAb estatica",
         static_mass_label,
-        help=f"final_titer_g_L * vessel_volume_L = {static_mass_alt}",
+        help=f"harvested_mass_g = final_titer_g_L * final_volume_L = {static_mass_alt}",
     )
     e2.metric(
-        "Masa total de mAb lazo cerrado",
+        "Masa cosechada de mAb lazo cerrado",
         closed_mass_label,
-        help=f"final_titer_g_L * vessel_volume_L = {closed_mass_alt}",
+        help=f"harvested_mass_g = final_titer_g_L * final_volume_L = {closed_mass_alt}",
     )
     e3.metric(
-        "Volumen de feed acumulado (lazo cerrado)",
+        "Volumen de feed total (lazo cerrado)",
         closed_feed_label,
-        help="Estimado con stock de glucosa a 500 g/L + bolos Cell Boost 7a/7b",
+        help="total_feed_volume_L = final_volume_L - V_0 (balance fed-batch del modelo)",
     )
 
     _band("Trayectorias")
@@ -614,15 +580,47 @@ with tab1:
 
     # -----------------------------------------------------------------------
     # Grafico SECUNDARIO (variable EXTENSIVA): masa acumulada de mAb en el
-    # tiempo = titulo(t) * vessel_volume_L para ambas corridas. El titulo (g/L)
-    # es intensivo, pero al multiplicarlo por el volumen del vaso obtenemos la
-    # masa total producida (g o kg), que SI escala con vessel_volume_L.
+    # tiempo = titulo(t) * volumen(t), usando la serie volume_L del balance de
+    # volumen variable del modelo (ya no se asume vessel_volume_L constante).
     # -----------------------------------------------------------------------
+    # Trayectoria de volumen liquido V(t) del balance fed-batch del modelo.
+    fig_vol = go.Figure()
+    fig_vol.add_trace(
+        go.Scatter(
+            x=t_static,
+            y=static_res["volume_L"],
+            mode="lines",
+            name="Static Recipe",
+            line=dict(color=P["static"], dash="dash", width=2.6),
+        )
+    )
+    fig_vol.add_trace(
+        go.Scatter(
+            x=t_closed,
+            y=closed_res["volume_L"],
+            mode="lines",
+            name="Closed-Loop Digital Twin",
+            line=dict(color=P["closed"], width=2.6),
+        )
+    )
+    fig_vol.update_layout(
+        title="Volumen liquido V(t) del balance fed-batch (L)",
+        xaxis_title="Tiempo (dias)",
+        yaxis_title="Volumen (L)",
+        height=320,
+        margin=dict(l=40, r=20, t=50, b=40),
+    )
+    st.plotly_chart(_apply_figure(fig_vol), width="stretch")
+
     mass_in_kg = vessel_volume_L >= 1000.0
-    mass_scale = vessel_volume_L / 1000.0 if mass_in_kg else vessel_volume_L
+    mass_div = 1000.0 if mass_in_kg else 1.0
     mass_unit = "kg" if mass_in_kg else "g"
-    static_mass_curve = [y * mass_scale for y in static_res["titer_g_L"]]
-    closed_mass_curve = [y * mass_scale for y in closed_res["titer_g_L"]]
+    static_mass_curve = [
+        tt * vv / mass_div for tt, vv in zip(static_res["titer_g_L"], static_res["volume_L"])
+    ]
+    closed_mass_curve = [
+        tt * vv / mass_div for tt, vv in zip(closed_res["titer_g_L"], closed_res["volume_L"])
+    ]
 
     fig_mass = go.Figure()
     fig_mass.add_trace(
@@ -853,9 +851,23 @@ with tab2:
         power_per_vol_W_m3=power_per_vol_W_m3,
         vcc_1e6_cells_mL=vcc,
     )
-    sc1, sc2 = st.columns(2)
+    sc1, sc2, sc3, sc4 = st.columns(4)
     sc1.metric("kLa (1/h)", f"{scale['kla_h_inv']:.2f}")
     sc2.metric("OUR max (mmol/L/h)", f"{scale['our_max_mmol_L_h']:.2f}")
+    sc3.metric(
+        "OTR (mmol/L/h)",
+        f"{scale['otr_mmol_L_h']:.2f}",
+        help="OTR = kLa * (0.21 - 0.063) mmol/L (fuerza impulsora de saturacion A-Mab).",
+    )
+    with sc4:
+        st.caption("Oxigeno suficiente (OTR >= OUR)")
+        _chip(
+            sc4,
+            "OTR >= OUR",
+            scale["oxygen_sufficient"],
+            "Suficiente" if scale["oxygen_sufficient"] else "Insuficiente",
+            str(scale["oxygen_sufficient"]),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -929,36 +941,56 @@ with tab3:
 
     st.divider()
     st.subheader("Espectro FFT y limite de Nyquist")
-    fft_res = analyze_fft_nyquist(air, sampling_interval_min=sampling_interval_min)
+    # El analisis FFT siempre corre sobre la senal base de 5 min para hallar la
+    # frecuencia dominante real; el intervalo de muestreo elegido arriba se pasa
+    # como el candidato a cualificar (target_sampling_interval_min).
+    fft_res = analyze_fft_nyquist(
+        air, target_sampling_interval_min=sampling_interval_min
+    )
 
+    # El espectro que se grafica se calcula sobre la base de 5 min (dt_base = 5)
+    # para ser coherente con el contrato de analyze_fft_nyquist. La linea de
+    # Nyquist se alinea al target_nyquist_cph del intervalo bajo cualificacion.
+    dt_base_min = 5.0
     signal = np.asarray(air, dtype=float)
     signal = signal - signal.mean()
     spectrum = np.abs(np.fft.rfft(signal))
-    freqs_cph = np.fft.rfftfreq(signal.size, d=sampling_interval_min) * 60.0
+    freqs_cph = np.fft.rfftfreq(signal.size, d=dt_base_min) * 60.0
 
     fig_f = go.Figure()
     fig_f.add_trace(go.Scatter(x=freqs_cph, y=spectrum, mode="lines", name="|FFT|", line=dict(color=P["closed"], width=2.6)))
     fig_f.add_vline(
-        x=fft_res["nyquist_limit_cph"],
+        x=fft_res["target_nyquist_cph"],
         line=dict(color=P["limit"], dash="dash", width=2.6),
-        annotation_text=f"Nyquist {fft_res['nyquist_limit_cph']:.2f} cph",
+        annotation_text=f"Nyquist objetivo {fft_res['target_nyquist_cph']:.2f} cph",
         annotation_position="top",
     )
+    fig_f.add_vline(
+        x=fft_res["true_dominant_freq_cph"],
+        line=dict(color=P["mean"], width=2.6),
+        annotation_text=f"Dominante {fft_res['true_dominant_freq_cph']:.2f} cph",
+        annotation_position="bottom",
+    )
     fig_f.update_layout(
-        title="Espectro de amplitud (cycles per hour) con limite de Nyquist",
+        title="Espectro de amplitud (cph, base 5 min) con Nyquist objetivo",
         xaxis_title="Frecuencia (cph)",
         yaxis_title="Amplitud",
         height=360,
     )
     st.plotly_chart(_apply_figure(fig_f), width="stretch")
 
-    f1, f2, f3 = st.columns(3)
-    f1.metric("Limite de Nyquist (cph)", f"{fft_res['nyquist_limit_cph']:.2f}")
-    f2.metric("Frecuencia dominante (cph)", f"{fft_res['dominant_freq_cph']:.2f}")
-    with f3:
+    f1, f2, f3, f4 = st.columns(4)
+    f1.metric("Nyquist objetivo (cph)", f"{fft_res['target_nyquist_cph']:.2f}")
+    f2.metric("Frecuencia dominante real (cph)", f"{fft_res['true_dominant_freq_cph']:.2f}")
+    f3.metric(
+        "Alias plegado (cph)",
+        f"{fft_res['folded_alias_freq_cph']:.2f}",
+        help="abs(dominante real - 60/dt) cuando hay aliasing; 0 si no lo hay.",
+    )
+    with f4:
         st.caption("Riesgo de aliasing")
         _chip(
-            f3,
+            f4,
             "Aliasing",
             not fft_res["aliasing_risk"],
             "Con aliasing" if fft_res["aliasing_risk"] else "Sin aliasing",
@@ -1001,9 +1033,17 @@ with tab4:
 
     sc = st.columns(5)
     sc[0].metric("Media", f"{cap['mean']:.2f}")
-    sc[1].metric("Desv. std", f"{cap['std']:.2f}")
-    sc[2].metric("Cp", f"{cap['cp']:.2f}")
-    sc[3].metric("Cpk", f"{cap['cpk']:.2f}")
+    sc[1].metric("Desv. std (global)", f"{cap['std']:.2f}")
+    sc[2].metric(
+        "Pp (desempeno global)",
+        f"{cap['pp']:.2f}",
+        help="Pp = (USL-LSL)/(6*std_global). Indice de desempeno de largo plazo.",
+    )
+    sc[3].metric(
+        "Ppk (desempeno global)",
+        f"{cap['ppk']:.2f}",
+        help="Ppk = min(Ppu, Ppl). Gorsky Tabla 6.2 (n=30): Ppk ~0.51.",
+    )
     with sc[4]:
         st.caption("Capaz 4 sigma (Cpk>=1.33)")
         _chip(
@@ -1014,13 +1054,35 @@ with tab4:
             str(cap["capable_4sigma"]),
         )
 
+    sc2row = st.columns(4)
+    sc2row[0].metric(
+        "Cpk within (corto plazo)",
+        f"{cap['cpk_within']:.2f}",
+        help="Cpk within con std_within = MR_bar/d2 (d2=1.128). Gorsky Fig 6.5 ~0.42.",
+    )
+    sc2row[1].metric("Cpk (compat = round(Ppk,2))", f"{cap['cpk']:.2f}")
+    sc2row[2].metric(
+        "Shapiro p-value",
+        f"{cap['normality_p_value']:.4f}",
+        help="Prueba de normalidad Shapiro-Wilk. Los indices de capacidad asumen normalidad aproximada.",
+    )
+    with sc2row[3]:
+        st.caption("Datos normales (p >= 0.05)")
+        _chip(
+            sc2row[3],
+            "Shapiro p >= 0.05",
+            cap["is_normal"],
+            "Normal" if cap["is_normal"] else "No normal",
+            str(cap["is_normal"]),
+        )
+
     st.subheader("Histograma de capacidad vs LSL/USL")
     fig_h = go.Figure()
     fig_h.add_trace(go.Histogram(x=GORSKY_TABLE_6_2_TORQUE_N30, nbinsx=12, name="Torque", marker_color=P["closed"]))
     fig_h.add_vline(x=5.0, line=dict(color=P["limit"], dash="dash", width=2.6), annotation_text="LSL 5.0")
     fig_h.add_vline(x=12.0, line=dict(color=P["limit"], dash="dash", width=2.6), annotation_text="USL 12.0")
     fig_h.update_layout(
-        title=f"Distribucion de torque | Cp={cap['cp']:.2f}, Cpk={cap['cpk']:.2f}",
+        title=f"Distribucion de torque | Pp={cap['pp']:.2f}, Ppk={cap['ppk']:.2f}",
         xaxis_title="Torque (N)", yaxis_title="Frecuencia", height=360
     )
     st.plotly_chart(_apply_figure(fig_h), width="stretch")

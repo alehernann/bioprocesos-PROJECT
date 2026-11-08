@@ -44,28 +44,74 @@ def compute_iso16269_tolerance_interval(data, k_factor: float = 3.394) -> dict:
 def compute_process_capability(data, lsl: float = 5.0, usl: float = 12.0) -> dict:
     """Compute process-capability indices per ASTM E2281 / Gorsky (2020).
 
-    Returns Cp, Cpu, Cpl, Cpk, the +/-3-sigma control limits, and a flag for
-    4-sigma capability (Cpk >= 1.33).
+    Distinguishes OVERALL (long-term, "performance") indices from WITHIN
+    (short-term, "capability") indices, per Gorsky (2020) Chapter 6:
+
+    * OVERALL (Pp/Ppk): computed from the overall sample standard deviation
+      ``std_overall = std(data, ddof=1)``. Gorsky Table 6.2 (n=30) reference:
+      Pp 0.61, Ppu 0.72, Ppl 0.51, Ppk 0.51.
+    * WITHIN (Cp/Cpk): computed from the moving-range estimate of short-term
+      variation ``std_within = mean(|diff(data)|) / d2`` with d2 = 1.128 for a
+      moving range of n = 2. Gorsky Fig. 6.5 (p.130) reference: Cpk_within ~0.42.
+
+    For backward compatibility ``cpk`` is retained as ``round(ppk, 2)`` and the
+    +/-3-sigma control limits and the 4-sigma capability flag use the overall std.
+
+    A Shapiro-Wilk normality test (``scipy.stats.shapiro``) is also returned as
+    ``normality_p_value`` with ``is_normal = (p >= 0.05)``; capability indices are
+    only strictly valid for approximately normal data.
+
+    Returns mean, std (overall), pp, ppu, ppl, ppk, cp_within, cpu_within,
+    cpl_within, cpk_within, cpk (= round(ppk, 2)), ucl, lcl, capable_4sigma,
+    normality_p_value and is_normal.
     """
-    mean = np.mean(data)
-    std = np.std(data, ddof=1)
-    cp = (usl - lsl) / (6 * std)
-    cpu = (usl - mean) / (3 * std)
-    cpl = (mean - lsl) / (3 * std)
-    cpk = min(cpu, cpl)
-    ucl = mean + 3 * std
-    lcl = mean - 3 * std
+    arr = np.asarray(data, dtype=float)
+    mean = np.mean(arr)
+
+    # --- OVERALL (Pp / Ppk) from the overall standard deviation ---
+    std_overall = float(np.std(arr, ddof=1))
+    pp = (usl - lsl) / (6 * std_overall)
+    ppu = (usl - mean) / (3 * std_overall)
+    ppl = (mean - lsl) / (3 * std_overall)
+    ppk = min(ppu, ppl)
+
+    # --- WITHIN (Cp / Cpk) from the moving-range short-term estimate ---
+    mr_bar = float(np.mean(np.abs(np.diff(arr))))
+    d2 = 1.128  # control-chart constant for a moving range of n = 2
+    std_within = mr_bar / d2
+    cp_within = (usl - lsl) / (6 * std_within)
+    cpu_within = (usl - mean) / (3 * std_within)
+    cpl_within = (mean - lsl) / (3 * std_within)
+    cpk_within = min(cpu_within, cpl_within)
+
+    # Backward-compatible cpk (= overall Ppk rounded) and +/-3-sigma limits.
+    cpk = round(float(ppk), 2)
+    ucl = mean + 3 * std_overall
+    lcl = mean - 3 * std_overall
     capable_4sigma = bool(cpk >= 1.33)
+
+    # Shapiro-Wilk normality test (capability indices assume approximate normality).
+    shapiro_result = stats.shapiro(arr)
+    normality_p_value = float(shapiro_result.pvalue)
+    is_normal = bool(normality_p_value >= 0.05)
+
     return {
         "mean": round(float(mean), 2),
-        "std": round(float(std), 2),
-        "cp": round(float(cp), 2),
-        "cpu": round(float(cpu), 2),
-        "cpl": round(float(cpl), 2),
-        "cpk": round(float(cpk), 2),
+        "std": round(float(std_overall), 2),
+        "pp": round(float(pp), 2),
+        "ppu": round(float(ppu), 2),
+        "ppl": round(float(ppl), 2),
+        "ppk": round(float(ppk), 2),
+        "cp_within": round(float(cp_within), 2),
+        "cpu_within": round(float(cpu_within), 2),
+        "cpl_within": round(float(cpl_within), 2),
+        "cpk_within": round(float(cpk_within), 2),
+        "cpk": cpk,
         "ucl": round(float(ucl), 2),
         "lcl": round(float(lcl), 2),
         "capable_4sigma": capable_4sigma,
+        "normality_p_value": round(normality_p_value, 4),
+        "is_normal": is_normal,
     }
 
 

@@ -150,25 +150,36 @@ def test_oq_06_mkt_and_vtb_damping():
 
 
 def test_oq_07_fft_nyquist_sampling_validation():
-    """FFT/Nyquist: adequate sampling resolves a signal; coarse sampling aliases."""
-    # 5-min sampling -> Nyquist 6.0 cph; a 2.9 cph compressor signal is well resolved.
-    interval_fast = 5.0
-    n_fast = int(4.0 * 60 / interval_fast)  # 4 hours
-    t_fast_min = np.arange(n_fast) * interval_fast
-    sig_fast = 5.0 + 2.0 * np.sin(2.0 * np.pi * 2.9 * (t_fast_min / 60.0))
-    fast = analyze_fft_nyquist(list(sig_fast), sampling_interval_min=interval_fast)
-    assert fast["nyquist_limit_cph"] == pytest.approx(6.0, abs=0.01)
-    assert fast["aliasing_risk"] is False
+    """FFT/Nyquist: a 2.9 cph fridge signal is resolved at 5 min, aliased if coarser.
 
-    # 30-min sampling -> Nyquist 1.0 cph; a ~0.95 cph component is at/above the
-    # effective Nyquist band and must raise the aliasing-risk flag.
-    interval_slow = 30.0
-    n_slow = int(24.0 * 60 / interval_slow)  # 24 hours
-    t_slow_min = np.arange(n_slow) * interval_slow
-    sig_slow = 5.0 + 2.0 * np.sin(2.0 * np.pi * 0.95 * (t_slow_min / 60.0))
-    slow = analyze_fft_nyquist(list(sig_slow), sampling_interval_min=interval_slow)
-    assert slow["nyquist_limit_cph"] == pytest.approx(1.0, abs=0.01)
-    assert slow["aliasing_risk"] is True
+    The FFT is always computed on the base 5-min air-temperature trace. A realistic
+    refrigerator compressor cycling at 2.9 cycles/hour (Rusnack, Pharm. Eng. 2026)
+    is well resolved by 5-min sampling (base Nyquist 6.0 cph > 2.9), but any coarser
+    candidate monitor interval (15, 30, 60 min -> target Nyquist 2.0, 1.0, 0.5 cph,
+    all <= 2.9 cph) must raise the aliasing-risk flag.
+    """
+    # Realistic fridge signal: 24 h at 5-min resolution, compressor at 2.9 cph.
+    dt_base_min = 5.0
+    n = int(24.0 * 60 / dt_base_min)  # 24 hours of 5-min samples
+    t_min = np.arange(n) * dt_base_min
+    fridge_5min = 5.0 + 2.0 * np.sin(2.0 * np.pi * 2.9 * (t_min / 60.0))
+
+    # Target 5.0 min: Nyquist 6.0 cph > 2.9 cph -> no aliasing, signal resolved.
+    resolved = analyze_fft_nyquist(
+        list(fridge_5min), target_sampling_interval_min=5.0
+    )
+    assert resolved["true_dominant_freq_cph"] == pytest.approx(2.9, abs=0.15)
+    assert resolved["target_nyquist_cph"] == pytest.approx(6.0, abs=0.01)
+    assert resolved["aliasing_risk"] is False
+
+    # Coarser candidate intervals all alias the 2.9 cph compressor signal.
+    for target_min, expected_nyquist in ((15.0, 2.0), (30.0, 1.0), (60.0, 0.5)):
+        res = analyze_fft_nyquist(
+            list(fridge_5min), target_sampling_interval_min=target_min
+        )
+        assert res["target_nyquist_cph"] == pytest.approx(expected_nyquist, abs=0.01)
+        assert res["aliasing_risk"] is True
+        assert res["folded_alias_freq_cph"] > 0.0
 
 
 def test_oq_08_gorsky_spc_tolerance_and_capability():
@@ -182,8 +193,16 @@ def test_oq_08_gorsky_spc_tolerance_and_capability():
     assert tol["upper_tolerance"] == pytest.approx(15.08, abs=0.01)
 
     cap = compute_process_capability(GORSKY_TABLE_6_2_TORQUE_N30, lsl=5.0, usl=12.0)
+    # Overall (Pp/Ppk) indices vs Gorsky Table 6.2 (n=30): Ppk 0.51.
+    assert cap["ppk"] == pytest.approx(0.51, abs=0.01)
+    # Backward-compatible cpk = round(ppk, 2).
     assert cap["cpk"] == pytest.approx(0.51, abs=0.01)
+    # Within (Cp/Cpk) moving-range short-term capability (Gorsky Fig. 6.5, p.130
+    # reference ~0.42). Actual measured value is 0.43, inside the +/-0.03 band.
+    assert cap["cpk_within"] == pytest.approx(0.42, abs=0.03)
     assert cap["capable_4sigma"] is False
+    # Shapiro-Wilk: the n=30 torque dataset is approximately normal (p ~ 0.24).
+    assert cap["is_normal"] is True
 
 
 def test_oq_09_part11_audit_trail_and_annex22_guardrail():

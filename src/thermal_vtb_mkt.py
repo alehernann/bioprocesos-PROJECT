@@ -64,36 +64,62 @@ def apply_vtb_filter(
 
 
 def analyze_fft_nyquist(
-    air_temps_C: list[float], sampling_interval_min: float = 5.0
+    air_temps_C_5min: list[float], target_sampling_interval_min: float = 5.0
 ) -> dict:
-    """Perform FFT/Nyquist analysis of a temperature trace.
+    """Perform rigorous FFT/Nyquist aliasing analysis of a temperature trace.
 
-    Returns the Nyquist limit and dominant frequency in cycles per hour (cph)
-    and a flag indicating aliasing risk, following the effective-sampling
-    considerations in Rusnack (Pharm. Eng. 2026). The DC (bin 0) component of the
-    mean-removed signal is ignored when locating the dominant frequency.
+    The input ``air_temps_C_5min`` is always a 5-minute-resolution air-temperature
+    trace. The FFT is ALWAYS computed on this base 5-min signal (dt_base = 5.0 min,
+    base Nyquist f_nyquist_base = 6.0 cph) so that the true dominant frequency of
+    the physical signal (Rusnack, Pharm. Eng. 2026: compressor cycling ~2.8-3.0
+    cycles/hour) is recovered independently of the sampling rate under test.
+
+    ``target_sampling_interval_min`` is the candidate monitor sampling interval
+    being qualified. Its Nyquist limit is ``target_nyquist_cph = 60 / (2 * dt)``.
+    Aliasing risk is raised when the target Nyquist limit is at or below the true
+    dominant frequency (``aliasing_risk = target_nyquist_cph <= true_dominant``).
+    When aliasing occurs the apparent (folded) frequency the undersampled monitor
+    would report is ``folded_alias_freq_cph = |true_dominant - 60 / dt|``.
+
+    The DC (bin 0) component of the mean-removed signal is ignored when locating
+    the dominant frequency.
+
+    Returns ``true_dominant_freq_cph``, ``target_nyquist_cph``, ``aliasing_risk``
+    and, when aliasing, ``folded_alias_freq_cph`` (0.0 otherwise). Backward-
+    compatible aliases ``nyquist_limit_cph`` (= target Nyquist) and
+    ``dominant_freq_cph`` (= true dominant) are also provided.
     """
-    nyquist = 60.0 / (2.0 * sampling_interval_min)
+    DT_BASE_MIN = 5.0  # base signal resolution (min); base Nyquist = 6.0 cph
 
-    signal = np.asarray(air_temps_C, dtype=float)
+    signal = np.asarray(air_temps_C_5min, dtype=float)
     signal = signal - signal.mean()
     n = signal.size
 
-    # rfftfreq returns cycles per sample; scale to cycles/hour (60 min per hour).
+    # FFT on the base 5-min signal; rfftfreq returns cycles/sample -> cycles/hour.
     spectrum = np.abs(np.fft.rfft(signal))
-    freqs_cph = np.fft.rfftfreq(n, d=sampling_interval_min) * 60.0
+    freqs_cph = np.fft.rfftfreq(n, d=DT_BASE_MIN) * 60.0
 
     # Ignore the zero-frequency bin when searching for the dominant component.
     if spectrum.size > 1:
         dominant_idx = int(np.argmax(spectrum[1:]) + 1)
-        dominant = float(freqs_cph[dominant_idx])
+        true_dominant = float(freqs_cph[dominant_idx])
     else:
-        dominant = 0.0
+        true_dominant = 0.0
 
-    aliasing_risk = bool(nyquist <= dominant * 1.1)
+    target_nyquist = 60.0 / (2.0 * target_sampling_interval_min)
+    aliasing_risk = bool(target_nyquist <= true_dominant)
+
+    if aliasing_risk:
+        folded_alias = abs(true_dominant - (60.0 / target_sampling_interval_min))
+    else:
+        folded_alias = 0.0
 
     return {
-        "nyquist_limit_cph": round(nyquist, 2),
-        "dominant_freq_cph": round(dominant, 2),
+        "true_dominant_freq_cph": round(true_dominant, 2),
+        "target_nyquist_cph": round(target_nyquist, 2),
         "aliasing_risk": aliasing_risk,
+        "folded_alias_freq_cph": round(folded_alias, 2),
+        # Backward-compatible aliases for the dashboard (tab3).
+        "nyquist_limit_cph": round(target_nyquist, 2),
+        "dominant_freq_cph": round(true_dominant, 2),
     }

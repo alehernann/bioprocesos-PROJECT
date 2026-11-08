@@ -6,7 +6,7 @@ FDA Computer Software Assurance (CSA) Operational Qualification (OQ) automated e
 
 ## Execution Environment
 
-- **Execution timestamp (UTC):** 2026-11-08 00:10:40 UTC
+- **Execution timestamp (UTC):** 2026-11-08 09:35:59 UTC
 - **Python version:** 3.11.15
 - **Platform:** Linux-6.1.189-236.400.amzn2023.x86_64-x86_64-with-glibc2.34
 - **Qualified package versions:**
@@ -37,12 +37,12 @@ FDA Computer Software Assurance (CSA) Operational Qualification (OQ) automated e
 | tests/test_csa_oq_validation.py::test_oq_04_safety_shear_and_cip_sip_interlocks | Scripted Testing (High Process Risk) | PASSED | 0.0001 |
 | tests/test_csa_oq_validation.py::test_oq_05_ispe_amab_design_space_center_and_edges | Scripted Testing (High Process Risk) | PASSED | 0.0001 |
 | tests/test_csa_oq_validation.py::test_oq_06_mkt_and_vtb_damping | Scripted Testing (High Process Risk) | PASSED | 0.0005 |
-| tests/test_csa_oq_validation.py::test_oq_07_fft_nyquist_sampling_validation | Scripted Testing (High Process Risk) | PASSED | 0.0028 |
-| tests/test_csa_oq_validation.py::test_oq_08_gorsky_spc_tolerance_and_capability | Scripted Testing (High Process Risk) | PASSED | 0.0002 |
+| tests/test_csa_oq_validation.py::test_oq_07_fft_nyquist_sampling_validation | Scripted Testing (High Process Risk) | PASSED | 0.0004 |
+| tests/test_csa_oq_validation.py::test_oq_08_gorsky_spc_tolerance_and_capability | Scripted Testing (High Process Risk) | PASSED | 0.0006 |
 | tests/test_csa_oq_validation.py::test_oq_09_part11_audit_trail_and_annex22_guardrail | Scripted Testing (High Process Risk) | PASSED | 0.0002 |
 | tests/test_csa_oq_validation.py::test_exploratory_10_invalid_pydantic_inputs | Unscripted / Error-Guessing (Not High Process Risk) | PASSED | 0.0001 |
 | tests/test_csa_oq_validation.py::test_exploratory_11_audit_trail_requires_reason | Unscripted / Error-Guessing (Not High Process Risk) | PASSED | 0.0001 |
-| tests/test_csa_oq_validation.py::test_exploratory_12_welch_ttest_identical_groups_not_significant | Unscripted / Error-Guessing (Not High Process Risk) | PASSED | 0.0014 |
+| tests/test_csa_oq_validation.py::test_exploratory_12_welch_ttest_identical_groups_not_significant | Unscripted / Error-Guessing (Not High Process Risk) | PASSED | 0.0009 |
 
 ## Acceptability Statement (FDA CSA Section V.A.6)
 
