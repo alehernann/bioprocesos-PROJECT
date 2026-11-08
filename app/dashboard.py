@@ -56,149 +56,263 @@ st.set_page_config(
 
 
 # ---------------------------------------------------------------------------
-# Capa visual. No calcula nada: solo tema, tipografia y estilo de figuras.
-# La logica sigue llamando a src/ con los mismos argumentos.
+# Capa visual. No calcula nada: tema, tipografia, leyendas y distribucion.
+# Claro y noche comparten los mismos significados de color.
 # ---------------------------------------------------------------------------
-_INK = "#1A2421"
-_PAPER = "#F7F4EE"
+if "ui_fondo" not in st.session_state:
+    st.session_state.ui_fondo = "Claro"
 
-st.markdown(
-    """
+
+def _palette(night: bool) -> dict:
+    """Dos superficies, una sola familia de tintas. El mapa no invierte su significado."""
+    if not night:
+        return {
+            "bg": "#F3EFE7",
+            "bg_fade": "rgba(20, 92, 86, 0.05)",
+            "paper": "rgba(251,249,244,0.92)",
+            "ink": "#1A2421",
+            "muted": "#5E584E",
+            "lead": "#3E4744",
+            "card": "#FBF9F4",
+            "line": "#E3DACB",
+            "grid": "#E7E0D4",
+            "axis": "#D5CBBA",
+            "code_bg": "#E7E1D6",
+            "teal": "#145C56",
+            "teal_deep": "#0E433E",
+            "clay": "#A33B2B",
+            "moss": "#2F6B4F",
+            "air": "#6E675C",
+            "bulk": "#6B5344",
+            # Mapa: arcilla = no se sostiene, verde = se sostiene. Mismos tonos que en claro.
+            "heat_no": "#A33B2B",
+            "heat_yes": "#2F6B4F",
+            "tip_bg": "#1A2421",
+            "tip_fg": "#F7F4EE",
+            "button_fg": "#F7F4EE",
+            "hover_bg": "#145C56",
+            "hover_fg": "#F7F4EE",
+        }
+    return {
+        "bg": "#141A18",
+        "bg_fade": "rgba(143, 207, 198, 0.06)",
+        "paper": "rgba(20, 26, 24, 0.96)",
+        "ink": "#E7E1D6",
+        "muted": "#B7AFA3",
+        "lead": "#D5CFC3",
+        "card": "#212825",
+        "line": "#3A4440",
+        "grid": "#2A3330",
+        "axis": "#4A5551",
+        "code_bg": "#2A3330",
+        "teal": "#8FCFC6",
+        "teal_deep": "#1F6F66",
+        "clay": "#E0A99A",
+        "moss": "#8FBF9F",
+        "air": "#B7AFA3",
+        "bulk": "#C4B09A",
+        # Misma pareja semántica, un poco más clara para que se distinga sobre el fondo oscuro.
+        "heat_no": "#C46B5A",
+        "heat_yes": "#3E8F68",
+        "tip_bg": "#E7E1D6",
+        "tip_fg": "#141A18",
+        "button_fg": "#F3EFE7",
+        "hover_bg": "#8FCFC6",
+        "hover_fg": "#14211E",
+    }
+
+
+def _css(c: dict) -> str:
+    return f"""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap');
-
-    html, body, [class*="css"] {
+    html, body, [class*="css"] {{
         font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-    }
-    .stApp {
+    }}
+    .stApp {{
         background:
-            linear-gradient(180deg, rgba(20, 92, 86, 0.05), rgba(20, 92, 86, 0) 220px),
-            #F3EFE7;
-        color: #1A2421;
-    }
-    header[data-testid="stHeader"] { background: transparent; }
-    .block-container {
-        padding-top: 1.4rem;
+            linear-gradient(180deg, {c["bg_fade"]}, rgba(0,0,0,0) 220px),
+            {c["bg"]};
+        color: {c["ink"]};
+    }}
+    header[data-testid="stHeader"] {{ background: transparent; }}
+    .block-container {{
+        padding-top: 1.25rem;
         padding-bottom: 3rem;
-        max-width: 1240px;
-    }
-    .bp-mast {
-        border-top: 3px solid #145C56;
-        border-bottom: 1px solid #DDD4C6;
-        padding: 1.15rem 0 1rem;
-        margin: 0 0 1.15rem;
-    }
-    .bp-kicker {
+        max-width: 1180px;
+    }}
+    .bp-mast {{
+        border-top: 3px solid {c["teal"]};
+        border-bottom: 1px solid {c["line"]};
+        padding: 0.95rem 0 0.85rem;
+        margin: 0;
+    }}
+    .bp-kicker, .bp-band {{
         margin: 0 0 0.35rem;
-        font-size: 0.74rem;
+        font-size: 0.72rem;
         letter-spacing: 0.14em;
         text-transform: uppercase;
-        color: #6A6256;
+        color: {c["muted"]};
         font-weight: 500;
-    }
-    .bp-mast h1 {
-        font-family: Newsreader, "Iowan Old Style", Georgia, serif;
+    }}
+    .bp-band {{
+        margin: 1.15rem 0 0.45rem;
+        padding-top: 0.55rem;
+        border-top: 1px solid {c["line"]};
+    }}
+    .bp-mast h1 {{
+        font-family: Newsreader, Georgia, serif;
         font-weight: 500;
-        font-size: 2.35rem;
+        font-size: 2.2rem;
         line-height: 1.08;
         letter-spacing: -0.02em;
-        color: #14211E;
+        color: {c["ink"]};
         margin: 0;
-    }
-    .bp-lead {
-        margin: 0.55rem 0 0;
-        max-width: 72ch;
-        color: #3E4744;
-        font-size: 1.02rem;
+    }}
+    .bp-lead, .bp-note {{
+        color: {c["lead"]};
+        font-size: 0.98rem;
         line-height: 1.45;
-    }
-    .bp-lead code {
+    }}
+    .bp-lead {{ margin: 0.5rem 0 0; max-width: 68ch; }}
+    .bp-note {{
+        margin: 0.1rem 0 0.65rem;
+        color: {c["muted"]};
+        font-size: 0.84rem;
+        line-height: 1.4;
+    }}
+    .bp-lead code {{
         font-family: "IBM Plex Mono", ui-monospace, monospace;
         font-size: 0.86em;
-        background: #E7E1D6;
+        background: {c["code_bg"]};
+        color: {c["ink"]};
         padding: 0.05rem 0.3rem;
-    }
-    h2, h3 {
+    }}
+    .bp-swatch {{
+        display: inline-block;
+        width: 0.72rem;
+        height: 0.72rem;
+        margin: 0 0.28rem 0 0.15rem;
+        vertical-align: -0.08rem;
+        border: 1px solid {c["line"]};
+    }}
+    h2, h3 {{
         font-family: Newsreader, Georgia, serif;
         letter-spacing: -0.015em;
-        color: #14211E;
-    }
-    div[data-testid="stMetric"] {
-        background: #FBF9F4;
-        border: 1px solid #E3DACB;
-        border-top: 3px solid #145C56;
+        color: {c["ink"]};
+    }}
+    div[data-testid="stMarkdownContainer"] p,
+    div[data-testid="stCaptionContainer"] p,
+    div[data-testid="stWidgetLabel"] p,
+    label {{
+        color: {c["ink"]};
+    }}
+    div[data-testid="stCaptionContainer"] p {{ color: {c["muted"]}; }}
+    div[data-testid="stAlert"],
+    div[data-testid="stAlert"] p,
+    div[data-testid="stAlert"] span {{
+        color: #1A2421 !important;
+    }}
+    div[data-testid="stMetric"] {{
+        background: {c["card"]};
+        border: 1px solid {c["line"]};
+        border-top: 3px solid {c["teal"]};
         padding: 0.72rem 0.9rem 0.55rem;
-    }
-    div[data-testid="stMetricLabel"] {
+    }}
+    div[data-testid="stMetricLabel"] p,
+    div[data-testid="stMetricLabel"] {{
         letter-spacing: 0.06em;
         text-transform: uppercase;
         font-size: 0.68rem !important;
-        color: #665F54 !important;
-    }
-    div[data-testid="stMetricValue"] {
+        color: {c["muted"]} !important;
+    }}
+    div[data-testid="stMetricValue"] {{
         font-family: "IBM Plex Mono", ui-monospace, monospace;
         font-weight: 500;
-        color: #14211E;
-    }
-    div[data-testid="stMetricDelta"] {
+        color: {c["ink"]};
+    }}
+    div[data-testid="stMetricDelta"] {{
         font-family: "IBM Plex Mono", ui-monospace, monospace;
-    }
-    .stTabs [data-baseweb="tab-list"] {
+    }}
+    .stTabs [data-baseweb="tab-list"] {{
         gap: 0;
-        border-bottom: 1px solid #DDD4C6;
-    }
-    .stTabs [data-baseweb="tab"] {
+        border-bottom: 1px solid {c["line"]};
+    }}
+    .stTabs [data-baseweb="tab"] {{
         height: 2.7rem;
-        padding: 0 1rem;
+        padding: 0 0.85rem;
         background: transparent;
-        color: #5C564C;
+        color: {c["muted"]};
         font-weight: 500;
         border-radius: 0;
-    }
-    .stTabs [aria-selected="true"] {
-        color: #145C56 !important;
-        border-bottom: 2px solid #145C56;
-    }
-    div[data-testid="stAlert"] {
+    }}
+    .stTabs [aria-selected="true"] {{
+        color: {c["teal"]} !important;
+        border-bottom: 2px solid {c["teal"]};
+    }}
+    div[data-testid="stAlert"] {{ border-radius: 0; border-width: 1px; }}
+    .stButton > button, .stFormSubmitButton > button {{
         border-radius: 0;
-        border-width: 1px;
-    }
-    .stButton > button, .stFormSubmitButton > button {
-        border-radius: 0;
-        border: 1px solid #145C56;
-        background: #145C56;
-        color: #F7F4EE;
+        border: 1px solid {c["teal_deep"]};
+        background: {c["teal_deep"]};
+        color: {c["button_fg"]};
         font-weight: 500;
-    }
-    .stButton > button:hover, .stFormSubmitButton > button:hover {
-        background: #0E433E;
-        border-color: #0E433E;
-        color: #F7F4EE;
-    }
-    div[data-testid="stForm"] {
-        border: 1px solid #E3DACB;
-        background: #FBF9F4;
-        padding: 0.4rem 0.9rem 0.8rem;
-    }
-    div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {
-        border: 1px solid #E3DACB;
-    }
-    hr { border-color: #DDD4C6 !important; }
+    }}
+    .stButton > button:hover, .stFormSubmitButton > button:hover {{
+        background: {c["hover_bg"]};
+        border-color: {c["hover_bg"]};
+        color: {c["hover_fg"]};
+    }}
+    div[data-testid="stForm"] {{
+        border: 1px solid {c["line"]};
+        background: {c["card"]};
+        padding: 0.35rem 0.9rem 0.8rem;
+    }}
+    div[data-testid="stTextInput"] input,
+    div[data-testid="stTextArea"] textarea {{
+        background: {c["card"]};
+        color: {c["ink"]};
+        border-color: {c["line"]};
+    }}
+    div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {{
+        border: 1px solid {c["line"]};
+    }}
+    hr {{ border-color: {c["line"]} !important; }}
     </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.markdown(
     """
-    <div class="bp-mast">
-      <p class="bp-kicker">Ingenieria Biologica · Universidad Nacional de Colombia</p>
-      <h1>Control y validacion de bioprocesos</h1>
-      <p class="bp-lead">Alejandro Timaran. Tablero de presentacion sobre las funciones reales de <code>src/</code>: gemelo CHO-K1, espacio de diseno A-Mab, cadena de frio, SPC y audit trail. La interfaz no duplica la logica.</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+
+
+def _band(text: str) -> None:
+    st.markdown(f'<p class="bp-band">{text}</p>', unsafe_allow_html=True)
+
+
+def _leyenda(text: str) -> None:
+    st.markdown(f'<p class="bp-note">{text}</p>', unsafe_allow_html=True)
+
+
+night = st.session_state.ui_fondo == "Noche"
+P = _palette(night)
+st.markdown(_css(P), unsafe_allow_html=True)
+
+mast_l, mast_r = st.columns([5, 1.15])
+with mast_l:
+    st.markdown(
+        """
+        <div class="bp-mast">
+          <p class="bp-kicker">Ingenieria Biologica · Universidad Nacional de Colombia</p>
+          <h1>Control y validacion de bioprocesos</h1>
+          <p class="bp-lead">Alejandro Timaran. Tablero sobre las funciones reales de <code>src/</code>. El fondo cambia; los calculos, no.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+with mast_r:
+    st.radio(
+        "Fondo",
+        ["Claro", "Noche"],
+        key="ui_fondo",
+        help="Claro es el papel actual. Noche oscurece el fondo y el texto. Arcilla y verde del mapa siguen significando lo mismo.",
+    )
 
 
 def _apply_figure(fig):
@@ -207,10 +321,10 @@ def _apply_figure(fig):
     fig.update_layout(
         template="plotly_white",
         paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(251,249,244,0.9)",
-        font=dict(family="IBM Plex Sans, Segoe UI, sans-serif", color=_INK, size=13),
+        plot_bgcolor=P["paper"],
+        font=dict(family="IBM Plex Sans, Segoe UI, sans-serif", color=P["ink"], size=13),
         title=dict(
-            font=dict(family="Newsreader, Georgia, serif", size=18, color=_INK),
+            font=dict(family="Newsreader, Georgia, serif", size=18, color=P["ink"]),
             x=0,
             xanchor="left",
         ),
@@ -220,26 +334,27 @@ def _apply_figure(fig):
             y=1.02,
             x=0,
             bgcolor="rgba(0,0,0,0)",
-            font=dict(size=12),
+            font=dict(size=12, color=P["ink"]),
         ),
         margin=dict(l=52, r=20, t=72, b=42),
         hoverlabel=dict(
-            bgcolor=_INK,
-            font=dict(color=_PAPER, family="IBM Plex Sans, sans-serif"),
+            bgcolor=P["tip_bg"],
+            font=dict(color=P["tip_fg"], family="IBM Plex Sans, sans-serif"),
         ),
     )
     fig.update_xaxes(
-        showgrid=True, gridcolor="#E7E0D4", zeroline=False,
-        linecolor="#D5CBBA", tickfont=dict(size=11), title_font=dict(size=12),
+        showgrid=True, gridcolor=P["grid"], zeroline=False,
+        linecolor=P["axis"], tickfont=dict(size=11, color=P["muted"]),
+        title_font=dict(size=12, color=P["muted"]),
     )
     fig.update_yaxes(
-        showgrid=True, gridcolor="#E7E0D4", zeroline=False,
-        linecolor="#D5CBBA", tickfont=dict(size=11), title_font=dict(size=12),
+        showgrid=True, gridcolor=P["grid"], zeroline=False,
+        linecolor=P["axis"], tickfont=dict(size=11, color=P["muted"]),
+        title_font=dict(size=12, color=P["muted"]),
     )
     if height:
         fig.update_layout(height=height)
     return fig
-
 
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(
@@ -264,17 +379,9 @@ with tab1:
         "ganancia de titulo calculada en vivo a partir de `simulate_cho_fed_batch`."
     )
 
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        vessel_volume_L = st.slider(
-            "Volumen del biorreactor (L)",
-            min_value=0.25,
-            max_value=35000.0,
-            value=2.0,
-            step=0.25,
-            help="Bounds ProcessDescription: (0, 35000] L.",
-        )
-    with c2:
+    _band("Cultivo: esto si mueve las curvas")
+    g1, g2, g3 = st.columns(3)
+    with g1:
         power_density_W_m3 = st.slider(
             "Densidad de potencia P/V (W/m3)",
             min_value=2.0,
@@ -283,7 +390,8 @@ with tab1:
             step=0.5,
             help="Ventana operativa recomendada 19-30 W/m3. Bounds [2, 100].",
         )
-    with c3:
+        _leyenda("De 19 a 30 W/m3 la productividad sube poco a poco. Desde 30 queda en el techo de este modelo, salvo cizalla: si ademas el sparge pasa de 0.15 vvm y P/V pasa de 47.6, la productividad baja y aparece la alarma.")
+    with g2:
         temp_shift_day = st.slider(
             "Dia del cambio termico",
             min_value=1.0,
@@ -292,7 +400,31 @@ with tab1:
             step=0.5,
             help="Bounds temp_shift_day [1, 14] d.",
         )
-    with c4:
+        _leyenda("Antes de este dia el cultivo crece a 36.5 C. Desde este dia pasa a produccion a 34.0 C y crece mas lento. Adelantarlo acorta el crecimiento; retrasarlo lo alarga.")
+    with g3:
+        sparge_vvm = st.slider(
+            "Flujo de burbujeo sparge (vvm)",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.10,
+            step=0.01,
+            help="Bounds sparge_vvm [0, 1].",
+        )
+        _leyenda("Por si solo no cambia las curvas. Solo pesa si supera 0.15 vvm y, a la vez, P/V supera 47.6 W/m3: ahi el modelo declara cizalla alta.")
+
+    _band("Escala y banda de pH: no cambian las concentraciones")
+    g4, g5 = st.columns(2)
+    with g4:
+        vessel_volume_L = st.slider(
+            "Volumen del biorreactor (L)",
+            min_value=0.25,
+            max_value=35000.0,
+            value=2.0,
+            step=0.25,
+            help="Bounds ProcessDescription: (0, 35000] L.",
+        )
+        _leyenda("No cambia g/L ni celulas/mL: esas curvas son intensivas. Si cambia la masa de mAb y el volumen de alimentacion, que crecen con el vaso.")
+    with g5:
         ph_deadband = st.slider(
             "Banda muerta de pH",
             min_value=0.01,
@@ -301,15 +433,7 @@ with tab1:
             step=0.01,
             help="Bounds ph_deadband (0, 1]. Minimo 0.01 para evitar ValidationError.",
         )
-
-    sparge_vvm = st.slider(
-        "Flujo de burbujeo sparge (vvm)",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.10,
-        step=0.01,
-        help="Bounds sparge_vvm [0, 1].",
-    )
+        _leyenda("No entra en las curvas. Solo abre el controlador de mas abajo: dentro de la banda, CO2 y base estan en cero. Si el pH medido se vuelve mas basico, abre CO2; si se vuelve mas acido, enciende la base.")
 
     shared = dict(
         vessel_volume_L=vessel_volume_L,
@@ -332,6 +456,7 @@ with tab1:
     else:
         titer_gain_pct = float("nan")
 
+    _band("Concentraciones al cierre")
     m1, m2, m3 = st.columns(3)
     m1.metric("Titulo final estatico (g/L)", f"{static_titer:.3f}")
     m2.metric(
@@ -407,7 +532,7 @@ with tab1:
     else:
         closed_feed_label = f"{closed_feed_volume_L:.3f} L"
 
-    st.markdown("**KPIs extensivos acoplados al volumen del vaso (variables extensivas)**")
+    _band("Masa y alimentacion, solo por el volumen")
     e1, e2, e3 = st.columns(3)
     e1.metric(
         "Masa total de mAb estatica",
@@ -425,6 +550,7 @@ with tab1:
         help="Estimado con stock de glucosa a 500 g/L + bolos Cell Boost 7a/7b",
     )
 
+    _band("Trayectorias")
     metrics = [
         ("vcd", "VCD (1e6 cel/mL)"),
         ("viability_pct", "Viabilidad (%)"),
@@ -448,7 +574,7 @@ with tab1:
                     y=static_res[key],
                     mode="lines",
                     name="Static Recipe",
-                    line=dict(color="#A33B2B", dash="dash", width=2),
+                    line=dict(color=P["clay"], dash="dash", width=2),
                 )
             )
             fig.add_trace(
@@ -457,7 +583,7 @@ with tab1:
                     y=closed_res[key],
                     mode="lines",
                     name="Closed-Loop Digital Twin",
-                    line=dict(color="#145C56", width=2.2),
+                    line=dict(color=P["teal"], width=2.2),
                 )
             )
             fig.update_layout(
@@ -477,7 +603,7 @@ with tab1:
                 y=static_res[key],
                 mode="lines",
                 name="Static Recipe",
-                line=dict(color="#A33B2B", dash="dash", width=2),
+                line=dict(color=P["clay"], dash="dash", width=2),
             )
         )
         fig.add_trace(
@@ -486,7 +612,7 @@ with tab1:
                 y=closed_res[key],
                 mode="lines",
                 name="Closed-Loop Digital Twin",
-                line=dict(color="#145C56", width=2.4),
+                line=dict(color=P["teal"], width=2.4),
             )
         )
         fig.update_layout(
@@ -516,7 +642,7 @@ with tab1:
             y=static_mass_curve,
             mode="lines",
             name="Static Recipe",
-            line=dict(color="#A33B2B", dash="dash", width=2),
+            line=dict(color=P["clay"], dash="dash", width=2),
         )
     )
     fig_mass.add_trace(
@@ -525,7 +651,7 @@ with tab1:
             y=closed_mass_curve,
             mode="lines",
             name="Closed-Loop Digital Twin",
-            line=dict(color="#145C56", width=2.4),
+            line=dict(color=P["teal"], width=2.4),
         )
     )
     fig_mass.update_layout(
@@ -537,11 +663,13 @@ with tab1:
     )
     st.plotly_chart(_apply_figure(fig_mass), width="stretch")
 
-    st.divider()
+    _band("Limpieza y esterilizacion")
     st.subheader("Panel de estado de interlocks de seguridad")
+    _leyenda("Estos controles no modifican el cultivo de arriba. El lote se evalua como activo.")
     ic1, ic2, ic3 = st.columns(3)
     with ic1:
         cip_valve_requested = st.toggle("CIP solicitado (valvula)", value=False)
+        _leyenda("Si pides CIP con el lote activo, el interlock bloquea la valvula. No limpia las curvas.")
     with ic2:
         cip_pipe_velocity_m_s = st.slider(
             "Velocidad de tuberia CIP (m/s)",
@@ -551,6 +679,7 @@ with tab1:
             step=0.01,
             help="ASME BPE-2014: cumple si >= 1.52 m/s (5 ft/s).",
         )
+        _leyenda("Por debajo de 1.52 m/s no cumple ASME BPE. Desde 1.52 m/s la velocidad es conforme.")
     with ic3:
         sip_temp_C = st.slider(
             "Temperatura SIP (C)",
@@ -559,7 +688,9 @@ with tab1:
             value=123.0,
             step=0.1,
         )
+        _leyenda("Subirla aumenta el F0 de forma exponencial. Para dar por esteril hace falta al menos 121.1 C y un F0 de 15 min o mas.")
     n_sip = st.slider("Numero de sensores SIP", min_value=1, max_value=10, value=20 // 4)
+    _leyenda("Cada sensor a esa temperatura suma su propio F0. Mas sensores suben el acumulado; si la temperatura esta bajo 121.1 C, ninguno cuenta como esteril.")
 
     interlocks = check_safety_interlocks(
         power_density_W_m3=power_density_W_m3,
@@ -598,6 +729,7 @@ with tab1:
             value=7.0,
             step=0.01,
         )
+        _leyenda("Es la lectura del controlador, no el pH del espacio A-Mab. Por encima de 7.00 mas la banda abre CO2, que acidifica. Por debajo de 7.00 menos la banda enciende la bomba de base.")
         act = compute_split_range_ph_actuators(
             current_ph, setpoint=7.0, deadband=ph_deadband, kp=150.0
         )
@@ -622,20 +754,28 @@ with tab2:
         "los parametros estan en limites **y** z1..z4 >= 4.60."
     )
 
+    _band("Factores del espacio de diseno")
+    _leyenda("El centro es 17 dias, 100 mmHg, 400 mOsm, pH 6.85 y 35 C. No son rectas: un factor cambia el efecto de otro. El espacio se sostiene solo si z1, z2, z3 y z4 quedan en 4.60 o mas.")
     s1, s2, s3 = st.columns(3)
     with s1:
         cd_days = st.slider("Duracion de cultivo (dias)", 15.0, 19.0, 17.0, 0.1)
+        _leyenda("Alejarse de 17 dias puede sacar alguna respuesta z de 4.60. No alarga el gemelo de la primera pestana.")
         co2_mmHg = st.slider("pCO2 (mmHg)", 40.0, 160.0, 100.0, 1.0)
+        _leyenda("Es CO2 disuelto, no el sparge del gemelo. Alejarse de 100 mmHg mueve la glicosilacion por la superficie, no el titulo g/L.")
     with s2:
         osm_mOsm = st.slider("Osmolalidad (mOsm)", 360.0, 440.0, 400.0, 1.0)
+        _leyenda("Centro en 400 mOsm. Subir o bajar cambia z1 a z4 segun la superficie. No cambia el volumen del vaso.")
         ph_val = st.slider("pH", 6.6, 7.1, 6.85, 0.01)
+        _leyenda("Hacia 6.6 esta mas acido y hacia 7.1 mas basico. Eso no empuja las cuatro respuestas al mismo lado: el mapa, junto con la temperatura, dice donde las cuatro siguen en 4.60 o mas.")
     with s3:
         temp_C = st.slider("Temperatura (C)", 34.0, 36.0, 35.0, 0.05)
+        _leyenda("No es el cambio 36.5 a 34 C del gemelo. Aqui el rango es 34 a 36 C y se cruza con el pH en el mapa.")
 
     ds = evaluate_amab_design_space(
         cd_days=cd_days, co2_mmHg=co2_mmHg, osm_mOsm=osm_mOsm, ph_val=ph_val, temp_C=temp_C
     )
 
+    _band("Respuestas de N-glicano")
     z1, z2, z3, z4 = st.columns(4)
     LIMIT = 4.60
 
@@ -664,8 +804,9 @@ with tab2:
         else:
             st.error("design_space_holds = False")
 
-    st.divider()
+    _band("Mapa de cumplimiento")
     st.subheader("Mapa de calor de cumplimiento: Temperatura vs pH")
+    _leyenda("Solo se barren temperatura y pH. Duracion, pCO2 y osmolalidad se quedan en lo que marcaste arriba.")
     n_grid = 25
     temp_axis = np.linspace(34.0, 36.0, n_grid)
     ph_axis = np.linspace(6.6, 7.1, n_grid)
@@ -686,33 +827,49 @@ with tab2:
             z=z_grid,
             x=[f"{t:.2f}" for t in temp_axis],
             y=[f"{p:.3f}" for p in ph_axis],
-            colorscale=[[0.0, "#A33B2B"], [1.0, "#2F6B4F"]],
+            colorscale=[[0.0, P["heat_no"]], [1.0, P["heat_yes"]]],
             zmin=0.0,
             zmax=1.0,
-            colorbar=dict(title="holds", tickvals=[0, 1], ticktext=["No", "Si"]),
+            colorbar=dict(
+                title="espacio",
+                tickvals=[0, 1],
+                ticktext=["No", "Si"],
+                tickfont=dict(color=P["ink"]),
+            ),
         )
     )
     heat.update_layout(
-        title="design_space_holds (verde=cumple) sobre barrido Temp x pH",
+        title="Arcilla: no se sostiene. Verde: se sostiene. El significado no cambia de modo.",
         xaxis_title="Temperatura (C)",
         yaxis_title="pH",
         height=420,
     )
+    st.markdown(
+        f'<p class="bp-note"><span class="bp-swatch" style="background:{P["heat_no"]}"></span>'
+        "Arcilla: design_space_holds es falso. "
+        f'<span class="bp-swatch" style="background:{P["heat_yes"]}"></span>'
+        "Verde: es verdadero, las cuatro z estan en 4.60 o mas. "
+        "Esos dos papeles no se intercambian al pasar a noche.</p>",
+        unsafe_allow_html=True,
+    )
     st.plotly_chart(_apply_figure(heat), width="stretch")
 
-    st.divider()
+    _band("Transferencia de oxigeno")
     st.subheader("Calculadora de kLa y OUR (escalamiento)")
     e1, e2, e3 = st.columns(3)
     with e1:
         superficial_gas_vel_m_s = st.slider(
             "Velocidad superficial de gas (m/s)", 0.001, 0.05, 0.01, 0.001
         )
+        _leyenda("Sube el kLa: el exponente de esta correlacion es 0.48. No cambia el OUR.")
     with e2:
         power_per_vol_W_m3 = st.slider(
             "Potencia por volumen (W/m3)", 2.0, 250.0, 50.0, 1.0
         )
+        _leyenda("Tambien sube el kLa, pero menos que el gas: el exponente es 0.19. Es independiente del P/V del gemelo.")
     with e3:
         vcc = st.slider("VCC (1e6 cel/mL)", 1.0, 60.0, 15.0, 0.5)
+        _leyenda("El OUR de esta formula es 1.5 mmol/L/h a 15 millones de celulas/mL y crece en linea recta con la densidad. El kLa no depende de este valor.")
 
     scale = compute_scale_up_engineering(
         superficial_gas_vel_m_s=superficial_gas_vel_m_s,
@@ -735,15 +892,19 @@ with tab3:
         "(VTB) de 1 mL, 20 mL y 300 mL (Rusnack, Pharm. Eng. 2026)."
     )
 
+    _band("Registro termico")
     e1, e2, e3 = st.columns(3)
     with e1:
         duration_h = st.slider("Duracion del registro (horas)", 6, 72, 24, 1)
+        _leyenda("El pico conserva la temperatura que marques al lado, pero un registro mas largo hace la excursion mas ancha y la centra cerca del 45 % del tiempo. La oscilacion de fondo se repite cada 6 horas.")
     with e2:
         sampling_interval_min = st.selectbox(
             "Intervalo de muestreo (min)", [1.0, 2.0, 5.0, 10.0, 15.0], index=2
         )
+        _leyenda("Un intervalo mas largo baja el limite de Nyquist: se distinguen menos ciclos por hora y puede aparecer aliasing. Tambien cambia el suavizado VTB, porque alfa se aplica una vez por muestra.")
     with e3:
         excursion_peak_C = st.slider("Pico de excursion (C)", 8.0, 25.0, 15.0, 0.5)
+        _leyenda("Es cuantos grados alcanza el pico sobre la base de 5 C. Un pico mas alto sube la MKT, porque el tramo caliente pesa mas. El vial de 1 mL lo sigue; el de 300 mL casi no se entera.")
 
     n_samples = int((duration_h * 60.0) / sampling_interval_min) + 1
     t_min = np.arange(n_samples) * sampling_interval_min
@@ -764,15 +925,15 @@ with tab3:
     fig_t = go.Figure()
     fig_t.add_trace(
         go.Scatter(x=t_hours, y=air, mode="lines", name="Aire crudo",
-                   line=dict(color="#6E675C", width=1))
+                   line=dict(color=P["air"], width=1))
     )
-    colors = {"1 mL": "#145C56", "20 mL (Glycol Ref)": "#2F6B4F", "300 mL (Bulk)": "#6B5344"}
+    colors = {"1 mL": P["teal"], "20 mL (Glycol Ref)": P["moss"], "300 mL (Bulk)": P["bulk"]}
     for k in volume_keys:
         fig_t.add_trace(
             go.Scatter(x=t_hours, y=vtb_traces[k], mode="lines", name=f"VTB {k}",
                        line=dict(color=colors[k]))
         )
-    fig_t.add_hrect(y0=2.0, y1=8.0, fillcolor="#2F6B4F", opacity=0.08, line_width=0,
+    fig_t.add_hrect(y0=2.0, y1=8.0, fillcolor=P["moss"], opacity=0.08, line_width=0,
                     annotation_text="Rango 2-8 C", annotation_position="top left")
     fig_t.update_layout(
         title="Aire crudo vs trazas VTB por volumen",
@@ -799,10 +960,10 @@ with tab3:
     freqs_cph = np.fft.rfftfreq(signal.size, d=sampling_interval_min) * 60.0
 
     fig_f = go.Figure()
-    fig_f.add_trace(go.Scatter(x=freqs_cph, y=spectrum, mode="lines", name="|FFT|", line=dict(color="#145C56", width=1.6)))
+    fig_f.add_trace(go.Scatter(x=freqs_cph, y=spectrum, mode="lines", name="|FFT|", line=dict(color=P["teal"], width=1.6)))
     fig_f.add_vline(
         x=fft_res["nyquist_limit_cph"],
-        line=dict(color="#A33B2B", dash="dash"),
+        line=dict(color=P["clay"], dash="dash"),
         annotation_text=f"Nyquist {fft_res['nyquist_limit_cph']:.2f} cph",
         annotation_position="top",
     )
@@ -837,18 +998,20 @@ with tab4:
 
     cap = compute_process_capability(GORSKY_TABLE_6_2_TORQUE_N30, lsl=5.0, usl=12.0)
 
+    _band("Carta fija de Gorsky")
     st.subheader("Grafica de control de Shewhart (n=30, Tabla 6-2)")
+    _leyenda("Estos puntos no tienen control: son la tabla 6-2. Mover los reactores de abajo no cambia esta carta ni el Cp/Cpk.")
     x_idx = list(range(1, len(GORSKY_TABLE_6_2_TORQUE_N30) + 1))
     fig_sh = go.Figure()
     fig_sh.add_trace(
         go.Scatter(x=x_idx, y=GORSKY_TABLE_6_2_TORQUE_N30, mode="lines+markers",
-                   name="Torque (N)", line=dict(color="#145C56"), marker=dict(color="#145C56", size=6))
+                   name="Torque (N)", line=dict(color=P["teal"]), marker=dict(color=P["teal"], size=6))
     )
-    fig_sh.add_hline(y=cap["ucl"], line=dict(color="#A33B2B", dash="dash"),
+    fig_sh.add_hline(y=cap["ucl"], line=dict(color=P["clay"], dash="dash"),
                      annotation_text=f"UCL {cap['ucl']:.2f}")
-    fig_sh.add_hline(y=cap["lcl"], line=dict(color="#A33B2B", dash="dash"),
+    fig_sh.add_hline(y=cap["lcl"], line=dict(color=P["clay"], dash="dash"),
                      annotation_text=f"LCL {cap['lcl']:.2f}")
-    fig_sh.add_hline(y=cap["mean"], line=dict(color="#2F6B4F"),
+    fig_sh.add_hline(y=cap["mean"], line=dict(color=P["moss"]),
                      annotation_text=f"Media {cap['mean']:.2f}")
     fig_sh.update_layout(
         title="Carta de control: puntos con UCL/LCL (+/- 3 sigma)",
@@ -870,9 +1033,9 @@ with tab4:
 
     st.subheader("Histograma de capacidad vs LSL/USL")
     fig_h = go.Figure()
-    fig_h.add_trace(go.Histogram(x=GORSKY_TABLE_6_2_TORQUE_N30, nbinsx=12, name="Torque", marker_color="#145C56"))
-    fig_h.add_vline(x=5.0, line=dict(color="#A33B2B", dash="dash"), annotation_text="LSL 5.0")
-    fig_h.add_vline(x=12.0, line=dict(color="#A33B2B", dash="dash"), annotation_text="USL 12.0")
+    fig_h.add_trace(go.Histogram(x=GORSKY_TABLE_6_2_TORQUE_N30, nbinsx=12, name="Torque", marker_color=P["teal"]))
+    fig_h.add_vline(x=5.0, line=dict(color=P["clay"], dash="dash"), annotation_text="LSL 5.0")
+    fig_h.add_vline(x=12.0, line=dict(color=P["clay"], dash="dash"), annotation_text="USL 12.0")
     fig_h.update_layout(
         title=f"Distribucion de torque | Cp={cap['cp']:.2f}, Cpk={cap['cpk']:.2f}",
         xaxis_title="Torque (N)", yaxis_title="Frecuencia", height=360
@@ -890,7 +1053,9 @@ with tab4:
     ti_cols[4].metric("Limite superior", f"{ti['upper_tolerance']:.2f}")
 
     st.divider()
+    _band("Comparar dos reactores")
     st.subheader("Prueba t de Welch entre dos reactores (datos editables)")
+    _leyenda("Estos numeros si cambian la prueba. Si los dos grupos se separan bastante frente a su dispersion, el p-valor cae bajo 0.05 y se marca diferencia significativa. Hacen falta al menos dos valores validos en cada uno.")
     default_a = pd.DataFrame({"Reactor A": [8.1, 7.9, 8.4, 8.0, 8.3, 7.8]})
     default_b = pd.DataFrame({"Reactor B": [8.6, 8.9, 9.1, 8.7, 9.0, 8.8]})
     ca, cb = st.columns(2)
@@ -952,6 +1117,7 @@ with tab5:
         human_approved = st.checkbox(
             "Firma electronica: aprobacion humana (Annex 22)", value=True
         )
+        _leyenda("Si quitas la aprobacion humana, el registro se rechaza. Si la razon tiene menos de 5 caracteres, tambien. El resto queda escrito en la cadena: cambiarlo cambia el hash, no un calculo de proceso.")
         submitted = st.form_submit_button("Registrar cambio")
 
     if submitted:
