@@ -1,7 +1,7 @@
 """Tablero Streamlit del portafolio de bioprocesos GxP (FASE 4 de 4).
 
 Dashboard interactivo con 5 pestanas que consume EXCLUSIVAMENTE las funciones
-reales de src/ (sin duplicar ninguna logica cientifica). Se lanza con:
+reales de src/. Se lanza con:
 
     streamlit run app/dashboard.py
 
