@@ -1,6 +1,8 @@
-![FDA CSA OQ Validation](https://github.com/alehernann/bioprocesos-portafolio/actions/workflows/csa_validation.yml/badge.svg)
+![FDA CSA OQ Validation](https://github.com/alehernann/bioprocesos-portafolio/actions/workflows/csa_validation.yml/badge.svg) [![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://bioprocesos-portafolio.streamlit.app/)
 
 # bioprocesos-portafolio
+
+**🌐 Live Interactive SCADA & GxP Dashboard:** [https://bioprocesos-portafolio.streamlit.app/](https://bioprocesos-portafolio.streamlit.app/)
 
 Portafolio de bioprocesos, control y validacion GxP de **Alejandro Timaran**, estudiante de **Ingenieria Biologica** de la **Universidad Nacional de Colombia (UNAL)**.
 
