@@ -138,7 +138,7 @@ def test_oq_05b_amab_scale_up_kla_pilot_commercial_range():
 
     Per ISPE A-Mab Table 3.22 (p.105) the pilot/commercial range (500 L to
     25,000 L, Vs = VVM * H / 60) is Vs = 0.005-0.017 m/s. With KLA_COEFF = 80.14
-    and P/V = 19-30 W/m3 the correlation gives kLa ~9.5-21.5 h^-1, inside the
+    and P/V = 19-30 W/m3 the correlation gives kLa 11.10-21.84 h^-1, inside the
     Table 3.22 envelope of 8-22 h^-1. Corners checked: Vs in {0.005, 0.017} m/s,
     P/V in {19, 30} W/m3.
     """

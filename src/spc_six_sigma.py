@@ -62,8 +62,10 @@ def compute_process_capability(data, lsl: float = 5.0, usl: float = 12.0) -> dic
     only strictly valid for approximately normal data.
 
     Returns mean, std (overall), pp, ppu, ppl, ppk, cp_within, cpu_within,
-    cpl_within, cpk_within, cpk (= round(ppk, 2)), ucl, lcl, capable_4sigma,
-    normality_p_value and is_normal.
+    cpl_within, cpk_within, cpk (= round(ppk, 2)), ucl, lcl (overall +/-3 std),
+    std_within, ucl_within, lcl_within (I-MR Shewhart limits, mean +/- 3*std_within
+    = mean +/- 2.66*MR-bar, short-term), capable_4sigma, normality_p_value and
+    is_normal.
     """
     arr = np.asarray(data, dtype=float)
     mean = np.mean(arr)
@@ -109,6 +111,9 @@ def compute_process_capability(data, lsl: float = 5.0, usl: float = 12.0) -> dic
         "cpk": cpk,
         "ucl": round(float(ucl), 2),
         "lcl": round(float(lcl), 2),
+        "std_within": round(float(std_within), 2),
+        "ucl_within": round(float(mean + 3 * std_within), 2),
+        "lcl_within": round(float(mean - 3 * std_within), 2),
         "capable_4sigma": capable_4sigma,
         "normality_p_value": round(normality_p_value, 4),
         "is_normal": is_normal,

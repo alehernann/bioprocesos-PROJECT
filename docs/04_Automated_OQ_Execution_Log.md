@@ -6,7 +6,7 @@ FDA Computer Software Assurance (CSA) Operational Qualification (OQ) automated e
 
 ## Execution Environment
 
-- **Execution timestamp (UTC):** 2026-11-08 11:10:23 UTC
+- **Execution timestamp (UTC):** 2026-11-08 11:40:01 UTC
 - **Python version:** 3.11.15
 - **Platform:** Linux-6.1.189-236.400.amzn2023.x86_64-x86_64-with-glibc2.34
 - **Qualified package versions:**
@@ -43,7 +43,7 @@ FDA Computer Software Assurance (CSA) Operational Qualification (OQ) automated e
 | tests/test_csa_oq_validation.py::test_oq_09_part11_audit_trail_and_annex22_guardrail | Scripted Testing (High Process Risk) | PASSED | 0.0001 |
 | tests/test_csa_oq_validation.py::test_exploratory_10_invalid_pydantic_inputs | Unscripted / Error-Guessing (Not High Process Risk) | PASSED | 0.0001 |
 | tests/test_csa_oq_validation.py::test_exploratory_11_audit_trail_requires_reason | Unscripted / Error-Guessing (Not High Process Risk) | PASSED | 0.0001 |
-| tests/test_csa_oq_validation.py::test_exploratory_12_welch_ttest_identical_groups_not_significant | Unscripted / Error-Guessing (Not High Process Risk) | PASSED | 0.0010 |
+| tests/test_csa_oq_validation.py::test_exploratory_12_welch_ttest_identical_groups_not_significant | Unscripted / Error-Guessing (Not High Process Risk) | PASSED | 0.0009 |
 
 ## Acceptability Statement (FDA CSA Section V.A.6)
 

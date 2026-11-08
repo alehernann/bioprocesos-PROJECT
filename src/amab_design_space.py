@@ -200,7 +200,7 @@ def compute_scale_up_engineering(
     ``KLA_COEFF = 80.14`` is kept. Per ISPE A-Mab Table 3.22 (p.105) the
     pilot/commercial range (500 L to 25,000 L, with Vs = VVM * H / 60) spans
     Vs = 0.005-0.017 m/s. Over that range, with P/V = 19-30 W/m3, this
-    correlation gives kLa ~9.5-21.5 h^-1, within Table 3.22's 8-22 h^-1 range.
+    correlation gives kLa 11.10-21.84 h^-1, within Table 3.22's 8-22 h^-1 range.
 
     Returns ``kla_h_inv`` (volumetric mass-transfer coefficient, 1/h),
     ``our_max_mmol_L_h`` (maximum oxygen uptake rate, mmol/(L*h)),

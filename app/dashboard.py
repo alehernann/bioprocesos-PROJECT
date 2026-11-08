@@ -999,7 +999,8 @@ with tab3:
             "El compresor es la oscilacion rapida que debe resolver el monitor."
         )
 
-    n_samples = int((duration_h * 60.0) / BASE_DT_MIN) + 1
+    # 0 a duration_h exclusivo (24 h -> N = 288, igual que test_oq_07).
+    n_samples = int((duration_h * 60.0) / BASE_DT_MIN)
     t_min = np.arange(n_samples) * BASE_DT_MIN
     t_hours = t_min / 60.0
 
@@ -1207,14 +1208,23 @@ with tab4:
             go.Scatter(x=x_idx, y=GORSKY_TABLE_6_2_TORQUE_N30, mode="lines+markers",
                        name="Torque (N)", line=dict(color=P["closed"]), marker=dict(color=P["closed"], size=6))
         )
-        fig_sh.add_hline(y=cap["ucl"], line=dict(color=P["limit"], dash="dash", width=2.4),
-                         annotation_text=f"UCL {cap['ucl']:.2f}")
-        fig_sh.add_hline(y=cap["lcl"], line=dict(color=P["limit"], dash="dash", width=2.4),
-                         annotation_text=f"LCL {cap['lcl']:.2f}")
-        fig_sh.add_hline(y=cap["mean"], line=dict(color=P["mean"], width=2.4),
-                         annotation_text=f"Media {cap['mean']:.2f}")
+        x_span = [x_idx[0], x_idx[-1]]
+
+        def _limit_trace(y, name, color, dash, width=2.4):
+            fig_sh.add_trace(
+                go.Scatter(x=x_span, y=[y, y], mode="lines", name=name,
+                           line=dict(color=color, dash=dash, width=width))
+            )
+
+        # Limites I-MR within (corto plazo): X-bar +/- 3*std_within = X-bar +/- 2.66*MR-bar
+        _limit_trace(cap["ucl_within"], f"UCL within I-MR {cap['ucl_within']:.2f}", P["limit"], "dash")
+        _limit_trace(cap["lcl_within"], f"LCL within I-MR {cap['lcl_within']:.2f}", P["limit"], "dash")
+        # Limites globales (largo plazo): media +/- 3*std global
+        _limit_trace(cap["ucl"], f"UCL global {cap['ucl']:.2f}", P["closed"], "dot", 1.8)
+        _limit_trace(cap["lcl"], f"LCL global {cap['lcl']:.2f}", P["closed"], "dot", 1.8)
+        _limit_trace(cap["mean"], f"Media {cap['mean']:.2f}", P["mean"], "solid")
         fig_sh.update_layout(
-            title="Carta de Shewhart, Tabla 6-2 (n=30)",
+            title="Carta de Shewhart I-MR, Tabla 6-2 (n=30)",
             xaxis_title="Muestra (#)", yaxis_title="Torque (N)", height=360,
         )
         st.plotly_chart(_apply_figure(fig_sh), width="stretch")
@@ -1229,7 +1239,11 @@ with tab4:
             xaxis_title="Torque (N)", yaxis_title="Frecuencia (conteo)", height=360,
         )
         st.plotly_chart(_apply_figure(fig_h), width="stretch")
-    _leyenda("UCL/LCL = media +/- 3 std global, como las calcula compute_process_capability. Los datos de Gorsky son fijos.")
+    _leyenda(
+        "UCL/LCL within I-MR = media +/- 3 std_within = media +/- 2.66 MR-bar (corto plazo, Shewhart). "
+        "UCL/LCL global = media +/- 3 std global (largo plazo). Ambos los calcula "
+        "compute_process_capability. Los datos de Gorsky son fijos."
+    )
 
     with st.container(border=True):
         _band("Intervalo de tolerancia ISO 16269-6 (n=10, Tabla 6-1)")
