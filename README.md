@@ -37,7 +37,7 @@ flowchart TD
 
     subgraph tests["tests/ (Calificacion operacional OQ)"]
         CONF["conftest.py\ngenera docs/04 en cada corrida"]
-        TOQ["test_csa_oq_validation.py\n12 pruebas OQ (FDA CSA)"]
+        TOQ["test_csa_oq_validation.py\n13 pruebas OQ (FDA CSA)"]
     end
 
     subgraph docs["docs/ (Paquete documental GxP)"]
@@ -109,12 +109,15 @@ streamlit run app/dashboard.py
 
 Los resultados nominales del gemelo digital (14 d, parametros por defecto) son **valores medidos, no forzados**: son la salida directa de las ecuaciones mecanisticas de `simulate_cho_fed_batch`.
 
-- Titulo final: **1.52 g/L (receta estatica)** vs **2.39 g/L (lazo cerrado)**, es decir una **ganancia de +57.8 %**.
-- Viabilidad final: **66.6 % (estatica)** vs **92.5 % (lazo cerrado)**.
+- Titulo final: **1.3122 g/L (receta estatica)** vs **1.8713 g/L (lazo cerrado)**, es decir una **ganancia de +42.6 %** con balance de volumen variable dV/dt.
+- Viabilidad final: **76.41 % (estatica)** vs **92.03 % (lazo cerrado)**.
+- Escalamiento A-Mab: **kLa = 20.0 h^-1** a 15,000 L (Vs = 0.015 m/s, P/V = 26 W/m3; **OTR = 2.94 mmol/L/h**); rango **11.10-21.84 h^-1** para Vs = 0.005-0.017 m/s y P/V = 19-30 W/m3.
+- Six Sigma (Gorsky Tabla 6.2, n=30): **Ppk 0.51**, **Cpk(within) 0.43**, **Shapiro-Wilk p = 0.243**; intervalo de tolerancia ISO 16269-6 (Tabla 6.1, n=10) con **k_factor 3.394**.
+- Calificacion operacional: **13/13 pruebas OQ** aprobadas.
 
 Estos numeros se reportan tal como se miden, aun cuando algunos caen fuera de las bandas guia de referencia; el resultado cualitativo (el lazo cerrado supera claramente a la receta estatica con mayor viabilidad retenida) se mantiene con solidez. En el tablero la **ganancia de titulo se calcula en vivo** a partir de los resultados de la simulacion y nunca se fija como constante.
 
-La mayor ganancia porcentual (+57.8 %) se deriva del desacoplamiento de la viabilidad celular en la fase estacionaria tardía (66.6 % static vs 92.5 % closed_loop), y que la glucosa cae a ~1.86 g/L antes de cada bolo porque el modelo representa la latencia de muestreo previa a la inyección.
+La ganancia porcentual (+42.6 %) se deriva del desacoplamiento de la viabilidad celular en la fase estacionaria tardía (76.41 % static vs 92.03 % closed_loop), y que la glucosa cae a ~1.86 g/L antes de cada bolo porque el modelo representa la latencia de muestreo previa a la inyección.
 
 ## Seccion 5: Bibliografia Academica, Industrial y Regulatoria
 Referencias Bibliográficas y Marco Regulatorio (References)

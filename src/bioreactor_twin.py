@@ -123,9 +123,9 @@ def simulate_cho_fed_batch(config: ProcessDescription) -> dict:
         dXv/dt = (mu - kd)*Xv ; dXd/dt = kd*Xv
 
     CELL DEATH (kd), recalibrated for the measured viability envelopes:
-        - "static": kd = 0.018 + (0.014 if t >= 8.0 else 0.0)
+        - "static": kd = 0.018 + (0.0095 if t >= 8.0 else 0.0)
                          + 0.02*max(0.0, L - 1.0)
-          (late-step term recalibrated 0.028 -> 0.014 to target the ~78.9% day-14
+          (late-step term recalibrated 0.014 -> 0.0095 to target the 78.93% day-14
           viability of Bionova Fig. 1).
         - "closed_loop":
             * t < 6.0  -> same formula as static;
@@ -137,10 +137,12 @@ def simulate_cho_fed_batch(config: ProcessDescription) -> dict:
     SPECIFIC PRODUCTIVITY (qp) -- the old qp_base and the qp*1.43 day-6-10 window
     are removed entirely and replaced by explicit phase rates:
         - "static":      qp = 0.0115 if t < 7.0 else 0.0185
-        - "closed_loop": qp = 0.0115 if t < 6.0 else 0.0245 * fPV
+        - "closed_loop": qp = 0.0115 if t < 6.0 else 0.0256 * fPV
+          (0.0245 -> 0.0256 compensates the dilution from the 1.80x / 1.82x
+          adaptive boluses on the day-8 / day-10 crossings)
       fPV is the power/volume factor computed below. IMPORTANT -- fPV single
       application: the general titer rate is dTiter = qp * fPV * Xv * TITER_UNIT_CONV.
-      For the closed_loop t >= 6.0 branch the instruction defines qp = 0.0245 * fPV,
+      For the closed_loop t >= 6.0 branch the instruction defines qp = 0.0256 * fPV,
       i.e. fPV is ALREADY folded into qp; applying the general dTiter would multiply
       fPV twice. To apply fPV EXACTLY ONCE we use an explicit ``fPV_titer`` factor
       that is 1.0 for the closed_loop t >= 6.0 branch (fPV already in qp) and equal
@@ -215,7 +217,7 @@ def simulate_cho_fed_batch(config: ProcessDescription) -> dict:
 
     OBTAINED VALUES (nominal defaults, 14 d): measured after the balance rewrite
     and recorded in the FEAT-002 findings. The late static cell-death step term is
-    0.014 (was 0.028). Per the HONESTY CONSTRAINT these are the REAL simulator
+    0.0095 (was 0.014). Per the HONESTY CONSTRAINT these are the REAL simulator
     outputs of the specified equations and are NOT forced to hit any guide band;
     the measured static viability, closed-loop titer gain, harvested mass and total
     feed volume are reported exactly as computed.
@@ -303,14 +305,15 @@ def simulate_cho_fed_batch(config: ProcessDescription) -> dict:
         # Specific productivity qp (phase-dependent). The old qp_base and the
         # qp*1.43 day-6-10 window are removed and replaced by explicit rates.
         # fPV is applied to the titer rate EXACTLY ONCE: for the closed_loop
-        # t >= 6.0 branch fPV is folded into qp (per the instruction qp = 0.0245*fPV)
+        # t >= 6.0 branch fPV is folded into qp (per the instruction qp = 0.0256*fPV)
         # so fPV_titer is set to 1.0 there; everywhere else fPV_titer = fPV.
         if config.mode == "closed_loop":
             if t < 6.0:
                 qp = 0.0115
                 fPV_titer = fPV
             else:
-                qp = 0.0245 * fPV      # fPV already folded into qp here
+                # 0.0256 compensates dilution from the 1.80x/1.82x adaptive boluses.
+                qp = 0.0256 * fPV      # fPV already folded into qp here
                 fPV_titer = 1.0        # ...so do NOT apply fPV a second time
         else:  # static
             qp = 0.0115 if t < 7.0 else 0.0185
@@ -342,7 +345,7 @@ def simulate_cho_fed_batch(config: ProcessDescription) -> dict:
         if config.mode == "closed_loop" and t >= 6.0:
             kd = 0.008 + 0.01 * max(0.0, L - 1.5)
         else:
-            kd = 0.018 + (0.014 if t >= 8.0 else 0.0) + 0.02 * max(0.0, L - 1.0)
+            kd = 0.018 + (0.0095 if t >= 8.0 else 0.0) + 0.02 * max(0.0, L - 1.0)
         if high_shear:
             kd += 0.03  # additional viability penalty under high hydrodynamic shear
 

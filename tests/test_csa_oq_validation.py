@@ -19,7 +19,10 @@ import numpy as np
 import pydantic
 import pytest
 
-from src.amab_design_space import evaluate_amab_design_space
+from src.amab_design_space import (
+    compute_scale_up_engineering,
+    evaluate_amab_design_space,
+)
 from src.audit_trail_part11 import AuditTrailLogger
 from src.bioreactor_twin import (
     check_safety_interlocks,
@@ -73,7 +76,7 @@ def test_oq_02_automated_day7_temperature_shift():
 
 
 def test_oq_03_closed_loop_vs_static_titer_gain():
-    """Closed-loop feeding gains >= +35% titer and holds glucose above threshold."""
+    """Closed-loop feeding gains +40-46% titer and holds glucose above threshold."""
     static = simulate_cho_fed_batch(ProcessDescription(mode="static"))
     closed = simulate_cho_fed_batch(ProcessDescription(mode="closed_loop"))
 
@@ -82,7 +85,7 @@ def test_oq_03_closed_loop_vs_static_titer_gain():
         / static["final_titer_g_L"]
         * 100.0
     )
-    assert gain_pct >= 35.0
+    assert 40.0 <= gain_pct <= 46.0
 
     # In closed_loop, glucose must stay above the critical minimum threshold after
     # each adaptive feed. Inspect the glucose series at every feed-day crossing.
@@ -130,6 +133,21 @@ def test_oq_05_ispe_amab_design_space_center_and_edges():
     assert extreme["design_space_holds"] is False
 
 
+def test_oq_05b_amab_scale_up_kla_pilot_commercial_range():
+    """A-Mab Table 3.22 (p.105): kLa stays within 8-22 h^-1 over the pilot/commercial Vs range.
+
+    Per ISPE A-Mab Table 3.22 (p.105) the pilot/commercial range (500 L to
+    25,000 L, Vs = VVM * H / 60) is Vs = 0.005-0.017 m/s. With KLA_COEFF = 80.14
+    and P/V = 19-30 W/m3 the correlation gives kLa ~9.5-21.5 h^-1, inside the
+    Table 3.22 envelope of 8-22 h^-1. Corners checked: Vs in {0.005, 0.017} m/s,
+    P/V in {19, 30} W/m3.
+    """
+    for vs in (0.005, 0.017):
+        for pv in (19.0, 30.0):
+            kla = compute_scale_up_engineering(vs, pv)["kla_h_inv"]
+            assert 8.0 <= kla <= 22.0, f"kLa {kla} out of range at Vs={vs}, P/V={pv}"
+
+
 def test_oq_06_mkt_and_vtb_damping():
     """MKT of an isothermal trace equals the temperature; bulk VTB damps more."""
     assert calculate_mkt_celsius([5.0] * 288) == pytest.approx(5.0, abs=0.01)
@@ -173,13 +191,21 @@ def test_oq_07_fft_nyquist_sampling_validation():
     assert resolved["aliasing_risk"] is False
 
     # Coarser candidate intervals all alias the 2.9 cph compressor signal.
+    # General baseband folding |f - fs*round(f/fs)| with fs = 60/target_min, using
+    # the FFT-measured peak. 24 h at 5 min (N=288) gives a bin width of
+    # 1/24 = 0.0417 cph; the peak falls in bin 70 -> 2.9167 cph, so the expected
+    # aliases are ~1.08 / 0.92 / 0.08 cph at 15 / 30 / 60 min.
     for target_min, expected_nyquist in ((15.0, 2.0), (30.0, 1.0), (60.0, 0.5)):
         res = analyze_fft_nyquist(
             list(fridge_5min), target_sampling_interval_min=target_min
         )
         assert res["target_nyquist_cph"] == pytest.approx(expected_nyquist, abs=0.01)
         assert res["aliasing_risk"] is True
-        assert res["folded_alias_freq_cph"] > 0.0
+        f_dom = res["true_dominant_freq_cph"]
+        assert f_dom == pytest.approx(2.9, abs=0.05)
+        fs = 60.0 / target_min
+        expected = abs(f_dom - fs * round(f_dom / fs))
+        assert res["folded_alias_freq_cph"] == pytest.approx(expected, abs=0.03)
 
 
 def test_oq_08_gorsky_spc_tolerance_and_capability():

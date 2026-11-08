@@ -35,7 +35,7 @@ def compute_iso16269_tolerance_interval(data, k_factor: float = 3.394) -> dict:
     return {
         "mean": round(float(mean), 2),
         "std": round(float(std), 2),
-        "k_factor": round(float(k_factor), 2),
+        "k_factor": round(float(k_factor), 3),
         "lower_tolerance": round(float(lower), 2),
         "upper_tolerance": round(float(upper), 2),
     }

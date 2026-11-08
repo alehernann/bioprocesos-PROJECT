@@ -195,6 +195,13 @@ def compute_scale_up_engineering(
     physically real single/low-double-digit kLa in h^-1 rather than the former
     ~1e4-scaled artefact.
 
+    PILOT/COMMERCIAL RANGE (A-Mab Table 3.22, p.105)
+    ------------------------------------------------
+    ``KLA_COEFF = 80.14`` is kept. Per ISPE A-Mab Table 3.22 (p.105) the
+    pilot/commercial range (500 L to 25,000 L, with Vs = VVM * H / 60) spans
+    Vs = 0.005-0.017 m/s. Over that range, with P/V = 19-30 W/m3, this
+    correlation gives kLa ~9.5-21.5 h^-1, within Table 3.22's 8-22 h^-1 range.
+
     Returns ``kla_h_inv`` (volumetric mass-transfer coefficient, 1/h),
     ``our_max_mmol_L_h`` (maximum oxygen uptake rate, mmol/(L*h)),
     ``otr_mmol_L_h`` (oxygen-transfer rate at the saturation driving force

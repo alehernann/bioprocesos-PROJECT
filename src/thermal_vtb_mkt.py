@@ -79,7 +79,9 @@ def analyze_fft_nyquist(
     Aliasing risk is raised when the target Nyquist limit is at or below the true
     dominant frequency (``aliasing_risk = target_nyquist_cph <= true_dominant``).
     When aliasing occurs the apparent (folded) frequency the undersampled monitor
-    would report is ``folded_alias_freq_cph = |true_dominant - 60 / dt|``.
+    would report is the general baseband fold
+    ``folded_alias_freq_cph = |true_dominant - fs * round(true_dominant / fs)|``
+    with ``fs = 60 / dt`` (cph), which always lies in [0, target Nyquist].
 
     The DC (bin 0) component of the mean-removed signal is ignored when locating
     the dominant frequency.
@@ -109,8 +111,10 @@ def analyze_fft_nyquist(
     target_nyquist = 60.0 / (2.0 * target_sampling_interval_min)
     aliasing_risk = bool(target_nyquist <= true_dominant)
 
+    fs_cph = 60.0 / target_sampling_interval_min
     if aliasing_risk:
-        folded_alias = abs(true_dominant - (60.0 / target_sampling_interval_min))
+        # General baseband folding: distance from the nearest integer multiple of fs.
+        folded_alias = abs(true_dominant - fs_cph * round(true_dominant / fs_cph))
     else:
         folded_alias = 0.0
 
