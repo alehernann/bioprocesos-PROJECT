@@ -8,10 +8,18 @@ reales de src/: ningun KPI se estima ni se fija en el tablero. Se lanza con:
 Autor del portafolio: Alejandro Timaran, Ingenieria Biologica, UNAL.
 """
 
+import ast
 import copy
+import hashlib
+import inspect
+import math
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
+import time
 
 # Inserta la raiz del repositorio en sys.path para que 'from src...' resuelva
 # cuando el script se lanza como 'streamlit run app/dashboard.py' desde la raiz.
@@ -44,6 +52,7 @@ from src.spc_six_sigma import (
     GORSKY_TABLE_6_2_TORQUE_N30,
     compute_iso16269_tolerance_interval,
     compute_process_capability,
+    compute_moving_range_summary,
     compare_bioreactor_equivalence_ttest,
 )
 from src.audit_trail_part11 import AuditTrailLogger
@@ -211,9 +220,22 @@ def _css(c: dict) -> str:
     div[data-testid="stMetricLabel"] p {{
         color: {c["muted"]} !important;
     }}
+    /* Etiquetas largas: se parten en dos lineas en vez de cortarse con "...". */
+    [data-testid="stMetricLabel"],
+    [data-testid="stMetricLabel"] * {{
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+    }}
     div[data-testid="stMetricValue"] {{
         font-family: "IBM Plex Mono", ui-monospace, monospace;
         color: {c["ink"]};
+        font-size: clamp(1.55rem, 2.6vw, 2.25rem);
+    }}
+    .bp-mono {{
+        font-family: "IBM Plex Mono", ui-monospace, monospace;
+        font-size: 0.86rem;
+        word-break: break-all;
     }}
     .bp-chip, .bp-banner {{
         border-radius: 0;
@@ -305,9 +327,21 @@ st.markdown(
 )
 
 
-def _apply_figure(fig):
-    """Unifica fondo, ejes y tipografia de Plotly sin tocar los datos."""
+def _apply_figure(fig, legend_rows=None):
+    """Unifica fondo, ejes y tipografia de Plotly sin tocar los datos.
+
+    La leyenda va DEBAJO del grafico (horizontal, anclada al contenedor) para que
+    nunca se monte sobre el titulo ni sobre las anotaciones de lineas verticales.
+    El margen inferior y la altura crecen segun las filas de leyenda estimadas.
+    """
     height = fig.layout.height
+    n_legend = sum(
+        1 for tr in fig.data
+        if tr.type in ("scatter", "histogram", "bar") and tr.showlegend is not False
+    )
+    if legend_rows is None:
+        legend_rows = 0 if len(fig.data) <= 1 else math.ceil(n_legend / 2)
+    legend_px = 24 * legend_rows
     fig.update_layout(
         template="plotly_white",
         paper_bgcolor="rgba(0,0,0,0)",
@@ -320,13 +354,15 @@ def _apply_figure(fig):
         ),
         legend=dict(
             orientation="h",
+            yref="container",
             yanchor="bottom",
-            y=1.02,
+            y=0,
+            xanchor="left",
             x=0,
             bgcolor="rgba(0,0,0,0)",
             font=dict(size=12, color=P["ink"]),
         ),
-        margin=dict(l=52, r=20, t=72, b=42),
+        margin=dict(l=52, r=20, t=72, b=58 + legend_px),
         hoverlabel=dict(
             bgcolor=P["tip_bg"],
             font=dict(color=P["tip_fg"], family="IBM Plex Sans, sans-serif"),
@@ -343,13 +379,17 @@ def _apply_figure(fig):
         title_font=dict(size=13, color=P["ink"]),
     )
     if height:
-        fig.update_layout(height=height)
+        fig.update_layout(height=height + legend_px)
     fig.update_annotations(font_color=P["ink"])
     return fig
 
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OQ_LOG_PATH = os.path.join(ROOT_DIR, "docs", "04_Automated_OQ_Execution_Log.md")
+OQ_LOG_REL = os.path.join("docs", "04_Automated_OQ_Execution_Log.md")
+OQ_LOG_PATH = os.path.join(ROOT_DIR, OQ_LOG_REL)
+TESTS_DIR = os.path.join(ROOT_DIR, "tests")
+OQ_TEST_FILE = os.path.join(TESTS_DIR, "test_csa_oq_validation.py")
+CONFTEST_PATH = os.path.join(TESTS_DIR, "conftest.py")
 
 
 # ---------------------------------------------------------------------------
@@ -1166,39 +1206,56 @@ with tab3:
 # ---------------------------------------------------------------------------
 with tab4:
     st.header("SPC Six Sigma (Gorsky 2020 / ISO 16269 / ASTM E2281)")
+    # Limites de especificacion: los valores por defecto de compute_process_capability.
+    _cap_params = inspect.signature(compute_process_capability).parameters
+    SPC_LSL = float(_cap_params["lsl"].default)
+    SPC_USL = float(_cap_params["usl"].default)
     st.markdown(
         "Control estadistico de procesos usando los datasets de torque de Gorsky "
-        "(Tablas 6-1 n=10 y 6-2 n=30), con LSL 5.0 N y USL 12.0 N."
+        f"(Tablas 6-1 n={len(GORSKY_TABLE_6_1_TORQUE_N10)} y 6-2 "
+        f"n={len(GORSKY_TABLE_6_2_TORQUE_N30)}), con LSL {SPC_LSL:g} N y USL {SPC_USL:g} N."
     )
 
-    cap = compute_process_capability(GORSKY_TABLE_6_2_TORQUE_N30, lsl=5.0, usl=12.0)
+    cap = compute_process_capability(GORSKY_TABLE_6_2_TORQUE_N30, lsl=SPC_LSL, usl=SPC_USL)
+    mr = compute_moving_range_summary(GORSKY_TABLE_6_2_TORQUE_N30)
     ti = compute_iso16269_tolerance_interval(GORSKY_TABLE_6_1_TORQUE_N10)
 
-    c_perf, c_within = st.columns(2)
-    with c_perf:
-        with st.container(border=True):
-            st.markdown("**Desempeno global (largo plazo)**: std global, ddof=1")
-            p = st.columns(4)
-            p[0].metric("Pp", f"{cap['pp']:.2f}", help="Pp = (USL-LSL)/(6*std_global)")
-            p[1].metric("Ppk", f"{cap['ppk']:.2f}", help="Ppk = min(Ppu, Ppl)")
-            p[2].metric("Ppu", f"{cap['ppu']:.2f}")
-            p[3].metric("Ppl", f"{cap['ppl']:.2f}")
-    with c_within:
-        with st.container(border=True):
-            st.markdown("**Capacidad within (corto plazo)**: MR-bar / d2, d2 = 1.128")
-            w = st.columns(4)
-            w[0].metric("Cp within", f"{cap['cp_within']:.2f}", help="Cp = (USL-LSL)/(6*std_within)")
-            w[1].metric("Cpk within", f"{cap['cpk_within']:.2f}", help="Cpk = min(Cpu, Cpl) within")
-            w[2].metric("Cpu within", f"{cap['cpu_within']:.2f}")
-            w[3].metric("Cpl within", f"{cap['cpl_within']:.2f}")
+    # Cada bloque ocupa el ancho completo: con 4 tarjetas en media columna el valor
+    # (p. ej. "0.61") no cabia y Streamlit lo cortaba a "0. ...", que se leia como cero.
+    with st.container(border=True):
+        _band("Desempeno global (largo plazo): Pp / Ppk con std global, ddof=1")
+        st.caption(
+            "Lo que el proceso entrego frente a la especificacion en todo el periodo: "
+            "usa la dispersion total de las muestras, incluida la deriva entre ellas."
+        )
+        p = st.columns(5)
+        p[0].metric("Pp", f"{cap['pp']:.2f}", help="Pp = (USL-LSL)/(6*std_global)")
+        p[1].metric("Ppk", f"{cap['ppk']:.2f}", help="Ppk = min(Ppu, Ppl)")
+        p[2].metric("Ppu", f"{cap['ppu']:.2f}", help="Ppu = (USL-media)/(3*std_global)")
+        p[3].metric("Ppl", f"{cap['ppl']:.2f}", help="Ppl = (media-LSL)/(3*std_global)")
+        p[4].metric("Std global (N)", f"{cap['std']:.2f}", help="std_overall = std(data, ddof=1)")
+    with st.container(border=True):
+        _band(f"Capacidad within (corto plazo): std_within = MR-bar / d2, d2 = {mr['d2']:.3f}")
+        st.caption(
+            "Lo que el proceso puede lograr en el corto plazo: usa solo la variacion "
+            "entre muestras consecutivas (rango movil de 2), sin la deriva de largo plazo."
+        )
+        w = st.columns(6)
+        w[0].metric("Cp within", f"{cap['cp_within']:.2f}", help="Cp = (USL-LSL)/(6*std_within)")
+        w[1].metric("Cpk within", f"{cap['cpk_within']:.2f}", help="Cpk = min(Cpu, Cpl) within")
+        w[2].metric("Cpu within", f"{cap['cpu_within']:.2f}")
+        w[3].metric("Cpl within", f"{cap['cpl_within']:.2f}")
+        w[4].metric("Std within (N)", f"{cap['std_within']:.2f}", help="std_within = MR-bar / d2")
+        w[5].metric("MR-bar (N)", f"{mr['mr_bar']:.2f}", help="mean(|x[i] - x[i-1]|), compute_moving_range_summary")
 
-    n1, n2, n3, n4 = st.columns(4)
+    n1, n2, n3, n4, n5 = st.columns(5)
     n1.metric("Shapiro-Wilk p-value", f"{cap['normality_p_value']:.4f}")
     _chip(n2, "is_normal (p >= 0.05)", cap["is_normal"],
           "Normal" if cap["is_normal"] else "No normal", str(cap["is_normal"]))
     _chip(n3, "capable_4sigma (Ppk >= 1.33)", cap["capable_4sigma"],
           "Capaz" if cap["capable_4sigma"] else "No capaz", str(cap["capable_4sigma"]))
-    n4.metric("Media / std global (N)", f"{cap['mean']:.2f} / {cap['std']:.2f}")
+    n4.metric("Media global (N)", f"{cap['mean']:.2f}")
+    n5.metric("N (muestras)", f"{mr['n']}")
 
     ch1, ch2 = st.columns(2)
     with ch1:
@@ -1224,21 +1281,25 @@ with tab4:
         _limit_trace(cap["lcl"], f"LCL global {cap['lcl']:.2f}", P["closed"], "dot", 1.8)
         _limit_trace(cap["mean"], f"Media {cap['mean']:.2f}", P["mean"], "solid")
         fig_sh.update_layout(
-            title="Carta de Shewhart I-MR, Tabla 6-2 (n=30)",
+            title=f"Carta de Shewhart I-MR, Tabla 6-2 (n={len(GORSKY_TABLE_6_2_TORQUE_N30)})",
             xaxis_title="Muestra (#)", yaxis_title="Torque (N)", height=360,
         )
-        st.plotly_chart(_apply_figure(fig_sh), width="stretch")
+        # 6 entradas de leyenda -> 3 filas de 2 debajo del grafico, lejos del titulo.
+        st.plotly_chart(_apply_figure(fig_sh, legend_rows=3), width="stretch")
     with ch2:
         fig_h = go.Figure()
         fig_h.add_trace(go.Histogram(x=GORSKY_TABLE_6_2_TORQUE_N30, nbinsx=12, name="Torque",
                                      marker_color=P["closed"]))
-        fig_h.add_vline(x=5.0, line=dict(color=P["limit"], dash="dash", width=2.4), annotation_text="LSL 5.0")
-        fig_h.add_vline(x=12.0, line=dict(color=P["limit"], dash="dash", width=2.4), annotation_text="USL 12.0")
+        fig_h.add_vline(x=SPC_LSL, line=dict(color=P["limit"], dash="dash", width=2.4),
+                        annotation_text=f"LSL {SPC_LSL:g}")
+        fig_h.add_vline(x=SPC_USL, line=dict(color=P["limit"], dash="dash", width=2.4),
+                        annotation_text=f"USL {SPC_USL:g}")
         fig_h.update_layout(
             title=f"Distribucion de torque | Pp {cap['pp']:.2f}, Ppk {cap['ppk']:.2f}",
             xaxis_title="Torque (N)", yaxis_title="Frecuencia (conteo)", height=360,
         )
-        st.plotly_chart(_apply_figure(fig_h), width="stretch")
+        # Misma altura total que la carta de Shewhart para alinear las dos columnas.
+        st.plotly_chart(_apply_figure(fig_h, legend_rows=3), width="stretch")
     _leyenda(
         "UCL/LCL within I-MR = media +/- 3 std_within = media +/- 2.66 MR-bar (corto plazo, Shewhart). "
         "UCL/LCL global = media +/- 3 std global (largo plazo). Ambos los calcula "
@@ -1339,6 +1400,133 @@ def _load_oq_log(path: str):
     }
 
 
+def _sha256_file(path: str):
+    try:
+        with open(path, "rb") as fh:
+            return hashlib.sha256(fh.read()).hexdigest()
+    except OSError:
+        return None
+
+
+def _oq_requirements(path: str) -> dict:
+    """Primera linea del docstring de cada test_* (lo que verifica cada prueba OQ)."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+    except (OSError, SyntaxError):
+        return {}
+    reqs = {}
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
+            doc = (ast.get_docstring(node) or "").strip()
+            reqs[node.name] = doc.splitlines()[0] if doc else "n/d"
+    return reqs
+
+
+def _verdict_code_path(path: str):
+    """Lineas de tests/conftest.py::pytest_sessionfinish que derivan el veredicto."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            src_text = fh.read()
+        tree = ast.parse(src_text)
+    except (OSError, SyntaxError):
+        return None
+    lines = src_text.splitlines()
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == "pytest_sessionfinish":
+            picked = []
+            for lineno in range(node.lineno, node.end_lineno + 1):
+                text = lines[lineno - 1]
+                if re.match(r"^\s*(def pytest_sessionfinish|total|passed|failed|errored|skipped|overall)\b", text):
+                    picked.append(f"{lineno:>4}  {text.strip()}")
+            return "\n".join(picked)
+    return None
+
+
+def _oq_short_id(name: str) -> str:
+    m = re.match(r"^test_(oq|exploratory)_(\d+[a-z]?)_", name)
+    if not m:
+        return name
+    return f"{'OQ' if m.group(1) == 'oq' else 'EXP'}-{m.group(2)}"
+
+
+def _oq_table(oq: dict, reqs: dict) -> pd.DataFrame:
+    rows = []
+    for r in oq["rows"]:
+        name = r["Prueba"]
+        rows.append(
+            {
+                "ID": _oq_short_id(name),
+                "Prueba": name,
+                "Requisito verificado (docstring)": reqs.get(name, "n/d"),
+                "Categoria CSA": r["Categoria CSA"],
+                "Resultado": r["Resultado"],
+                "Duracion (s)": r["Duracion (s)"],
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _oq_summary(oq: dict) -> dict:
+    total = len(oq["rows"])
+    passed = sum(1 for r in oq["rows"] if r["Resultado"] == "PASSED")
+    return {"total": total, "passed": passed, "not_passed": total - passed}
+
+
+def _run_oq_in_temp() -> dict:
+    """Re-ejecuta tests/ en una COPIA temporal del repo.
+
+    tests/conftest.py escribe el log en <raiz>/docs/04_...md relativo a su propia
+    ubicacion, asi que al copiar src/, tests/ y pytest.ini a un directorio temporal
+    el log nuevo cae en <tmp>/docs/ y el log comprometido del repo no se toca.
+    """
+    before = _sha256_file(OQ_LOG_PATH)
+    tmp = tempfile.mkdtemp(prefix="oq_rerun_")
+    result = {"ok": False, "error": None, "returncode": None, "stdout_tail": "",
+              "oq": None, "log_text": None, "elapsed_s": None}
+    try:
+        ignore = shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache")
+        shutil.copytree(os.path.join(ROOT_DIR, "src"), os.path.join(tmp, "src"), ignore=ignore)
+        shutil.copytree(TESTS_DIR, os.path.join(tmp, "tests"), ignore=ignore)
+        shutil.copy2(os.path.join(ROOT_DIR, "pytest.ini"), os.path.join(tmp, "pytest.ini"))
+        os.makedirs(os.path.join(tmp, "docs"), exist_ok=True)
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+        t0 = time.perf_counter()
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", "tests", "-q", "-p", "no:cacheprovider"],
+            cwd=tmp, capture_output=True, text=True, timeout=180, env=env,
+        )
+        result["elapsed_s"] = time.perf_counter() - t0
+        result["returncode"] = proc.returncode
+        result["stdout_tail"] = "\n".join((proc.stdout + proc.stderr).strip().splitlines()[-15:])
+        tmp_log = os.path.join(tmp, OQ_LOG_REL)
+        oq = _load_oq_log(tmp_log)
+        if oq is None:
+            result["error"] = "pytest corrio pero no genero el log temporal."
+        else:
+            result["oq"] = oq
+            result["log_text"] = oq["text"]
+            result["ok"] = True
+    except (OSError, subprocess.SubprocessError) as exc:
+        result["error"] = f"{type(exc).__name__}: {exc}"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    result["temp_dir"] = tmp
+    result["committed_unchanged"] = before == _sha256_file(OQ_LOG_PATH)
+    result["committed_sha256"] = before
+    return result
+
+
+def _first_broken_index(records: list):
+    """Primer registro donde verify_chain_integrity() falla, verificando prefijos."""
+    for k in range(1, len(records) + 1):
+        probe = AuditTrailLogger()
+        probe.records = records[:k]
+        if not probe.verify_chain_integrity():
+            return k - 1
+    return None
+
+
 with tab5:
     st.header("Gobernanza GxP: 21 CFR Part 11, Annex 22 y FDA CSA OQ")
     st.markdown(
@@ -1346,58 +1534,134 @@ with tab5:
         "de parametro con firma electronica y cadena de hashes SHA-256."
     )
 
-    _band("Evidencia OQ automatizada (docs/04_Automated_OQ_Execution_Log.md)")
+    reqs = _oq_requirements(OQ_TEST_FILE)
+
+    # ---------------- Que significa ACCEPTABLE ----------------
+    with st.container(border=True):
+        _band("Que significa ACCEPTABLE")
+        st.markdown(
+            "Bajo la guia FDA *Computer Software Assurance* (borrador 2022, final 2025), el log "
+            "OQ es la **evidencia objetiva** de que el software hace lo que debe para su uso "
+            "segun riesgo. El veredicto **no es un texto fijo**: lo calcula `tests/conftest.py` "
+            "al cerrar cada corrida de pytest con los resultados reales de las pruebas. "
+            "Es ACCEPTABLE solo si ninguna prueba fallo ni dio error."
+        )
+        code_path = _verdict_code_path(CONFTEST_PATH)
+        if code_path:
+            st.caption("Ruta de codigo que deriva el veredicto (tests/conftest.py, numero de linea a la izquierda):")
+            st.code(code_path, language="python")
+        else:
+            _banner("warn", "No se pudo leer tests/conftest.py para mostrar la ruta del veredicto.")
+
+    # ---------------- Evidencia comprometida ----------------
+    _band(f"Evidencia OQ comprometida ({OQ_LOG_REL})")
     oq = _load_oq_log(OQ_LOG_PATH)
     if oq is None:
-        _banner("warn", "No se encontro docs/04_Automated_OQ_Execution_Log.md. Ejecuta python -m pytest -v.")
+        _banner("warn", f"No se encontro {OQ_LOG_REL}. Ejecuta python -m pytest -v.")
     else:
-        passed = sum(1 for r in oq["rows"] if r["Resultado"] == "PASSED")
-        total = len(oq["rows"])
-        not_passed = total - passed
-        o1, o2, o3, o4 = st.columns(4)
-        o1.metric("Pruebas aprobadas", f"{passed}/{total}")
-        o2.metric("Fallidas o con error", f"{not_passed}")
-        o3.metric("Ejecucion (UTC)", oq["meta"].get("Execution timestamp (UTC)", "n/d").replace(" UTC", ""))
+        s = _oq_summary(oq)
+        o1, o2, o3 = st.columns(3)
+        o1.metric("Pruebas aprobadas", f"{s['passed']}/{s['total']}")
+        o2.metric("Fallidas o con error", f"{s['not_passed']}")
         verdict = oq["verdict"] or "SIN VEREDICTO"
-        _chip(o4, "FDA CSA V.A.6", verdict == "ACCEPTABLE" and not_passed == 0, verdict,
+        _chip(o3, "FDA CSA V.A.6", verdict == "ACCEPTABLE" and s["not_passed"] == 0, verdict,
               f"exit status {oq['meta'].get('Pytest exit status', 'n/d')}")
+        st.caption(
+            f"Ejecucion (UTC): {oq['meta'].get('Execution timestamp (UTC)', 'n/d')} · "
+            f"Python {oq['meta'].get('Python version', 'n/d')} · "
+            f"Plataforma: {oq['meta'].get('Platform', 'n/d')}"
+        )
         if oq["rows"]:
             st.dataframe(
-                pd.DataFrame(oq["rows"]),
+                _oq_table(oq, reqs),
                 width="stretch",
                 hide_index=True,
-                column_config={
-                    "Duracion (s)": st.column_config.NumberColumn(format="%.4f"),
-                },
+                column_config={"Duracion (s)": st.column_config.NumberColumn(format="%.4f")},
             )
         with st.expander("Entorno calificado y log completo"):
             if oq["packages"]:
                 st.dataframe(pd.DataFrame(oq["packages"]), hide_index=True)
             st.markdown(oq["text"])
 
-    _band("Audit trail 21 CFR Part 11 / Annex 22")
+    # ---------------- Re-ejecucion en vivo ----------------
+    with st.container(border=True):
+        _band("Re-ejecucion en vivo")
+        _leyenda(
+            "Corre las pruebas de tests/ ahora mismo, en una copia temporal del repositorio. "
+            f"El log nuevo se escribe en un directorio temporal; {OQ_LOG_REL} no se modifica."
+        )
+        if st.button("Re-ejecutar verificacion OQ ahora"):
+            with st.spinner("Ejecutando python -m pytest tests -q en una copia temporal..."):
+                st.session_state.oq_rerun = _run_oq_in_temp()
+        rerun = st.session_state.get("oq_rerun")
+        if rerun:
+            if rerun["ok"]:
+                r_oq = rerun["oq"]
+                rs = _oq_summary(r_oq)
+                r_verdict = r_oq["verdict"] or "SIN VEREDICTO"
+                r1, r2, r3 = st.columns(3)
+                r1.metric("Aprobadas (re-ejecucion)", f"{rs['passed']}/{rs['total']}")
+                r2.metric("Fallidas o con error (re-ejecucion)", f"{rs['not_passed']}")
+                _chip(r3, "Veredicto derivado", r_verdict == "ACCEPTABLE" and rs["not_passed"] == 0,
+                      r_verdict, f"exit status {rerun['returncode']}")
+                st.caption(
+                    f"Ejecucion (UTC): {r_oq['meta'].get('Execution timestamp (UTC)', 'n/d')} · "
+                    f"duracion {rerun['elapsed_s']:.1f} s · log temporal en {rerun['temp_dir']} (eliminado al terminar)"
+                )
+                st.dataframe(
+                    _oq_table(r_oq, reqs),
+                    width="stretch",
+                    hide_index=True,
+                    column_config={"Duracion (s)": st.column_config.NumberColumn(format="%.4f")},
+                )
+                st.download_button(
+                    "Descargar log OQ de esta re-ejecucion (.md)",
+                    data=rerun["log_text"],
+                    file_name="OQ_Execution_Log_rerun.md",
+                    mime="text/markdown",
+                )
+                with st.expander("Salida de pytest (ultimas lineas)"):
+                    st.code(rerun["stdout_tail"] or "(sin salida)", language="text")
+            else:
+                _banner(
+                    "warn",
+                    "No se pudo ejecutar pytest en este servidor "
+                    f"({rerun['error']}). Respaldo seguro: se mantiene como evidencia el log "
+                    f"comprometido de arriba, generado por la CI y por python -m pytest -v.",
+                )
+            if rerun["committed_unchanged"]:
+                _banner("ok", f"{OQ_LOG_REL} sin cambios: SHA-256 {(rerun['committed_sha256'] or 'n/d')[:16]}...")
+            else:
+                _banner("bad", f"{OQ_LOG_REL} cambio durante la re-ejecucion. Revisar.")
+
+    # ---------------- Audit trail Part 11 ----------------
+    _band("Audit trail 21 CFR Part 11")
+    st.caption(
+        "Part 11 pide registros electronicos que digan quien, que, cuando y por que. Cada "
+        "entrada guarda el SHA-256 de la anterior, asi que cambiar cualquier dato rompe la cadena."
+    )
     if "audit_logger" not in st.session_state:
         st.session_state.audit_logger = AuditTrailLogger()
     logger = st.session_state.audit_logger
 
     with st.form("audit_form", clear_on_submit=False):
-        st.subheader("Formulario de cambio de parametro")
+        st.subheader("Agregar entrada al audit trail")
         f1, f2 = st.columns(2)
         with f1:
             user_id = st.text_input("Usuario (user_id)", value="atimaran")
             role = st.text_input("Rol", value="Ingeniero de Proceso")
-            parameter_name = st.text_input("Parametro", value="temp_shift_day")
+            parameter_name = st.text_input("Accion / parametro", value="temp_shift_day")
         with f2:
             old_value = st.text_input("Valor anterior", value="7.0")
             new_value = st.text_input("Valor nuevo", value="6.0")
         reason_for_change = st.text_area(
-            "Razon del cambio (>= 5 caracteres)",
+            "Razon del cambio (obligatoria)",
             value="Optimizacion de la fase de produccion",
         )
         human_approved = st.checkbox(
             "Firma electronica: aprobacion humana (Annex 22)", value=True
         )
-        _leyenda("Sin la casilla, el cambio se rechaza. Con una razon de menos de 5 letras, tambien.")
+        _leyenda("Sin la casilla, el cambio se rechaza. Con una razon vacia o demasiado corta, tambien.")
         submitted = st.form_submit_button("Registrar cambio")
 
     if submitted:
@@ -1419,14 +1683,30 @@ with tab5:
 
     st.subheader("Cadena de hashes SHA-256")
     if logger.records:
+        chain_rows = []
+        for i, rec in enumerate(logger.records):
+            expected_prev = logger.records[i - 1]["sha256_hash"] if i else rec["prev_hash"]
+            chain_rows.append(
+                {
+                    "#": i,
+                    "timestamp (UTC)": rec["timestamp"],
+                    "user_id": rec["user_id"],
+                    "accion / parametro": rec["parameter_name"],
+                    "cambio": f"{rec['old_value']} -> {rec['new_value']}",
+                    "razon": rec["reason_for_change"],
+                    "prev_hash": rec["prev_hash"],
+                    "sha256_hash": rec["sha256_hash"],
+                    "enlace al anterior": rec["prev_hash"] == expected_prev,
+                }
+            )
         st.dataframe(
-            pd.DataFrame(logger.records),
+            pd.DataFrame(chain_rows),
             width="stretch",
             hide_index=True,
             column_config={
                 "prev_hash": st.column_config.TextColumn("prev_hash", width="medium"),
                 "sha256_hash": st.column_config.TextColumn("sha256_hash", width="medium"),
-                "human_approved": st.column_config.CheckboxColumn("human_approved"),
+                "enlace al anterior": st.column_config.CheckboxColumn("enlace al anterior"),
             },
         )
     else:
@@ -1434,24 +1714,60 @@ with tab5:
 
     bcol1, bcol2 = st.columns(2)
     with bcol1:
-        _leyenda("Recorre los hashes desde el bloque genesis. Si un dato fue cambiado, la cadena sale rota.")
-        if st.button("Verificar cadena SHA-256"):
+        _leyenda("Recalcula todos los hashes desde el bloque genesis con verify_chain_integrity().")
+        if st.button("Verificar integridad"):
             ok = logger.verify_chain_integrity()
             _banner("ok" if ok else "bad", f"verify_chain_integrity() = {ok} ({len(logger.records)} registros)")
     with bcol2:
-        _leyenda("Altera records[0] en una COPIA de la cadena. El registro real no se toca.")
+        _leyenda("Altera un registro en una COPIA de la cadena y muestra donde se rompe. El registro real no se toca.")
+        tamper_idx = 0
+        if len(logger.records) > 1:
+            tamper_idx = st.selectbox(
+                "Registro a alterar en la copia", list(range(len(logger.records))), key="tamper_idx"
+            )
         if st.button("Demostrar falla de integridad"):
             if logger.records:
                 demo = AuditTrailLogger()
                 demo.records = copy.deepcopy(logger.records)
-                demo.records[0]["new_value"] = "TAMPERED"
+                demo.records[tamper_idx]["new_value"] = "TAMPERED"
+                broken = _first_broken_index(demo.records)
                 _banner(
                     "bad",
-                    f"Copia con records[0]['new_value'] = 'TAMPERED': verify_chain_integrity() = "
-                    f"{demo.verify_chain_integrity()}. Cadena real: {logger.verify_chain_integrity()}.",
+                    f"Copia con records[{tamper_idx}]['new_value'] = 'TAMPERED': "
+                    f"verify_chain_integrity() = {demo.verify_chain_integrity()}; la cadena se rompe "
+                    f"en el registro #{broken}. Cadena real: {logger.verify_chain_integrity()}.",
                 )
             else:
                 _banner("warn", "No hay registros para alterar. Agrega uno primero.")
+
+    # ---------------- Annex 22 ----------------
+    with st.container(border=True):
+        _band("EU GMP Annex 22 (borrador): guardrail de IA")
+        st.caption(
+            "Un modelo de IA o el gemelo digital puede proponer cambios, pero ninguno entra al "
+            "registro sin aprobacion humana explicita: append_record lanza PermissionError."
+        )
+        if st.button("Simular cambio del gemelo digital sin aprobacion humana"):
+            sandbox = AuditTrailLogger()
+            sandbox.records = copy.deepcopy(logger.records)
+            n_before = len(sandbox.records)
+            try:
+                sandbox.append_record(
+                    user_id="digital-twin",
+                    role="DigitalTwin",
+                    parameter_name="temp_shift_day",
+                    old_value=str(temp_shift_day),
+                    new_value="propuesta del modelo",
+                    reason_for_change="Ajuste autonomo propuesto por el gemelo digital",
+                    human_approved=False,
+                )
+                _banner("bad", "El cambio sin aprobacion humana NO fue bloqueado. Revisar.")
+            except PermissionError as exc:
+                _banner(
+                    "ok",
+                    f"Bloqueado. PermissionError: {exc} Registros antes/despues: "
+                    f"{n_before}/{len(sandbox.records)}; cadena real intacta ({len(logger.records)} registros).",
+                )
 
     st.caption(
         "Marco: 21 CFR Part 11; EudraLex Vol. 4 Annex 11 y Draft Annex 22; FDA Computer "

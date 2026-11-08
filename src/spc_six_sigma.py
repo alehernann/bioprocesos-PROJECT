@@ -120,6 +120,24 @@ def compute_process_capability(data, lsl: float = 5.0, usl: float = 12.0) -> dic
     }
 
 
+def compute_moving_range_summary(data, d2: float = 1.128) -> dict:
+    """Pure helper: moving-range statistics behind the WITHIN indices.
+
+    Exposes the intermediate values that :func:`compute_process_capability` uses
+    for its short-term (within) sigma, so they can be reported: MR-bar is the mean
+    absolute difference between consecutive points and ``std_within = MR-bar / d2``
+    (d2 = 1.128 for a moving range of n = 2). It does not alter any existing result.
+    """
+    arr = np.asarray(data, dtype=float)
+    mr_bar = float(np.mean(np.abs(np.diff(arr))))
+    return {
+        "n": int(arr.size),
+        "mr_bar": round(mr_bar, 2),
+        "d2": float(d2),
+        "std_within": round(mr_bar / d2, 2),
+    }
+
+
 def compare_bioreactor_equivalence_ttest(group_a, group_b, alpha: float = 0.05) -> dict:
     """Welch's two-sample t-test for bioreactor equivalence (Gorsky 2020).
 
