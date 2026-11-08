@@ -1,7 +1,19 @@
 [theme]
 base = "light"
-primaryColor = "#145C56"
-backgroundColor = "#F3EFE7"
-secondaryBackgroundColor = "#E7E1D6"
-textColor = "#1A2421"
 font = "sans serif"
+primaryColor = "#1D4E89"
+backgroundColor = "#F3EFE7"
+secondaryBackgroundColor = "#E6DFD2"
+textColor = "#1A2421"
+
+[theme.light]
+primaryColor = "#1D4E89"
+backgroundColor = "#F3EFE7"
+secondaryBackgroundColor = "#E6DFD2"
+textColor = "#1A2421"
+
+[theme.dark]
+primaryColor = "#4DA3FF"
+backgroundColor = "#101614"
+secondaryBackgroundColor = "#1B2420"
+textColor = "#F4F0E8"

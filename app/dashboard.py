@@ -59,66 +59,71 @@ st.set_page_config(
 # Capa visual. No calcula nada: tema, tipografia, leyendas y distribucion.
 # Claro y noche comparten los mismos significados de color.
 # ---------------------------------------------------------------------------
-if "ui_fondo" not in st.session_state:
-    st.session_state.ui_fondo = "Claro"
+def _is_night() -> bool:
+    """Lee el tema que el usuario elige en el menu de tres puntos. No pinta un control propio."""
+    try:
+        kind = st.context.theme.type
+    except Exception:
+        return False
+    return kind == "dark"
 
 
 def _palette(night: bool) -> dict:
-    """Dos superficies, una sola familia de tintas. El mapa no invierte su significado."""
+    """Naranja y azul para series. Rojo y verde solo para no/si. Siempre saturados."""
     if not night:
         return {
             "bg": "#F3EFE7",
-            "bg_fade": "rgba(20, 92, 86, 0.05)",
-            "paper": "rgba(251,249,244,0.92)",
+            "bg_fade": "rgba(29, 78, 137, 0.05)",
+            "paper": "rgba(251,249,244,0.94)",
             "ink": "#1A2421",
-            "muted": "#5E584E",
-            "lead": "#3E4744",
+            "muted": "#3E4744",
             "card": "#FBF9F4",
-            "line": "#E3DACB",
-            "grid": "#E7E0D4",
-            "axis": "#D5CBBA",
+            "line": "#E0D8C8",
+            "grid": "#E4DCCE",
+            "axis": "#CDBFA8",
             "code_bg": "#E7E1D6",
-            "teal": "#145C56",
-            "teal_deep": "#0E433E",
-            "clay": "#A33B2B",
-            "moss": "#2F6B4F",
-            "air": "#6E675C",
-            "bulk": "#6B5344",
-            # Mapa: arcilla = no se sostiene, verde = se sostiene. Mismos tonos que en claro.
-            "heat_no": "#A33B2B",
-            "heat_yes": "#2F6B4F",
+            "static": "#C4271A",
+            "closed": "#1D4E89",
+            "air": "#1C1917",
+            "v1": "#1D4E89",
+            "v20": "#C2410C",
+            "v300": "#047857",
+            "limit": "#C4271A",
+            "mean": "#047857",
+            "heat_no": "#C4271A",
+            "heat_yes": "#067647",
             "tip_bg": "#1A2421",
             "tip_fg": "#F7F4EE",
-            "button_fg": "#F7F4EE",
-            "hover_bg": "#145C56",
-            "hover_fg": "#F7F4EE",
+            "chip_ok": "#067647",
+            "chip_bad": "#C4271A",
+            "chip_warn": "#B45309",
         }
     return {
-        "bg": "#141A18",
-        "bg_fade": "rgba(143, 207, 198, 0.06)",
-        "paper": "rgba(20, 26, 24, 0.96)",
-        "ink": "#E7E1D6",
-        "muted": "#B7AFA3",
-        "lead": "#D5CFC3",
-        "card": "#212825",
-        "line": "#3A4440",
-        "grid": "#2A3330",
-        "axis": "#4A5551",
-        "code_bg": "#2A3330",
-        "teal": "#8FCFC6",
-        "teal_deep": "#1F6F66",
-        "clay": "#E0A99A",
-        "moss": "#8FBF9F",
-        "air": "#B7AFA3",
-        "bulk": "#C4B09A",
-        # Misma pareja semántica, un poco más clara para que se distinga sobre el fondo oscuro.
-        "heat_no": "#C46B5A",
-        "heat_yes": "#3E8F68",
-        "tip_bg": "#E7E1D6",
-        "tip_fg": "#141A18",
-        "button_fg": "#F3EFE7",
-        "hover_bg": "#8FCFC6",
-        "hover_fg": "#14211E",
+        "bg": "#101614",
+        "bg_fade": "rgba(77, 163, 255, 0.08)",
+        "paper": "rgba(16, 22, 20, 0.96)",
+        "ink": "#F4F0E8",
+        "muted": "#E4DDD2",
+        "card": "#1B2420",
+        "line": "#31403A",
+        "grid": "#2A3832",
+        "axis": "#8A948E",
+        "code_bg": "#24302B",
+        "static": "#FF5C4D",
+        "closed": "#4DA3FF",
+        "air": "#F4F0E8",
+        "v1": "#4DA3FF",
+        "v20": "#FF8A3D",
+        "v300": "#3DDC97",
+        "limit": "#FF5C4D",
+        "mean": "#3DDC97",
+        "heat_no": "#FF5C4D",
+        "heat_yes": "#2FBF71",
+        "tip_bg": "#F4F0E8",
+        "tip_fg": "#101614",
+        "chip_ok": "#067647",
+        "chip_bad": "#C4271A",
+        "chip_warn": "#B45309",
     }
 
 
@@ -129,26 +134,19 @@ def _css(c: dict) -> str:
     html, body, [class*="css"] {{
         font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
     }}
-    .stApp {{
-        background:
-            linear-gradient(180deg, {c["bg_fade"]}, rgba(0,0,0,0) 220px),
-            {c["bg"]};
-        color: {c["ink"]};
-    }}
-    header[data-testid="stHeader"] {{ background: transparent; }}
     .block-container {{
-        padding-top: 1.25rem;
+        padding-top: 1.15rem;
         padding-bottom: 3rem;
         max-width: 1180px;
     }}
     .bp-mast {{
-        border-top: 3px solid {c["teal"]};
+        border-top: 3px solid {c["closed"]};
         border-bottom: 1px solid {c["line"]};
-        padding: 0.95rem 0 0.85rem;
-        margin: 0;
+        padding: 0.9rem 0 0.8rem;
+        margin: 0 0 0.8rem;
     }}
     .bp-kicker, .bp-band {{
-        margin: 0 0 0.35rem;
+        margin: 0 0 0.3rem;
         font-size: 0.72rem;
         letter-spacing: 0.14em;
         text-transform: uppercase;
@@ -156,7 +154,7 @@ def _css(c: dict) -> str:
         font-weight: 500;
     }}
     .bp-band {{
-        margin: 1.15rem 0 0.45rem;
+        margin: 1.15rem 0 0.4rem;
         padding-top: 0.55rem;
         border-top: 1px solid {c["line"]};
     }}
@@ -169,17 +167,18 @@ def _css(c: dict) -> str:
         color: {c["ink"]};
         margin: 0;
     }}
-    .bp-lead, .bp-note {{
-        color: {c["lead"]};
-        font-size: 0.98rem;
+    .bp-lead {{
+        margin: 0.45rem 0 0;
+        max-width: 68ch;
+        color: {c["muted"]};
+        font-size: 1rem;
         line-height: 1.45;
     }}
-    .bp-lead {{ margin: 0.5rem 0 0; max-width: 68ch; }}
     .bp-note {{
-        margin: 0.1rem 0 0.65rem;
+        margin: 0.05rem 0 0.55rem;
         color: {c["muted"]};
-        font-size: 0.84rem;
-        line-height: 1.4;
+        font-size: 0.86rem;
+        line-height: 1.35;
     }}
     .bp-lead code {{
         font-family: "IBM Plex Mono", ui-monospace, monospace;
@@ -190,94 +189,74 @@ def _css(c: dict) -> str:
     }}
     .bp-swatch {{
         display: inline-block;
-        width: 0.72rem;
-        height: 0.72rem;
-        margin: 0 0.28rem 0 0.15rem;
-        vertical-align: -0.08rem;
-        border: 1px solid {c["line"]};
+        width: 0.8rem;
+        height: 0.8rem;
+        margin: 0 0.3rem 0 0.15rem;
+        vertical-align: -0.1rem;
+        border: 1px solid {c["ink"]};
     }}
     h2, h3 {{
         font-family: Newsreader, Georgia, serif;
         letter-spacing: -0.015em;
         color: {c["ink"]};
     }}
-    div[data-testid="stMarkdownContainer"] p,
-    div[data-testid="stCaptionContainer"] p,
-    div[data-testid="stWidgetLabel"] p,
-    label {{
-        color: {c["ink"]};
-    }}
-    div[data-testid="stCaptionContainer"] p {{ color: {c["muted"]}; }}
-    div[data-testid="stAlert"],
-    div[data-testid="stAlert"] p,
-    div[data-testid="stAlert"] span {{
-        color: #1A2421 !important;
-    }}
     div[data-testid="stMetric"] {{
         background: {c["card"]};
         border: 1px solid {c["line"]};
-        border-top: 3px solid {c["teal"]};
-        padding: 0.72rem 0.9rem 0.55rem;
+        border-top: 3px solid {c["closed"]};
+        padding: 0.7rem 0.85rem 0.5rem;
     }}
-    div[data-testid="stMetricLabel"] p,
-    div[data-testid="stMetricLabel"] {{
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        font-size: 0.68rem !important;
+    div[data-testid="stMetricLabel"] p {{
         color: {c["muted"]} !important;
     }}
     div[data-testid="stMetricValue"] {{
         font-family: "IBM Plex Mono", ui-monospace, monospace;
-        font-weight: 500;
         color: {c["ink"]};
     }}
-    div[data-testid="stMetricDelta"] {{
+    .bp-chip, .bp-banner {{
+        border-radius: 0;
+        color: #FFFFFF;
+    }}
+    .bp-chip {{
+        padding: 0.6rem 0.7rem 0.5rem;
+        min-height: 4.4rem;
+        margin: 0 0 0.35rem;
+    }}
+    .bp-chip span {{
+        display: block;
+        font-size: 0.68rem;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: #FFFFFF !important;
+    }}
+    .bp-chip strong {{
+        display: block;
+        margin-top: 0.2rem;
+        font-size: 1.15rem;
+        line-height: 1.1;
+        color: #FFFFFF !important;
+    }}
+    .bp-chip em {{
+        display: block;
+        margin-top: 0.15rem;
+        font-style: normal;
         font-family: "IBM Plex Mono", ui-monospace, monospace;
+        font-size: 0.75rem;
+        color: #FFFFFF !important;
+    }}
+    .bp-banner {{
+        padding: 0.65rem 0.8rem;
+        margin: 0.35rem 0 0.6rem;
+        font-weight: 500;
+        color: #FFFFFF !important;
     }}
     .stTabs [data-baseweb="tab-list"] {{
         gap: 0;
         border-bottom: 1px solid {c["line"]};
     }}
-    .stTabs [data-baseweb="tab"] {{
-        height: 2.7rem;
-        padding: 0 0.85rem;
-        background: transparent;
-        color: {c["muted"]};
-        font-weight: 500;
-        border-radius: 0;
-    }}
     .stTabs [aria-selected="true"] {{
-        color: {c["teal"]} !important;
-        border-bottom: 2px solid {c["teal"]};
+        border-bottom: 2px solid {c["closed"]};
     }}
-    div[data-testid="stAlert"] {{ border-radius: 0; border-width: 1px; }}
-    .stButton > button, .stFormSubmitButton > button {{
-        border-radius: 0;
-        border: 1px solid {c["teal_deep"]};
-        background: {c["teal_deep"]};
-        color: {c["button_fg"]};
-        font-weight: 500;
-    }}
-    .stButton > button:hover, .stFormSubmitButton > button:hover {{
-        background: {c["hover_bg"]};
-        border-color: {c["hover_bg"]};
-        color: {c["hover_fg"]};
-    }}
-    div[data-testid="stForm"] {{
-        border: 1px solid {c["line"]};
-        background: {c["card"]};
-        padding: 0.35rem 0.9rem 0.8rem;
-    }}
-    div[data-testid="stTextInput"] input,
-    div[data-testid="stTextArea"] textarea {{
-        background: {c["card"]};
-        color: {c["ink"]};
-        border-color: {c["line"]};
-    }}
-    div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {{
-        border: 1px solid {c["line"]};
-    }}
-    hr {{ border-color: {c["line"]} !important; }}
     </style>
     """
 
@@ -290,29 +269,38 @@ def _leyenda(text: str) -> None:
     st.markdown(f'<p class="bp-note">{text}</p>', unsafe_allow_html=True)
 
 
-night = st.session_state.ui_fondo == "Noche"
-P = _palette(night)
-st.markdown(_css(P), unsafe_allow_html=True)
+def _chip(col, label: str, good: bool, word: str, detail: str) -> None:
+    bg = P["chip_ok"] if good else P["chip_bad"]
+    html = (
+        f'<div class="bp-chip" style="background:{bg};color:#FFFFFF">'
+        f'<span style="color:#FFFFFF">{label}</span>'
+        f'<strong style="color:#FFFFFF">{word}</strong>'
+        f'<em style="color:#FFFFFF">{detail}</em></div>'
+    )
+    with col:
+        st.markdown(html, unsafe_allow_html=True)
 
-mast_l, mast_r = st.columns([5, 1.15])
-with mast_l:
+
+def _banner(kind: str, text: str) -> None:
+    bg = {"ok": P["chip_ok"], "bad": P["chip_bad"], "warn": P["chip_warn"]}[kind]
     st.markdown(
-        """
-        <div class="bp-mast">
-          <p class="bp-kicker">Ingenieria Biologica · Universidad Nacional de Colombia</p>
-          <h1>Control y validacion de bioprocesos</h1>
-          <p class="bp-lead">Alejandro Timaran. Tablero sobre las funciones reales de <code>src/</code>. El fondo cambia; los calculos, no.</p>
-        </div>
-        """,
+        f'<div class="bp-banner" style="background:{bg};color:#FFFFFF">{text}</div>',
         unsafe_allow_html=True,
     )
-with mast_r:
-    st.radio(
-        "Fondo",
-        ["Claro", "Noche"],
-        key="ui_fondo",
-        help="Claro es el papel actual. Noche oscurece el fondo y el texto. Arcilla y verde del mapa siguen significando lo mismo.",
-    )
+
+
+P = _palette(_is_night())
+st.markdown(_css(P), unsafe_allow_html=True)
+st.markdown(
+    """
+    <div class="bp-mast">
+      <p class="bp-kicker">Ingenieria Biologica · Universidad Nacional de Colombia</p>
+      <h1>Control y validacion de bioprocesos</h1>
+      <p class="bp-lead">Alejandro Timaran. Tablero sobre las funciones reales de <code>src/</code>.</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 
 def _apply_figure(fig):
@@ -344,16 +332,17 @@ def _apply_figure(fig):
     )
     fig.update_xaxes(
         showgrid=True, gridcolor=P["grid"], zeroline=False,
-        linecolor=P["axis"], tickfont=dict(size=11, color=P["muted"]),
-        title_font=dict(size=12, color=P["muted"]),
+        linecolor=P["axis"], tickfont=dict(size=12, color=P["ink"]),
+        title_font=dict(size=13, color=P["ink"]),
     )
     fig.update_yaxes(
         showgrid=True, gridcolor=P["grid"], zeroline=False,
-        linecolor=P["axis"], tickfont=dict(size=11, color=P["muted"]),
-        title_font=dict(size=12, color=P["muted"]),
+        linecolor=P["axis"], tickfont=dict(size=12, color=P["ink"]),
+        title_font=dict(size=13, color=P["ink"]),
     )
     if height:
         fig.update_layout(height=height)
+    fig.update_annotations(font_color=P["ink"])
     return fig
 
 
@@ -379,7 +368,7 @@ with tab1:
         "ganancia de titulo calculada en vivo a partir de `simulate_cho_fed_batch`."
     )
 
-    _band("Cultivo: esto si mueve las curvas")
+    _band("Parametros del cultivo")
     g1, g2, g3 = st.columns(3)
     with g1:
         power_density_W_m3 = st.slider(
@@ -390,7 +379,7 @@ with tab1:
             step=0.5,
             help="Ventana operativa recomendada 19-30 W/m3. Bounds [2, 100].",
         )
-        _leyenda("De 19 a 30 W/m3 la productividad sube poco a poco. Desde 30 queda en el techo de este modelo, salvo cizalla: si ademas el sparge pasa de 0.15 vvm y P/V pasa de 47.6, la productividad baja y aparece la alarma.")
+        _leyenda("A la derecha, hasta 30 W/m3, el titulo sube un poco. Si pasas 47.6 y el sparge esta por encima de 0.15, hay cizalla: caen viabilidad y titulo.")
     with g2:
         temp_shift_day = st.slider(
             "Dia del cambio termico",
@@ -400,7 +389,7 @@ with tab1:
             step=0.5,
             help="Bounds temp_shift_day [1, 14] d.",
         )
-        _leyenda("Antes de este dia el cultivo crece a 36.5 C. Desde este dia pasa a produccion a 34.0 C y crece mas lento. Adelantarlo acorta el crecimiento; retrasarlo lo alarga.")
+        _leyenda("A la izquierda el cultivo baja antes a 34 C y crece mas lento. A la derecha sigue mas tiempo a 36.5 C, creciendo mas rapido.")
     with g3:
         sparge_vvm = st.slider(
             "Flujo de burbujeo sparge (vvm)",
@@ -410,9 +399,9 @@ with tab1:
             step=0.01,
             help="Bounds sparge_vvm [0, 1].",
         )
-        _leyenda("Por si solo no cambia las curvas. Solo pesa si supera 0.15 vvm y, a la vez, P/V supera 47.6 W/m3: ahi el modelo declara cizalla alta.")
+        _leyenda("Hasta 0.15 las curvas no se mueven. Por encima de 0.15, si P/V ya paso 47.6, la cizalla baja viabilidad y titulo.")
 
-    _band("Escala y banda de pH: no cambian las concentraciones")
+    _band("Volumen y controlador de pH")
     g4, g5 = st.columns(2)
     with g4:
         vessel_volume_L = st.slider(
@@ -423,7 +412,7 @@ with tab1:
             step=0.25,
             help="Bounds ProcessDescription: (0, 35000] L.",
         )
-        _leyenda("No cambia g/L ni celulas/mL: esas curvas son intensivas. Si cambia la masa de mAb y el volumen de alimentacion, que crecen con el vaso.")
+        _leyenda("A la derecha hay mas litros: suben la masa de anticuerpo y el feed. Los g/L de las curvas siguen igual.")
     with g5:
         ph_deadband = st.slider(
             "Banda muerta de pH",
@@ -433,7 +422,7 @@ with tab1:
             step=0.01,
             help="Bounds ph_deadband (0, 1]. Minimo 0.01 para evitar ValidationError.",
         )
-        _leyenda("No entra en las curvas. Solo abre el controlador de mas abajo: dentro de la banda, CO2 y base estan en cero. Si el pH medido se vuelve mas basico, abre CO2; si se vuelve mas acido, enciende la base.")
+        _leyenda("A la derecha la banda es mas ancha y el controlador actua mas tarde. A la izquierda actua ante un desvio chico: pH alto abre CO2, pH bajo prende la base.")
 
     shared = dict(
         vessel_volume_L=vessel_volume_L,
@@ -574,7 +563,7 @@ with tab1:
                     y=static_res[key],
                     mode="lines",
                     name="Static Recipe",
-                    line=dict(color=P["clay"], dash="dash", width=2),
+                    line=dict(color=P["static"], dash="dash", width=2.6),
                 )
             )
             fig.add_trace(
@@ -583,7 +572,7 @@ with tab1:
                     y=closed_res[key],
                     mode="lines",
                     name="Closed-Loop Digital Twin",
-                    line=dict(color=P["teal"], width=2.2),
+                    line=dict(color=P["closed"], width=2.6),
                 )
             )
             fig.update_layout(
@@ -603,7 +592,7 @@ with tab1:
                 y=static_res[key],
                 mode="lines",
                 name="Static Recipe",
-                line=dict(color=P["clay"], dash="dash", width=2),
+                line=dict(color=P["static"], dash="dash", width=2.6),
             )
         )
         fig.add_trace(
@@ -612,7 +601,7 @@ with tab1:
                 y=closed_res[key],
                 mode="lines",
                 name="Closed-Loop Digital Twin",
-                line=dict(color=P["teal"], width=2.4),
+                line=dict(color=P["closed"], width=2.6),
             )
         )
         fig.update_layout(
@@ -642,7 +631,7 @@ with tab1:
             y=static_mass_curve,
             mode="lines",
             name="Static Recipe",
-            line=dict(color=P["clay"], dash="dash", width=2),
+            line=dict(color=P["static"], dash="dash", width=2.6),
         )
     )
     fig_mass.add_trace(
@@ -651,7 +640,7 @@ with tab1:
             y=closed_mass_curve,
             mode="lines",
             name="Closed-Loop Digital Twin",
-            line=dict(color=P["teal"], width=2.4),
+            line=dict(color=P["closed"], width=2.6),
         )
     )
     fig_mass.update_layout(
@@ -665,11 +654,10 @@ with tab1:
 
     _band("Limpieza y esterilizacion")
     st.subheader("Panel de estado de interlocks de seguridad")
-    _leyenda("Estos controles no modifican el cultivo de arriba. El lote se evalua como activo.")
     ic1, ic2, ic3 = st.columns(3)
     with ic1:
         cip_valve_requested = st.toggle("CIP solicitado (valvula)", value=False)
-        _leyenda("Si pides CIP con el lote activo, el interlock bloquea la valvula. No limpia las curvas.")
+        _leyenda("Encendido: la valvula de limpieza queda bloqueada.")
     with ic2:
         cip_pipe_velocity_m_s = st.slider(
             "Velocidad de tuberia CIP (m/s)",
@@ -679,7 +667,7 @@ with tab1:
             step=0.01,
             help="ASME BPE-2014: cumple si >= 1.52 m/s (5 ft/s).",
         )
-        _leyenda("Por debajo de 1.52 m/s no cumple ASME BPE. Desde 1.52 m/s la velocidad es conforme.")
+        _leyenda("A la izquierda de 1.52 m/s la limpieza no cumple. De ahi a la derecha, si.")
     with ic3:
         sip_temp_C = st.slider(
             "Temperatura SIP (C)",
@@ -688,9 +676,9 @@ with tab1:
             value=123.0,
             step=0.1,
         )
-        _leyenda("Subirla aumenta el F0 de forma exponencial. Para dar por esteril hace falta al menos 121.1 C y un F0 de 15 min o mas.")
+        _leyenda("A la derecha el F0 sube muy rapido. Desde 121.1 C puede alcanzar los 15 min de esterilidad.")
     n_sip = st.slider("Numero de sensores SIP", min_value=1, max_value=10, value=20 // 4)
-    _leyenda("Cada sensor a esa temperatura suma su propio F0. Mas sensores suben el acumulado; si la temperatura esta bajo 121.1 C, ninguno cuenta como esteril.")
+    _leyenda("A la derecha se suman mas sensores y el F0 crece. Bajo 121.1 C el lote no queda esteril.")
 
     interlocks = check_safety_interlocks(
         power_density_W_m3=power_density_W_m3,
@@ -704,22 +692,17 @@ with tab1:
 
     k1, k2, k3, k4, k5 = st.columns(5)
 
-    def _flag(col, label, ok_true_is_good, value):
-        with col:
-            st.caption(label)
-            good = value if ok_true_is_good else (not value)
-            if good:
-                st.success(str(value))
-            else:
-                st.error(str(value))
+    def _flag(col, label, ok_true_is_good, value, yes_word, no_word):
+        good = bool(value) if ok_true_is_good else (not bool(value))
+        _chip(col, label, good, yes_word if value else no_word, "True" if value else "False")
 
-    _flag(k1, "Alarma de cizalla alta", False, interlocks["high_shear_alarm"])
-    _flag(k2, "Interlock CIP bloqueado", False, interlocks["cip_interlock_blocked"])
-    _flag(k3, "Velocidad CIP conforme (ASME BPE)", True, interlocks["cip_velocity_compliant"])
+    _flag(k1, "Alarma de cizalla", False, interlocks["high_shear_alarm"], "Alarma", "Normal")
+    _flag(k2, "CIP bloqueado", False, interlocks["cip_interlock_blocked"], "Bloqueado", "Libre")
+    _flag(k3, "Velocidad CIP", True, interlocks["cip_velocity_compliant"], "Cumple", "No cumple")
     with k4:
         st.caption("F0 acumulado (min)")
         st.metric("F0", f"{interlocks['f0_minutes']:.2f}")
-    _flag(k5, "SIP esteril conforme (F0>=15)", True, interlocks["sip_sterile_compliant"])
+    _flag(k5, "SIP", True, interlocks["sip_sterile_compliant"], "Esteril", "No esteril")
 
     with st.expander("Controlador split-range de pH (CO2 vs bomba de base)"):
         current_ph = st.slider(
@@ -729,7 +712,7 @@ with tab1:
             value=7.0,
             step=0.01,
         )
-        _leyenda("Es la lectura del controlador, no el pH del espacio A-Mab. Por encima de 7.00 mas la banda abre CO2, que acidifica. Por debajo de 7.00 menos la banda enciende la bomba de base.")
+        _leyenda("A la derecha, mas basico, abre CO2. A la izquierda, mas acido, prende la base. En el medio los dos quedan quietos.")
         act = compute_split_range_ph_actuators(
             current_ph, setpoint=7.0, deadband=ph_deadband, kp=150.0
         )
@@ -755,21 +738,21 @@ with tab2:
     )
 
     _band("Factores del espacio de diseno")
-    _leyenda("El centro es 17 dias, 100 mmHg, 400 mOsm, pH 6.85 y 35 C. No son rectas: un factor cambia el efecto de otro. El espacio se sostiene solo si z1, z2, z3 y z4 quedan en 4.60 o mas.")
+    _leyenda("Centro: 17 dias, 100 mmHg, 400 mOsm, pH 6.85 y 35 C. Si una z baja de 4.60, el espacio se cae.")
     s1, s2, s3 = st.columns(3)
     with s1:
         cd_days = st.slider("Duracion de cultivo (dias)", 15.0, 19.0, 17.0, 0.1)
-        _leyenda("Alejarse de 17 dias puede sacar alguna respuesta z de 4.60. No alarga el gemelo de la primera pestana.")
+        _leyenda("Hacia 17 dias esta el centro. Hacia 15 o hacia 19, alguna z puede bajar de 4.60.")
         co2_mmHg = st.slider("pCO2 (mmHg)", 40.0, 160.0, 100.0, 1.0)
-        _leyenda("Es CO2 disuelto, no el sparge del gemelo. Alejarse de 100 mmHg mueve la glicosilacion por la superficie, no el titulo g/L.")
+        _leyenda("Hacia 100 mmHg esta el centro. Hacia 40 o hacia 160 cambia la glicosilacion.")
     with s2:
         osm_mOsm = st.slider("Osmolalidad (mOsm)", 360.0, 440.0, 400.0, 1.0)
-        _leyenda("Centro en 400 mOsm. Subir o bajar cambia z1 a z4 segun la superficie. No cambia el volumen del vaso.")
+        _leyenda("Hacia 400 mOsm esta el centro. Si sube o baja, se mueven z1 a z4.")
         ph_val = st.slider("pH", 6.6, 7.1, 6.85, 0.01)
-        _leyenda("Hacia 6.6 esta mas acido y hacia 7.1 mas basico. Eso no empuja las cuatro respuestas al mismo lado: el mapa, junto con la temperatura, dice donde las cuatro siguen en 4.60 o mas.")
+        _leyenda("A la izquierda el cultivo queda mas acido; a la derecha, mas basico. El mapa dice donde las cuatro z siguen arriba de 4.60.")
     with s3:
         temp_C = st.slider("Temperatura (C)", 34.0, 36.0, 35.0, 0.05)
-        _leyenda("No es el cambio 36.5 a 34 C del gemelo. Aqui el rango es 34 a 36 C y se cruza con el pH en el mapa.")
+        _leyenda("Hacia 35 C esta el centro. Hacia 34 o 36, con el pH, el mapa pasa a rojo si el espacio se cae.")
 
     ds = evaluate_amab_design_space(
         cd_days=cd_days, co2_mmHg=co2_mmHg, osm_mOsm=osm_mOsm, ph_val=ph_val, temp_C=temp_C
@@ -782,10 +765,7 @@ with tab2:
     def _z(col, label, value):
         with col:
             st.metric(label, f"{value:.2f}", delta=f"{value - LIMIT:+.2f} vs 4.60")
-            if value >= LIMIT:
-                st.success("Cumple (>= 4.60)")
-            else:
-                st.error("No cumple (< 4.60)")
+            _chip(col, "limite 4.60", value >= LIMIT, "Cumple" if value >= LIMIT else "No cumple", f"{value:.2f}")
 
     _z(z1, "z1 afuc max", ds["z1_afuc_max"])
     _z(z2, "z2 afuc min", ds["z2_afuc_min"])
@@ -793,20 +773,18 @@ with tab2:
     _z(z4, "z4 gal min", ds["z4_gal_min"])
 
     b1, b2 = st.columns(2)
-    with b1:
-        if ds["in_bounds"]:
-            st.success("in_bounds = True")
-        else:
-            st.error("in_bounds = False")
-    with b2:
-        if ds["design_space_holds"]:
-            st.success("design_space_holds = True")
-        else:
-            st.error("design_space_holds = False")
+    _chip(b1, "in_bounds", ds["in_bounds"], "Dentro" if ds["in_bounds"] else "Fuera", str(ds["in_bounds"]))
+    _chip(
+        b2,
+        "design_space_holds",
+        ds["design_space_holds"],
+        "Se sostiene" if ds["design_space_holds"] else "No se sostiene",
+        str(ds["design_space_holds"]),
+    )
 
     _band("Mapa de cumplimiento")
     st.subheader("Mapa de calor de cumplimiento: Temperatura vs pH")
-    _leyenda("Solo se barren temperatura y pH. Duracion, pCO2 y osmolalidad se quedan en lo que marcaste arriba.")
+    _leyenda("El mapa solo mueve temperatura y pH. Lo demas se queda como lo dejaste arriba.")
     n_grid = 25
     temp_axis = np.linspace(34.0, 36.0, n_grid)
     ph_axis = np.linspace(6.6, 7.1, n_grid)
@@ -839,17 +817,16 @@ with tab2:
         )
     )
     heat.update_layout(
-        title="Arcilla: no se sostiene. Verde: se sostiene. El significado no cambia de modo.",
+        title="Rojo: no se sostiene. Verde: se sostiene.",
         xaxis_title="Temperatura (C)",
         yaxis_title="pH",
         height=420,
     )
     st.markdown(
         f'<p class="bp-note"><span class="bp-swatch" style="background:{P["heat_no"]}"></span>'
-        "Arcilla: design_space_holds es falso. "
+        "Rojo: design_space_holds es falso. "
         f'<span class="bp-swatch" style="background:{P["heat_yes"]}"></span>'
-        "Verde: es verdadero, las cuatro z estan en 4.60 o mas. "
-        "Esos dos papeles no se intercambian al pasar a noche.</p>",
+        "Verde: es verdadero. El rojo no pasa a ser el verde en modo noche.</p>",
         unsafe_allow_html=True,
     )
     st.plotly_chart(_apply_figure(heat), width="stretch")
@@ -861,15 +838,15 @@ with tab2:
         superficial_gas_vel_m_s = st.slider(
             "Velocidad superficial de gas (m/s)", 0.001, 0.05, 0.01, 0.001
         )
-        _leyenda("Sube el kLa: el exponente de esta correlacion es 0.48. No cambia el OUR.")
+        _leyenda("A la derecha entra mas gas y sube el kLa.")
     with e2:
         power_per_vol_W_m3 = st.slider(
             "Potencia por volumen (W/m3)", 2.0, 250.0, 50.0, 1.0
         )
-        _leyenda("Tambien sube el kLa, pero menos que el gas: el exponente es 0.19. Es independiente del P/V del gemelo.")
+        _leyenda("A la derecha tambien sube el kLa, menos que con el gas.")
     with e3:
         vcc = st.slider("VCC (1e6 cel/mL)", 1.0, 60.0, 15.0, 0.5)
-        _leyenda("El OUR de esta formula es 1.5 mmol/L/h a 15 millones de celulas/mL y crece en linea recta con la densidad. El kLa no depende de este valor.")
+        _leyenda("A la derecha hay mas celulas y el OUR sube. En 15 queda en 1.5 mmol/L/h.")
 
     scale = compute_scale_up_engineering(
         superficial_gas_vel_m_s=superficial_gas_vel_m_s,
@@ -896,15 +873,15 @@ with tab3:
     e1, e2, e3 = st.columns(3)
     with e1:
         duration_h = st.slider("Duracion del registro (horas)", 6, 72, 24, 1)
-        _leyenda("El pico conserva la temperatura que marques al lado, pero un registro mas largo hace la excursion mas ancha y la centra cerca del 45 % del tiempo. La oscilacion de fondo se repite cada 6 horas.")
+        _leyenda("A la derecha el registro dura mas y el pico de calor se ensancha.")
     with e2:
         sampling_interval_min = st.selectbox(
             "Intervalo de muestreo (min)", [1.0, 2.0, 5.0, 10.0, 15.0], index=2
         )
-        _leyenda("Un intervalo mas largo baja el limite de Nyquist: se distinguen menos ciclos por hora y puede aparecer aliasing. Tambien cambia el suavizado VTB, porque alfa se aplica una vez por muestra.")
+        _leyenda("Hacia intervalos mas largos se ve menos detalle y puede aparecer aliasing.")
     with e3:
         excursion_peak_C = st.slider("Pico de excursion (C)", 8.0, 25.0, 15.0, 0.5)
-        _leyenda("Es cuantos grados alcanza el pico sobre la base de 5 C. Un pico mas alto sube la MKT, porque el tramo caliente pesa mas. El vial de 1 mL lo sigue; el de 300 mL casi no se entera.")
+        _leyenda("A la derecha el pico esta mas caliente y la MKT sube. El vial de 1 mL lo sigue; el de 300 mL casi no.")
 
     n_samples = int((duration_h * 60.0) / sampling_interval_min) + 1
     t_min = np.arange(n_samples) * sampling_interval_min
@@ -925,15 +902,15 @@ with tab3:
     fig_t = go.Figure()
     fig_t.add_trace(
         go.Scatter(x=t_hours, y=air, mode="lines", name="Aire crudo",
-                   line=dict(color=P["air"], width=1))
+                   line=dict(color=P["air"], width=2.6))
     )
-    colors = {"1 mL": P["teal"], "20 mL (Glycol Ref)": P["moss"], "300 mL (Bulk)": P["bulk"]}
+    colors = {"1 mL": P["v1"], "20 mL (Glycol Ref)": P["v20"], "300 mL (Bulk)": P["v300"]}
     for k in volume_keys:
         fig_t.add_trace(
             go.Scatter(x=t_hours, y=vtb_traces[k], mode="lines", name=f"VTB {k}",
-                       line=dict(color=colors[k]))
+                       line=dict(color=colors[k], width=2.6))
         )
-    fig_t.add_hrect(y0=2.0, y1=8.0, fillcolor=P["moss"], opacity=0.08, line_width=0,
+    fig_t.add_hrect(y0=2.0, y1=8.0, fillcolor=P["mean"], opacity=0.16, line_width=0,
                     annotation_text="Rango 2-8 C", annotation_position="top left")
     fig_t.update_layout(
         title="Aire crudo vs trazas VTB por volumen",
@@ -960,10 +937,10 @@ with tab3:
     freqs_cph = np.fft.rfftfreq(signal.size, d=sampling_interval_min) * 60.0
 
     fig_f = go.Figure()
-    fig_f.add_trace(go.Scatter(x=freqs_cph, y=spectrum, mode="lines", name="|FFT|", line=dict(color=P["teal"], width=1.6)))
+    fig_f.add_trace(go.Scatter(x=freqs_cph, y=spectrum, mode="lines", name="|FFT|", line=dict(color=P["closed"], width=2.6)))
     fig_f.add_vline(
         x=fft_res["nyquist_limit_cph"],
-        line=dict(color=P["clay"], dash="dash"),
+        line=dict(color=P["limit"], dash="dash", width=2.6),
         annotation_text=f"Nyquist {fft_res['nyquist_limit_cph']:.2f} cph",
         annotation_position="top",
     )
@@ -980,10 +957,13 @@ with tab3:
     f2.metric("Frecuencia dominante (cph)", f"{fft_res['dominant_freq_cph']:.2f}")
     with f3:
         st.caption("Riesgo de aliasing")
-        if fft_res["aliasing_risk"]:
-            st.error("True")
-        else:
-            st.success("False")
+        _chip(
+            f3,
+            "Aliasing",
+            not fft_res["aliasing_risk"],
+            "Con aliasing" if fft_res["aliasing_risk"] else "Sin aliasing",
+            str(fft_res["aliasing_risk"]),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1000,18 +980,18 @@ with tab4:
 
     _band("Carta fija de Gorsky")
     st.subheader("Grafica de control de Shewhart (n=30, Tabla 6-2)")
-    _leyenda("Estos puntos no tienen control: son la tabla 6-2. Mover los reactores de abajo no cambia esta carta ni el Cp/Cpk.")
+    _leyenda("Esta carta esta fija. Los numeros de abajo no la mueven.")
     x_idx = list(range(1, len(GORSKY_TABLE_6_2_TORQUE_N30) + 1))
     fig_sh = go.Figure()
     fig_sh.add_trace(
         go.Scatter(x=x_idx, y=GORSKY_TABLE_6_2_TORQUE_N30, mode="lines+markers",
-                   name="Torque (N)", line=dict(color=P["teal"]), marker=dict(color=P["teal"], size=6))
+                   name="Torque (N)", line=dict(color=P["closed"]), marker=dict(color=P["closed"], size=6))
     )
-    fig_sh.add_hline(y=cap["ucl"], line=dict(color=P["clay"], dash="dash"),
+    fig_sh.add_hline(y=cap["ucl"], line=dict(color=P["limit"], dash="dash", width=2.6),
                      annotation_text=f"UCL {cap['ucl']:.2f}")
-    fig_sh.add_hline(y=cap["lcl"], line=dict(color=P["clay"], dash="dash"),
+    fig_sh.add_hline(y=cap["lcl"], line=dict(color=P["limit"], dash="dash", width=2.6),
                      annotation_text=f"LCL {cap['lcl']:.2f}")
-    fig_sh.add_hline(y=cap["mean"], line=dict(color=P["moss"]),
+    fig_sh.add_hline(y=cap["mean"], line=dict(color=P["mean"], width=2.6),
                      annotation_text=f"Media {cap['mean']:.2f}")
     fig_sh.update_layout(
         title="Carta de control: puntos con UCL/LCL (+/- 3 sigma)",
@@ -1026,16 +1006,19 @@ with tab4:
     sc[3].metric("Cpk", f"{cap['cpk']:.2f}")
     with sc[4]:
         st.caption("Capaz 4 sigma (Cpk>=1.33)")
-        if cap["capable_4sigma"]:
-            st.success("True")
-        else:
-            st.error("False")
+        _chip(
+            sc[4],
+            "Cpk >= 1.33",
+            cap["capable_4sigma"],
+            "Capaz" if cap["capable_4sigma"] else "No capaz",
+            str(cap["capable_4sigma"]),
+        )
 
     st.subheader("Histograma de capacidad vs LSL/USL")
     fig_h = go.Figure()
-    fig_h.add_trace(go.Histogram(x=GORSKY_TABLE_6_2_TORQUE_N30, nbinsx=12, name="Torque", marker_color=P["teal"]))
-    fig_h.add_vline(x=5.0, line=dict(color=P["clay"], dash="dash"), annotation_text="LSL 5.0")
-    fig_h.add_vline(x=12.0, line=dict(color=P["clay"], dash="dash"), annotation_text="USL 12.0")
+    fig_h.add_trace(go.Histogram(x=GORSKY_TABLE_6_2_TORQUE_N30, nbinsx=12, name="Torque", marker_color=P["closed"]))
+    fig_h.add_vline(x=5.0, line=dict(color=P["limit"], dash="dash", width=2.6), annotation_text="LSL 5.0")
+    fig_h.add_vline(x=12.0, line=dict(color=P["limit"], dash="dash", width=2.6), annotation_text="USL 12.0")
     fig_h.update_layout(
         title=f"Distribucion de torque | Cp={cap['cp']:.2f}, Cpk={cap['cpk']:.2f}",
         xaxis_title="Torque (N)", yaxis_title="Frecuencia", height=360
@@ -1055,7 +1038,7 @@ with tab4:
     st.divider()
     _band("Comparar dos reactores")
     st.subheader("Prueba t de Welch entre dos reactores (datos editables)")
-    _leyenda("Estos numeros si cambian la prueba. Si los dos grupos se separan bastante frente a su dispersion, el p-valor cae bajo 0.05 y se marca diferencia significativa. Hacen falta al menos dos valores validos en cada uno.")
+    _leyenda("Si separas los valores de A y de B, el p-valor baja y la prueba marca diferencia.")
     default_a = pd.DataFrame({"Reactor A": [8.1, 7.9, 8.4, 8.0, 8.3, 7.8]})
     default_b = pd.DataFrame({"Reactor B": [8.6, 8.9, 9.1, 8.7, 9.0, 8.8]})
     ca, cb = st.columns(2)
@@ -1078,12 +1061,15 @@ with tab4:
         tc[1].metric("p-value", f"{tt['p_value']:.6f}")
         with tc[2]:
             st.caption("Diferencia significativa (alpha=0.05)")
-            if tt["statistically_significant_diff"]:
-                st.error("True")
-            else:
-                st.success("False")
+            _chip(
+                tc[2],
+                "p < 0.05",
+                not tt["statistically_significant_diff"],
+                "Hay diferencia" if tt["statistically_significant_diff"] else "Sin diferencia",
+                f"{tt['p_value']:.4f}",
+            )
     else:
-        st.warning("Ingresa al menos 2 valores numericos validos por reactor.")
+        _banner("warn", "Hacen falta al menos dos numeros validos en cada reactor.")
 
 
 # ---------------------------------------------------------------------------
@@ -1117,7 +1103,7 @@ with tab5:
         human_approved = st.checkbox(
             "Firma electronica: aprobacion humana (Annex 22)", value=True
         )
-        _leyenda("Si quitas la aprobacion humana, el registro se rechaza. Si la razon tiene menos de 5 caracteres, tambien. El resto queda escrito en la cadena: cambiarlo cambia el hash, no un calculo de proceso.")
+        _leyenda("Sin la casilla, el cambio se rechaza. Con una razon de menos de 5 letras, tambien.")
         submitted = st.form_submit_button("Registrar cambio")
 
     if submitted:
@@ -1131,34 +1117,33 @@ with tab5:
                 reason_for_change=reason_for_change,
                 human_approved=human_approved,
             )
-            st.success("Registro agregado a la cadena de auditoria.")
+            _banner("ok", "Registro agregado a la cadena de auditoria.")
         except PermissionError as exc:
-            st.error(f"PermissionError: {exc}")
+            _banner("bad", f"PermissionError: {exc}")
         except ValueError as exc:
-            st.error(f"ValueError: {exc}")
+            _banner("bad", f"ValueError: {exc}")
 
     st.subheader("Audit trail")
     if logger.records:
         st.dataframe(pd.DataFrame(logger.records), width="stretch")
     else:
-        st.info("Aun no hay registros en la cadena de auditoria.")
+        _banner("warn", "Aun no hay registros en la cadena de auditoria.")
 
     bcol1, bcol2 = st.columns(2)
     with bcol1:
+        _leyenda("Recorre los hashes. Si un dato fue cambiado, la cadena sale rota.")
         if st.button("Verificar cadena SHA-256"):
             ok = logger.verify_chain_integrity()
-            if ok:
-                st.success(f"Integridad de la cadena: {ok}")
-            else:
-                st.error(f"Integridad de la cadena: {ok}")
+            _banner("ok" if ok else "bad", f"Integridad de la cadena: {ok}")
     with bcol2:
+        _leyenda("Altera el primer registro para que la cadena deje de cerrar.")
         if st.button("Demostrar falla de integridad"):
             if logger.records:
                 logger.records[0]["new_value"] = "TAMPERED"
                 ok = logger.verify_chain_integrity()
-                st.error(
-                    f"Se altero records[0]['new_value'] = 'TAMPERED'. "
-                    f"verify_chain_integrity() = {ok}"
+                _banner(
+                    "bad",
+                    f"Se altero records[0]['new_value'] = 'TAMPERED'. verify_chain_integrity() = {ok}",
                 )
             else:
-                st.warning("No hay registros para alterar. Agrega uno primero.")
+                _banner("warn", "No hay registros para alterar. Agrega uno primero.")
