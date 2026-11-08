@@ -320,13 +320,13 @@ def _apply_figure(fig):
         ),
         legend=dict(
             orientation="h",
-            yanchor="bottom",
-            y=1.02,
+            yanchor="top",
+            y=-0.22,
             x=0,
             bgcolor="rgba(0,0,0,0)",
             font=dict(size=12, color=P["ink"]),
         ),
-        margin=dict(l=52, r=20, t=72, b=42),
+        margin=dict(l=52, r=20, t=58, b=82),
         hoverlabel=dict(
             bgcolor=P["tip_bg"],
             font=dict(color=P["tip_fg"], family="IBM Plex Sans, sans-serif"),
@@ -1177,28 +1177,34 @@ with tab4:
     c_perf, c_within = st.columns(2)
     with c_perf:
         with st.container(border=True):
-            st.markdown("**Desempeno global (largo plazo)**: std global, ddof=1")
-            p = st.columns(4)
+            st.markdown("**Desempeno global (largo plazo)**")
+            st.caption("Calculado con la desviacion estandar global, ddof=1.")
+            p = st.columns(5)
             p[0].metric("Pp", f"{cap['pp']:.2f}", help="Pp = (USL-LSL)/(6*std_global)")
             p[1].metric("Ppk", f"{cap['ppk']:.2f}", help="Ppk = min(Ppu, Ppl)")
             p[2].metric("Ppu", f"{cap['ppu']:.2f}")
             p[3].metric("Ppl", f"{cap['ppl']:.2f}")
+            p[4].metric("Std global (N)", f"{cap['std']:.2f}")
     with c_within:
         with st.container(border=True):
-            st.markdown("**Capacidad within (corto plazo)**: MR-bar / d2, d2 = 1.128")
-            w = st.columns(4)
+            st.markdown("**Capacidad within (corto plazo)**")
+            st.caption("Estimacion corta basada en MR-bar / d2, con d2 = 1.128.")
+            w = st.columns(5)
             w[0].metric("Cp within", f"{cap['cp_within']:.2f}", help="Cp = (USL-LSL)/(6*std_within)")
             w[1].metric("Cpk within", f"{cap['cpk_within']:.2f}", help="Cpk = min(Cpu, Cpl) within")
             w[2].metric("Cpu within", f"{cap['cpu_within']:.2f}")
             w[3].metric("Cpl within", f"{cap['cpl_within']:.2f}")
+            mr_bar = cap["std_within"] * 1.128
+            w[4].metric("MR-bar (N)", f"{mr_bar:.2f}", help="MR-bar = std_within * d2")
 
-    n1, n2, n3, n4 = st.columns(4)
+    n1, n2, n3, n4, n5 = st.columns(5)
     n1.metric("Shapiro-Wilk p-value", f"{cap['normality_p_value']:.4f}")
     _chip(n2, "is_normal (p >= 0.05)", cap["is_normal"],
           "Normal" if cap["is_normal"] else "No normal", str(cap["is_normal"]))
     _chip(n3, "capable_4sigma (Ppk >= 1.33)", cap["capable_4sigma"],
           "Capaz" if cap["capable_4sigma"] else "No capaz", str(cap["capable_4sigma"]))
-    n4.metric("Media / std global (N)", f"{cap['mean']:.2f} / {cap['std']:.2f}")
+    n4.metric("Media (N)", f"{cap['mean']:.2f}")
+    n5.metric("Muestras (n)", str(len(GORSKY_TABLE_6_2_TORQUE_N30)))
 
     ch1, ch2 = st.columns(2)
     with ch1:
@@ -1329,13 +1335,19 @@ def _load_oq_log(path: str):
                         "Duracion (s)": duration,
                     }
                 )
-    verdict = re.search(r"declared \*\*(NOT ACCEPTABLE|ACCEPTABLE)\*\*", text)
+    exit_status = meta.get("Pytest exit status")
+    passed = sum(1 for row in rows if row["Resultado"] == "PASSED")
+    not_passed = len(rows) - passed
+    execution_acceptable = bool(
+        rows and not_passed == 0 and exit_status is not None and exit_status.strip() == "0"
+    )
     return {
         "text": text,
         "meta": meta,
         "packages": packages,
         "rows": rows,
-        "verdict": verdict.group(1) if verdict else None,
+        "verdict": "ACCEPTABLE" if execution_acceptable else "NO ACEPTABLE",
+        "execution_acceptable": execution_acceptable,
     }
 
 
@@ -1354,13 +1366,34 @@ with tab5:
         passed = sum(1 for r in oq["rows"] if r["Resultado"] == "PASSED")
         total = len(oq["rows"])
         not_passed = total - passed
+        st.markdown(
+            f"**Ultima ejecucion (UTC):** `{oq['meta'].get('Execution timestamp (UTC)', 'n/d')}`"
+        )
         o1, o2, o3, o4 = st.columns(4)
         o1.metric("Pruebas aprobadas", f"{passed}/{total}")
         o2.metric("Fallidas o con error", f"{not_passed}")
-        o3.metric("Ejecucion (UTC)", oq["meta"].get("Execution timestamp (UTC)", "n/d").replace(" UTC", ""))
-        verdict = oq["verdict"] or "SIN VEREDICTO"
-        _chip(o4, "FDA CSA V.A.6", verdict == "ACCEPTABLE" and not_passed == 0, verdict,
-              f"exit status {oq['meta'].get('Pytest exit status', 'n/d')}")
+        o3.metric("Exit status", oq["meta"].get("Pytest exit status", "n/d"))
+        _chip(
+            o4,
+            "Resultado de ejecucion OQ",
+            oq["execution_acceptable"],
+            "ACEPTABLE" if oq["execution_acceptable"] else "NO ACEPTABLE",
+            f"{passed}/{total} pruebas sin fallos",
+        )
+        st.info(
+            "Este estado solo significa que la corrida automatizada de pruebas produjo "
+            "evidencia aceptable para el uso evaluado: todas las pruebas terminaron "
+            "correctamente y el proceso devolvio exit status 0. No es una aprobacion "
+            "regulatoria, una liberacion de lote ni una firma de calidad."
+        )
+        with st.expander("Como se usa este resultado"):
+            st.markdown(
+                "- **ACEPTABLE:** no hay fallos ni errores en esta ejecucion; se puede "
+                "revisar la evidencia y continuar el control de cambios.\n"
+                "- **NO ACEPTABLE:** hay que abrir los resultados fallidos, corregir "
+                "la implementacion o el entorno, y volver a ejecutar `python -m pytest -v`.\n"
+                "- La app muestra el log generado; no ejecuta pytest dentro del navegador."
+            )
         if oq["rows"]:
             st.dataframe(
                 pd.DataFrame(oq["rows"]),

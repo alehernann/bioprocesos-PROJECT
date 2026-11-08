@@ -6,12 +6,12 @@ FDA Computer Software Assurance (CSA) Operational Qualification (OQ) automated e
 
 ## Execution Environment
 
-- **Execution timestamp (UTC):** 2026-11-08 11:40:01 UTC
-- **Python version:** 3.11.15
-- **Platform:** Linux-6.1.189-236.400.amzn2023.x86_64-x86_64-with-glibc2.34
+- **Execution timestamp (UTC):** 2026-11-08 12:34:29 UTC
+- **Python version:** 3.12.3
+- **Platform:** Linux-6.12.8+-x86_64-with-glibc2.39
 - **Qualified package versions:**
-    - numpy: 2.4.6
-    - scipy: 1.17.1
+    - numpy: 2.5.4
+    - scipy: 1.18.1
     - pandas: 3.1.1
     - pydantic: 2.14.3
     - plotly: 7.1.0
@@ -33,20 +33,20 @@ FDA Computer Software Assurance (CSA) Operational Qualification (OQ) automated e
 | --- | --- | --- | --- |
 | tests/test_csa_oq_validation.py::test_oq_01_pid_split_range_deadband | Scripted Testing (High Process Risk) | PASSED | 0.0003 |
 | tests/test_csa_oq_validation.py::test_oq_02_automated_day7_temperature_shift | Scripted Testing (High Process Risk) | PASSED | 0.0001 |
-| tests/test_csa_oq_validation.py::test_oq_03_closed_loop_vs_static_titer_gain | Scripted Testing (High Process Risk) | PASSED | 0.0009 |
+| tests/test_csa_oq_validation.py::test_oq_03_closed_loop_vs_static_titer_gain | Scripted Testing (High Process Risk) | PASSED | 0.0012 |
 | tests/test_csa_oq_validation.py::test_oq_04_safety_shear_and_cip_sip_interlocks | Scripted Testing (High Process Risk) | PASSED | 0.0001 |
 | tests/test_csa_oq_validation.py::test_oq_05_ispe_amab_design_space_center_and_edges | Scripted Testing (High Process Risk) | PASSED | 0.0001 |
-| tests/test_csa_oq_validation.py::test_oq_05b_amab_scale_up_kla_pilot_commercial_range | Scripted Testing (High Process Risk) | PASSED | 0.0001 |
-| tests/test_csa_oq_validation.py::test_oq_06_mkt_and_vtb_damping | Scripted Testing (High Process Risk) | PASSED | 0.0005 |
-| tests/test_csa_oq_validation.py::test_oq_07_fft_nyquist_sampling_validation | Scripted Testing (High Process Risk) | PASSED | 0.0004 |
-| tests/test_csa_oq_validation.py::test_oq_08_gorsky_spc_tolerance_and_capability | Scripted Testing (High Process Risk) | PASSED | 0.0005 |
-| tests/test_csa_oq_validation.py::test_oq_09_part11_audit_trail_and_annex22_guardrail | Scripted Testing (High Process Risk) | PASSED | 0.0001 |
+| tests/test_csa_oq_validation.py::test_oq_05b_amab_scale_up_kla_pilot_commercial_range | Scripted Testing (High Process Risk) | PASSED | 0.0000 |
+| tests/test_csa_oq_validation.py::test_oq_06_mkt_and_vtb_damping | Scripted Testing (High Process Risk) | PASSED | 0.0006 |
+| tests/test_csa_oq_validation.py::test_oq_07_fft_nyquist_sampling_validation | Scripted Testing (High Process Risk) | PASSED | 0.0006 |
+| tests/test_csa_oq_validation.py::test_oq_08_gorsky_spc_tolerance_and_capability | Scripted Testing (High Process Risk) | PASSED | 0.0008 |
+| tests/test_csa_oq_validation.py::test_oq_09_part11_audit_trail_and_annex22_guardrail | Scripted Testing (High Process Risk) | PASSED | 0.0002 |
 | tests/test_csa_oq_validation.py::test_exploratory_10_invalid_pydantic_inputs | Unscripted / Error-Guessing (Not High Process Risk) | PASSED | 0.0001 |
-| tests/test_csa_oq_validation.py::test_exploratory_11_audit_trail_requires_reason | Unscripted / Error-Guessing (Not High Process Risk) | PASSED | 0.0001 |
+| tests/test_csa_oq_validation.py::test_exploratory_11_audit_trail_requires_reason | Unscripted / Error-Guessing (Not High Process Risk) | PASSED | 0.0000 |
 | tests/test_csa_oq_validation.py::test_exploratory_12_welch_ttest_identical_groups_not_significant | Unscripted / Error-Guessing (Not High Process Risk) | PASSED | 0.0009 |
 
 ## Acceptability Statement (FDA CSA Section V.A.6)
 
 In accordance with the FDA guidance *Computer Software Assurance for Production and Quality System Software*, Section V.A.6, this automated OQ execution constitutes objective evidence that the software performs as intended for its risk-based use. The scripted high-process-risk tests (`test_oq_*`) and the unscripted / error-guessing tests (`test_exploratory_*`) above, together with their recorded results and durations, document the assurance activities performed.
 
-Based on the results recorded in this log, the OQ execution results are declared **ACCEPTABLE** per FDA CSA Section V.A.6: the testing provides objective evidence that the results are acceptable for the intended, risk-assessed use of the system.
+Based on the results recorded in this log, the OQ execution status is **ACCEPTABLE** for this test run. This status means that the recorded assurance activities completed with the stated result; it is not a regulatory approval, batch release decision, or quality signature.

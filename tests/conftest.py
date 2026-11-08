@@ -162,10 +162,10 @@ def pytest_sessionfinish(session, exitstatus):
     )
     lines.append("")
     lines.append(
-        f"Based on the results recorded in this log, the OQ execution results are "
-        f"declared **{overall}** per FDA CSA Section V.A.6: the testing provides "
-        f"objective evidence that the results are acceptable for the intended, "
-        f"risk-assessed use of the system."
+        f"Based on the results recorded in this log, the OQ execution status is "
+        f"**{overall}** for this test run. This status means that the recorded "
+        f"assurance activities completed with the stated result; it is not a "
+        f"regulatory approval, batch release decision, or quality signature."
     )
     lines.append("")
 
