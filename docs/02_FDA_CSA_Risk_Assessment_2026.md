@@ -116,7 +116,11 @@ quality decisions, so scripted testing (`test_oq_08`) is required.
 **Input validation.** The Pydantic typed models (`models.py`) are the gatekeeper that prevents
 malformed data from reaching the High-Risk core. Although defensive, a validation gap would
 propagate bad data everywhere, so it is treated as High Process Risk. Note that exploring *invalid*
-inputs is complementary and covered by the unscripted `test_exploratory_10_invalid_pydantic_inputs`.
+inputs is complementary and covered by the unscripted `test_exploratory_10_invalid_pydantic_inputs`,
+together with `test_exploratory_11_audit_trail_requires_reason` (error-guessing on invalid
+reasons for change in the Audit Trail) and
+`test_exploratory_12_welch_ttest_identical_groups_not_significant` (SPC boundary case of identical
+groups, i.e. zero difference in means, in the Welch t-test).
 
 ### 5.2 Not High Process Risk — Unscripted Exploratory / Error-Guessing Testing
 
@@ -156,8 +160,9 @@ custom-code (GAMP Category 5) core, consistent with the CSA least-burdensome pri
 
 - High Process Risk features map to the scripted OQ tests `test_oq_01` through `test_oq_09` in
   `tests/test_csa_oq_validation.py`.
-- The Not-High-Risk and the invalid-input exploration map to
-  `test_exploratory_10_invalid_pydantic_inputs`.
+- The Not-High-Risk and the invalid-input / boundary exploration map to the unscripted tests
+  `test_exploratory_10_invalid_pydantic_inputs`, `test_exploratory_11_audit_trail_requires_reason`
+  and `test_exploratory_12_welch_ttest_identical_groups_not_significant`.
 - The suite covers 10 scripted tests (`test_oq_01` through `test_oq_09`, including
   `test_oq_05b_amab_scale_up_kla_pilot_commercial_range`) and 3 exploratory tests
   (`test_exploratory_10` through `test_exploratory_12`).

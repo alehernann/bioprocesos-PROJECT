@@ -179,8 +179,10 @@ def compute_scale_up_engineering(
 
     kLa correlation and maximum oxygen uptake rate (OUR) follow the A-Mab ISPE
     2009 oxygen-transfer treatment (Fig. 3.11, Table 3.22). The
-    ``qo2_mmol_cell_h`` argument is carried as the per-cell oxygen demand context
-    for the OUR reference basis.
+    ``qo2_mmol_cell_h`` argument specifies the per-cell specific oxygen uptake
+    rate (mmol/(cell*h)) used to compute
+    ``our_max_mmol_L_h = vcc_1e6_cells_mL * 1e9 * qo2_mmol_cell_h`` (yielding
+    1.50 mmol/(L*h) at the default 15e6 cells/mL and 1.0e-10 mmol/(cell*h)).
 
     SI-UNIT CORRECTION
     ------------------

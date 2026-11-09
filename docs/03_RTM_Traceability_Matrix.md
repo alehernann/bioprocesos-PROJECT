@@ -102,6 +102,9 @@ requirement (no **orphan tests**).
 | Orphan requirements (no test) | 0 |
 | Orphan tests (no requirement) | 0 |
 | High Process Risk requirements | 15 / 15 |
+| OQ tests executed | 13 |
+| Scripted tests (High Process Risk) | 10 (`test_oq_01` … `test_oq_09`, incl. `test_oq_05b`) |
+| Unscripted Exploratory / Error-Guessing tests | 3 (`test_exploratory_10` … `test_exploratory_12`) |
 
 **Note on `test_oq_07_fft_nyquist_sampling_validation`:** this test verifies the non-functional
 Nyquist sampling criterion (NFR-03) that underpins faithful signal reconstruction for the control
@@ -112,6 +115,12 @@ process signals could silently corrupt control and SPC decisions.
 guard (`models.py`) with malformed/invalid inputs. While input validation itself is High Process
 Risk (gatekeeper to the core), the *exploration of invalid inputs* is conducted as an
 unscripted/error-guessing activity consistent with the CSA least-burdensome principle.
+
+**Note on `test_exploratory_10`, `test_exploratory_11` and `test_exploratory_12`:** these three
+tests are error-guessing / boundary-probing activities under the least-burdensome principle of the
+FDA CSA guidance (Feb 2026). They complement, and do not replace, the scripted tests on
+`models.py` (invalid CPP inputs), `audit_trail_part11.py` (missing or too-short reason for change)
+and `spc_six_sigma.py` (Welch t-test on identical groups).
 
 ## 7. Per-Requirement Verification Detail
 
@@ -144,6 +153,10 @@ All 15 user requirements are classified **High Process Risk** per
 No user requirement in this system falls into the Not-High-Risk category; the Not-High-Risk
 features (plotting, UI) are presentation-layer functions that do not map to a URS and are assured
 by unscripted exploratory / error-guessing testing, as documented in section 5.2 of document 02.
+In addition, `test_exploratory_10`, `test_exploratory_11` and `test_exploratory_12` are
+error-guessing / boundary-probing activities under the least-burdensome principle of the FDA CSA
+guidance (Feb 2026); they complement the scripted tests on `models.py`, `audit_trail_part11.py`
+and `spc_six_sigma.py` without replacing them.
 
 ## 9. Traceability Integrity Statement
 
