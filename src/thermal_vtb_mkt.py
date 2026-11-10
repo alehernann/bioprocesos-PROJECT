@@ -24,8 +24,13 @@ VTB_CALIBRATION_TABLE = {
     "50 mL": {"alpha": 0.083, "tau_s": 3444, "tau_min": 57.4},
     "120 mL": {"alpha": 0.042, "tau_s": 7007, "tau_min": 116.8},
     "600 mL": {"alpha": 0.037, "tau_s": 7904, "tau_min": 131.7},
-    "300 mL (Bulk)": {"alpha": 0.002, "tau_s": 126600, "tau_min": 2110.0},
+    # Bulk container: 300 L (not 300 mL). tau = 126600 s = 2110 min ~= 35 h.
+    "300 L (Bulk)": {"alpha": 0.002, "tau_s": 126600, "tau_min": 2110.0},
 }
+
+# Backward-compatible keys accepted by apply_vtb_filter. "300 mL (Bulk)" was a
+# mislabel of the 300 L bulk entry (tau ~= 35 h is a 300 L time constant).
+VTB_VOLUME_KEY_ALIASES = {"300 mL (Bulk)": "300 L (Bulk)"}
 
 
 def calculate_mkt_celsius(
@@ -46,17 +51,35 @@ def calculate_mkt_celsius(
 
 
 def apply_vtb_filter(
-    air_temps_C: list[float], volume_key: str = "20 mL (Glycol Ref)"
+    air_temps_C: list[float],
+    volume_key: str = "20 mL (Glycol Ref)",
+    sampling_interval_min: float | None = None,
 ) -> list[float]:
     """Apply the single-pole virtual thermal buffer filter to an air-temperature trace.
 
     The filter emulates the thermal lag of a fixed physical buffer of the given
-    container volume (Rusnack, Pharm. Eng. 2026), using the per-volume alpha from
-    :data:`VTB_CALIBRATION_TABLE`:
+    container volume (Rusnack, Pharm. Eng. 2026):
 
         vtb[k] = alpha * air[k] + (1 - alpha) * vtb[k-1]
+
+    ``alpha`` source:
+        - ``sampling_interval_min`` is None (default): the tabulated alpha from
+          :data:`VTB_CALIBRATION_TABLE` (calibrated for 5-min sampling). Default
+          behaviour is unchanged.
+        - ``sampling_interval_min`` given: alpha is derived from the container time
+          constant for that sampling interval, alpha = 1 - exp(-dt / tau), with
+          dt = 60 * sampling_interval_min s and tau = ``tau_s``.
+
+    ``volume_key`` also accepts the legacy alias "300 mL (Bulk)" for "300 L (Bulk)".
     """
-    alpha = VTB_CALIBRATION_TABLE[volume_key]["alpha"]
+    key = VTB_VOLUME_KEY_ALIASES.get(volume_key, volume_key)
+    entry = VTB_CALIBRATION_TABLE[key]
+    if sampling_interval_min is None:
+        alpha = entry["alpha"]
+    else:
+        if sampling_interval_min <= 0:
+            raise ValueError("sampling_interval_min must be > 0.")
+        alpha = 1.0 - math.exp(-(60.0 * sampling_interval_min) / entry["tau_s"])
     vtb = [air_temps_C[0]]
     for k in range(1, len(air_temps_C)):
         vtb.append(alpha * air_temps_C[k] + (1 - alpha) * vtb[-1])

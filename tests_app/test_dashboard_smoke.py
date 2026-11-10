@@ -96,22 +96,22 @@ def test_spc_metrics_are_live_and_non_zero(at):
         "Ppk": f"{cap['ppk']:.2f}",
         "Ppu": f"{cap['ppu']:.2f}",
         "Ppl": f"{cap['ppl']:.2f}",
-        "Std global (N)": f"{cap['std']:.2f}",
+        "Std global (lb/in)": f"{cap['std']:.2f}",
         "Cp within": f"{cap['cp_within']:.2f}",
         "Cpk within": f"{cap['cpk_within']:.2f}",
         "Cpu within": f"{cap['cpu_within']:.2f}",
         "Cpl within": f"{cap['cpl_within']:.2f}",
-        "Std within (N)": f"{cap['std_within']:.2f}",
-        "MR-bar (N)": f"{mr['mr_bar']:.2f}",
-        "Media global (N)": f"{cap['mean']:.2f}",
+        "Std within (lb/in)": f"{cap['std_within']:.2f}",
+        "MR-bar (lb/in)": f"{mr['mr_bar']:.2f}",
+        "Media global (lb/in)": f"{cap['mean']:.2f}",
         "N (muestras)": f"{len(GORSKY_TABLE_6_2_TORQUE_N30)}",
     }
     for label, value in expected.items():
         shown = _metric_values(at, label)
         assert shown == [value], (label, shown, value)
         assert float(shown[0]) > 0.0, f"{label} rendered as zero"
-    # The combined label that truncated N is gone.
-    assert _metric_values(at, "Media / std global (N)") == []
+    # The old combined label (truncated, wrong unit) is gone.
+    assert _metric_values(at, "Media / std global (lb/in)") == []
 
 
 def test_shewhart_legend_is_below_the_plot(at):

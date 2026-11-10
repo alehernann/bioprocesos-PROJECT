@@ -6,7 +6,7 @@ FDA Computer Software Assurance (CSA) Operational Qualification (OQ) automated e
 
 ## Execution Environment
 
-- **Execution timestamp (UTC):** 2026-11-08 20:13:36 UTC
+- **Execution timestamp (UTC):** 2026-11-10 23:11:08 UTC
 - **Python version:** 3.11.15
 - **Platform:** Linux-6.1.189-236.400.amzn2023.x86_64-x86_64-with-glibc2.34
 - **Qualified package versions:**
@@ -20,8 +20,8 @@ FDA Computer Software Assurance (CSA) Operational Qualification (OQ) automated e
 
 ## Execution Summary
 
-- **Total tests executed:** 13
-- **Passed:** 13
+- **Total tests executed:** 14
+- **Passed:** 14
 - **Failed:** 0
 - **Errored:** 0
 - **Skipped:** 0
@@ -31,19 +31,20 @@ FDA Computer Software Assurance (CSA) Operational Qualification (OQ) automated e
 
 | ID | CSA Category | Result | Duration (s) |
 | --- | --- | --- | --- |
-| tests/test_csa_oq_validation.py::test_oq_01_pid_split_range_deadband | Scripted Testing (High Process Risk) | PASSED | 0.0004 |
-| tests/test_csa_oq_validation.py::test_oq_02_automated_day7_temperature_shift | Scripted Testing (High Process Risk) | PASSED | 0.0001 |
-| tests/test_csa_oq_validation.py::test_oq_03_closed_loop_vs_static_titer_gain | Scripted Testing (High Process Risk) | PASSED | 0.0010 |
+| tests/test_csa_oq_validation.py::test_oq_01_setpoints_and_ph_split_range_exclusivity | Scripted Testing (High Process Risk) | PASSED | 0.0006 |
+| tests/test_csa_oq_validation.py::test_oq_02_automated_day7_temperature_shift | Scripted Testing (High Process Risk) | PASSED | 0.0011 |
+| tests/test_csa_oq_validation.py::test_oq_03_closed_loop_vs_static_titer_gain | Scripted Testing (High Process Risk) | PASSED | 0.0020 |
 | tests/test_csa_oq_validation.py::test_oq_04_safety_shear_and_cip_sip_interlocks | Scripted Testing (High Process Risk) | PASSED | 0.0001 |
 | tests/test_csa_oq_validation.py::test_oq_05_ispe_amab_design_space_center_and_edges | Scripted Testing (High Process Risk) | PASSED | 0.0001 |
 | tests/test_csa_oq_validation.py::test_oq_05b_amab_scale_up_kla_pilot_commercial_range | Scripted Testing (High Process Risk) | PASSED | 0.0001 |
-| tests/test_csa_oq_validation.py::test_oq_06_mkt_and_vtb_damping | Scripted Testing (High Process Risk) | PASSED | 0.0005 |
-| tests/test_csa_oq_validation.py::test_oq_07_fft_nyquist_sampling_validation | Scripted Testing (High Process Risk) | PASSED | 0.0005 |
-| tests/test_csa_oq_validation.py::test_oq_08_gorsky_spc_tolerance_and_capability | Scripted Testing (High Process Risk) | PASSED | 0.0006 |
-| tests/test_csa_oq_validation.py::test_oq_09_part11_audit_trail_and_annex22_guardrail | Scripted Testing (High Process Risk) | PASSED | 0.0002 |
+| tests/test_csa_oq_validation.py::test_oq_06_mkt_and_vtb_damping | Scripted Testing (High Process Risk) | PASSED | 0.0004 |
+| tests/test_csa_oq_validation.py::test_oq_07_fft_nyquist_sampling_validation | Scripted Testing (High Process Risk) | PASSED | 0.0004 |
+| tests/test_csa_oq_validation.py::test_oq_08_gorsky_spc_tolerance_and_capability | Scripted Testing (High Process Risk) | PASSED | 0.0005 |
+| tests/test_csa_oq_validation.py::test_oq_09_part11_audit_trail_and_annex22_guardrail | Scripted Testing (High Process Risk) | PASSED | 0.0001 |
+| tests/test_csa_oq_validation.py::test_oq_09b_part11_human_approved_mutation_breaks_chain | Scripted Testing (High Process Risk) | PASSED | 0.0001 |
 | tests/test_csa_oq_validation.py::test_exploratory_10_invalid_pydantic_inputs | Unscripted / Error-Guessing (Not High Process Risk) | PASSED | 0.0001 |
 | tests/test_csa_oq_validation.py::test_exploratory_11_audit_trail_requires_reason | Unscripted / Error-Guessing (Not High Process Risk) | PASSED | 0.0001 |
-| tests/test_csa_oq_validation.py::test_exploratory_12_welch_ttest_identical_groups_not_significant | Unscripted / Error-Guessing (Not High Process Risk) | PASSED | 0.0010 |
+| tests/test_csa_oq_validation.py::test_exploratory_12_welch_ttest_identical_groups_not_significant | Unscripted / Error-Guessing (Not High Process Risk) | PASSED | 0.0009 |
 
 ## Acceptability Statement (FDA CSA Section V.A.6)
 

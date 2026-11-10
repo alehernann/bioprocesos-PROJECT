@@ -55,9 +55,12 @@ class AuditTrailLogger:
         )
         timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
+        # human_approved is part of the hashed payload, so flipping the approval
+        # flag after the fact is detected by verify_chain_integrity().
         sha256_hash = hashlib.sha256(
             f"{prev_hash}|{timestamp}|{user_id}|{role}|{parameter_name}|"
-            f"{old_value}|{new_value}|{reason_for_change}".encode("utf-8")
+            f"{old_value}|{new_value}|{reason_for_change}|"
+            f"{bool(human_approved)}".encode("utf-8")
         ).hexdigest()
 
         record = {
@@ -81,6 +84,9 @@ class AuditTrailLogger:
         Returns ``True`` if every record's ``prev_hash`` links correctly and every
         stored ``sha256_hash`` matches the recomputed value; ``False`` if any
         record (or its ordering) has been altered.
+
+        The hashed payload ends with ``|{bool(human_approved)}`` (v1.2.0). Chains
+        hashed with the earlier payload (without that field) do not verify.
         """
         expected_prev = "GENESIS_BLOCK_0000000000000000"
         for record in self.records:
@@ -89,7 +95,8 @@ class AuditTrailLogger:
             recomputed = hashlib.sha256(
                 f"{record['prev_hash']}|{record['timestamp']}|{record['user_id']}|"
                 f"{record['role']}|{record['parameter_name']}|{record['old_value']}|"
-                f"{record['new_value']}|{record['reason_for_change']}".encode("utf-8")
+                f"{record['new_value']}|{record['reason_for_change']}|"
+                f"{bool(record['human_approved'])}".encode("utf-8")
             ).hexdigest()
             if recomputed != record["sha256_hash"]:
                 return False

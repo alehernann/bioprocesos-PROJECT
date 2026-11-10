@@ -84,14 +84,15 @@ Scripted Testing** per the FDA CSA 2026 guidance (see document 02).
 
 ## 5. User Requirements (URS-01 to URS-15)
 
-### 5.1 Temperature Control Loop
+### 5.1 Temperature Set-Point
 
-#### URS-01 — Temperature PID set-point regulation
+#### URS-01 — Validated initial temperature set-point
 **WHEN** the bioreactor is in the growth phase (culture day < 7.0),
-**THE SYSTEM SHALL** regulate broth temperature to a set-point of **36.5 °C** using a closed-loop
-PID controller, maintaining the measured temperature within **±0.3 °C** of set-point at steady
-state across all scales from 0.25 L to 15,000 L.
-- *GAMP Category:* 5 — *Process Risk:* High — *Module:* `bioreactor_twin.py` — *OQ:* `test_oq_01_pid_split_range_deadband`
+**THE SYSTEM SHALL** issue the validated initial temperature set-point of **36.5 °C**
+(`ProcessDescription.temp_initial_C`) to the local temperature controller. Regulation of the
+measured temperature within its operational band is delegated to that local controller; THE
+SYSTEM does not simulate or qualify a temperature PID loop.
+- *GAMP Category:* 5 — *Process Risk:* High — *Modules:* `models.py`, `bioreactor_twin.py` — *OQ:* `test_oq_01_setpoints_and_ph_split_range_exclusivity`
 
 #### URS-02 — Automated day-7 temperature shift
 **WHEN** the culture time reaches **day 7.0**,
@@ -107,28 +108,31 @@ logging the event to the Audit Trail and completing the ramp within the validate
 **THE SYSTEM SHALL** maintain broth pH at **7.00 ± 0.20** (dead-band 6.80–7.20) using a
 split-range control strategy, so that no corrective addition occurs while pH remains inside the
 dead-band.
-- *GAMP Category:* 5 — *Process Risk:* High — *Module:* `bioreactor_twin.py` — *OQ:* `test_oq_01_pid_split_range_deadband`
+- *GAMP Category:* 5 — *Process Risk:* High — *Module:* `bioreactor_twin.py` — *OQ:* `test_oq_01_setpoints_and_ph_split_range_exclusivity`
 
 #### URS-04 — pH acid branch (CO2 sparge)
 **WHEN** the measured pH exceeds the upper dead-band limit (**pH > 7.20**),
 **THE SYSTEM SHALL** actuate the **CO2** sparge branch of the split-range controller to lower pH,
 and **SHALL NOT** actuate the base branch simultaneously.
-- *GAMP Category:* 5 — *Process Risk:* High — *Module:* `bioreactor_twin.py` — *OQ:* `test_oq_01_pid_split_range_deadband`
+- *GAMP Category:* 5 — *Process Risk:* High — *Module:* `bioreactor_twin.py` — *OQ:* `test_oq_01_setpoints_and_ph_split_range_exclusivity`
 
 #### URS-05 — pH base branch (Na2CO3 1 M)
 **WHEN** the measured pH falls below the lower dead-band limit (**pH < 6.80**),
 **THE SYSTEM SHALL** actuate the base-addition branch delivering **1 M Na2CO3** to raise pH, and
 **SHALL NOT** actuate the CO2 branch simultaneously, preserving split-range mutual exclusivity.
-- *GAMP Category:* 5 — *Process Risk:* High — *Module:* `bioreactor_twin.py` — *OQ:* `test_oq_01_pid_split_range_deadband`
+- *GAMP Category:* 5 — *Process Risk:* High — *Module:* `bioreactor_twin.py` — *OQ:* `test_oq_01_setpoints_and_ph_split_range_exclusivity`
 
-### 5.3 Dissolved Oxygen Control Loop
+### 5.3 Dissolved Oxygen Set-Point and Mass-Transfer Sufficiency
 
-#### URS-06 — Dissolved oxygen regulation
+#### URS-06 — DO set-point and oxygen-transfer sufficiency
 **WHEN** the culture is active,
-**THE SYSTEM SHALL** maintain dissolved oxygen (OD) at a set-point of **30 %** of air saturation
-via cascaded sparge/agitation control, holding the measured OD within **±5 %** of set-point at
-steady state.
-- *GAMP Category:* 5 — *Process Risk:* High — *Module:* `bioreactor_twin.py` — *OQ:* `test_oq_01_pid_split_range_deadband`
+**THE SYSTEM SHALL** issue a dissolved-oxygen (OD) set-point of **30 %** of air saturation
+(`ProcessDescription.do_setpoint_pct`) to the local DO controller, and **SHALL** verify that the
+oxygen-transfer rate is sufficient for the culture demand (**OTR ≥ OUR**) over the A-Mab
+pilot/commercial operating window. OTR is computed as kLa × (0.21 − 0.063) mmol/L, the driving
+force between air saturation and 30 % DO. Regulation of the measured DO is delegated to the local
+controller; THE SYSTEM does not simulate or qualify a DO PID loop.
+- *GAMP Category:* 5 — *Process Risk:* High — *Modules:* `models.py`, `amab_design_space.py` — *OQ:* `test_oq_01_setpoints_and_ph_split_range_exclusivity`
 
 ### 5.4 Adaptive Glucose Feeding
 
@@ -140,16 +144,20 @@ target of **5.0 g/L**, avoiding overshoot that would cause lactate accumulation 
 
 #### URS-08 — Closed-loop titer advantage
 **WHEN** the adaptive feed strategy is enabled versus a static (open-loop) feed baseline,
-**THE SYSTEM SHALL** demonstrate a measurable, reproducible increase in final antibody titer,
-consistent with published real-time closed-loop optimization results.
+**THE SYSTEM SHALL** demonstrate a reproducible increase in final antibody titer and final
+viability. The size of the gain is the emergent output of the model equations and is reported, not
+constrained to a fixed band.
 - *GAMP Category:* 5 — *Process Risk:* High — *Module:* `bioreactor_twin.py` — *OQ:* `test_oq_03_closed_loop_vs_static_titer_gain`
 
 ### 5.5 Hydrodynamic Shear Safety Interlock
 
 #### URS-09 — Hydrodynamic shear interlock (P/V)
-**WHEN** the computed volumetric power input exceeds **P/V > 47.6 W/m³**,
-**THE SYSTEM SHALL** raise a hydrodynamic-shear safety interlock, cap agitation/sparge, and log
-an alarm to the Audit Trail to prevent cell damage, applying the limit consistently across scales.
+**WHEN** `power_density_W_m3` > **47.6 W/m³** **AND** `sparge_vvm` > **0.15 vvm** (both conditions
+must hold; P/V above 47.6 W/m³ with sparge ≤ 0.15 vvm does not trip the alarm),
+**THE SYSTEM SHALL** raise the hydrodynamic-shear alarm (`high_shear_alarm = True`) and, when an
+Audit Trail logger is supplied, record the trip in the Part 11 Audit Trail, applying the same limit at
+every scale. THE SYSTEM does not cap agitation or sparge itself; the corrective action is left to the
+operator or the local controller.
 - *GAMP Category:* 5 — *Process Risk:* High — *Module:* `bioreactor_twin.py` — *OQ:* `test_oq_04_safety_shear_and_cip_sip_interlocks`
 
 #### URS-10 — Shear interlock scale translation

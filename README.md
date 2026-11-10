@@ -37,7 +37,7 @@ flowchart TD
 
     subgraph tests["tests/ (Calificacion operacional OQ)"]
         CONF["conftest.py\ngenera docs/04 en cada corrida"]
-        TOQ["test_csa_oq_validation.py\n13 pruebas OQ (FDA CSA)"]
+        TOQ["test_csa_oq_validation.py\n14 pruebas OQ (FDA CSA)"]
     end
 
     subgraph docs["docs/ (Paquete documental GxP)"]
@@ -107,17 +107,22 @@ streamlit run app/dashboard.py
 
 ## Nota de calibracion del gemelo digital
 
-Los resultados nominales del gemelo digital (14 d, parametros por defecto) son **valores medidos, no forzados**: son la salida directa de las ecuaciones mecanisticas de `simulate_cho_fed_batch`.
+Los resultados del gemelo digital (14 d, parametros por defecto, v1.2.0) son **valores medidos, no forzados**: son la salida directa de las ecuaciones de `simulate_cho_fed_batch`. Los dos modos usan la **misma ley cinetica** (mu, kd y qp dependen solo de G, L, T, Xv y la cizalla); `mode` solo decide la dosificacion de los bolos. La diferencia entre modos sale de la alimentacion y de las trayectorias G(t) y L(t).
 
-- Titulo final: **1.3122 g/L (receta estatica)** vs **1.8713 g/L (lazo cerrado)**, es decir una **ganancia de +42.6 %** con balance de volumen variable dV/dt.
-- Viabilidad final: **76.41 % (estatica)** vs **92.03 % (lazo cerrado)**.
+| Escala (vessel_volume_L) | Modo | Titulo final (g/L) | Viabilidad final (%) | Masa cosechada (g) | V0 / Vfinal (L) | Volumen alimentado (L) | min / max G (g/L) | max / final L (g/L) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0.25 L | static | 1.0164 | 81.17 | 0.2466 | 0.1900 / 0.2427 | 0.0527 | 0.0057 / 6.0000 | 1.0889 / 1.0783 |
+| 0.25 L | closed_loop | 1.1654 | 91.56 | 0.3048 | 0.1900 / 0.2615 | 0.0715 | 0.7241 / 6.0000 | 1.0001 / 0.6498 |
+| 2.0 L | static | 1.0164 | 81.17 | 1.9731 | 1.5200 / 1.9413 | 0.4213 | 0.0057 / 6.0000 | 1.0889 / 1.0783 |
+| 2.0 L | closed_loop | 1.1654 | 91.56 | 2.4384 | 1.5200 / 2.0923 | 0.5723 | 0.7241 / 6.0000 | 1.0001 / 0.6498 |
+
+- **Ganancia emergente de titulo (closed_loop vs static): +14.66 %** en ambas escalas. Ganancia de masa cosechada: +23.60 % (0.25 L) y +23.58 % (2.0 L); la masa crece mas que el titulo porque el lazo cerrado anade volumen con la reposicion de glucosa.
+- En lazo cerrado la glucosa baja de 2.0 g/L antes de los bolos de los dias 6, 8 y 12, la reposicion adaptativa (V_gluc > 0) la devuelve a 5.0 g/L, y el cultivo entra en la ventana de consumo neto de lactato (2.0 <= G <= 5.0 g/L, t >= 6 d): el lactato baja de su pico de 1.0001 g/L a 0.6498 g/L. En la receta estatica la glucosa se agota desde el dia 7 y la muerte por inanicion reduce la viabilidad final.
 - Escalamiento A-Mab: **kLa = 20.0 h^-1** a 15,000 L (Vs = 0.015 m/s, P/V = 26 W/m3; **OTR = 2.94 mmol/L/h**); rango **11.10-21.84 h^-1** para Vs = 0.005-0.017 m/s y P/V = 19-30 W/m3.
-- Six Sigma (Gorsky Tabla 6.2, n=30): **Ppk 0.51**, **Cpk(within) 0.43**, **Shapiro-Wilk p = 0.243**; intervalo de tolerancia ISO 16269-6 (Tabla 6.1, n=10) con **k_factor 3.394**.
-- Calificacion operacional: **13/13 pruebas OQ** aprobadas.
+- Six Sigma (Gorsky Tabla 6.2, n=30, lb/in): **Ppk 0.51**, **Cpk(within) 0.43**, **Shapiro-Wilk p = 0.243**; intervalo de tolerancia ISO 16269-6 (Tabla 6.1, n=10, kp) con **k_factor 3.394**.
+- Calificacion operacional: **14/14 pruebas OQ** aprobadas.
 
-Estos numeros se reportan tal como se miden, aun cuando algunos caen fuera de las bandas guia de referencia; el resultado cualitativo (el lazo cerrado supera claramente a la receta estatica con mayor viabilidad retenida) se mantiene con solidez. En el tablero la **ganancia de titulo se calcula en vivo** a partir de los resultados de la simulacion y nunca se fija como constante.
-
-La ganancia porcentual (+42.6 %) se deriva del desacoplamiento de la viabilidad celular en la fase estacionaria tardía (76.41 % static vs 92.03 % closed_loop), y que la glucosa cae a ~1.86 g/L antes de cada bolo porque el modelo representa la latencia de muestreo previa a la inyección.
+La ganancia de +14.66 % es menor que el +43 % que reporta el boletin de Ark Biotech (Quint et al., 2026). El modelo no se calibra para reproducir ese valor: las constantes de muerte celular (KD_STARVE, KD_LAC) son supuestos del modelo y deben ajustarse con datos experimentales de viabilidad antes de usar la ganancia como prediccion. En el tablero la **ganancia de titulo se calcula en vivo** a partir de la simulacion y nunca se fija como constante.
 
 ## Seccion 5: Bibliografia Academica, Industrial y Regulatoria
 Referencias Bibliográficas y Marco Regulatorio (References)
@@ -151,4 +156,4 @@ D. Guías Regulatorias, Validación de Sistemas Computarizados (CSA/GAMP 5) y Di
 17. U.S. Food and Drug Administration (FDA), Computer Software Assurance for Production and Quality Management System Software: Guidance for Industry and Food and Drug Administration Staff, CDRH/CBER/CDER, Feb. 3, 2026.
 18. ISPE, GAMP® 5 Guide: A Risk-Based Approach to Compliant GxP Computerized Systems, 2nd ed., North Bethesda, MD: International Society for Pharmaceutical Engineering, 2022; and ISPE Baseline® Guide, Vol. 8: Pharma 4.0™, 2023.
 19. ASME BPE-2014, Bioprocessing Equipment: An International Standard, The American Society of Mechanical Engineers, New York, NY, 2014.
-20. European Commission / EMA & FDA, EudraLex Volume 4, Annex 11 (Computerized Systems) & Draft Annex 22 (Artificial Intelligence); ICH Harmonised Guidelines Q8(R2), Q9(R1), Q10, Q11, Q12; and Ministerio de Salud y Protección Social de Colombia, Resolución 1160 de 2016 (BPM Farmacéuticas / OMS Informes Técnicos 37 y 45) y Resolución 2674 de 2013 (BPM y HACCP en Alimentos).
+20. European Commission / EMA & FDA, EudraLex Volume 4, Annex 11 (Computerized Systems) & Draft Annex 22 (Artificial Intelligence); ICH Harmonised Guidelines Q8(R2), Q9(R1), Q10, Q11, Q12; and Ministerio de Salud y Protección Social de Colombia, Decreto 1782 de 2014 (evaluación farmacológica y farmacéutica de medicamentos biológicos) y Resolución 1160 de 2016 (BPM Farmacéuticas / OMS Informes Técnicos 37 y 45).

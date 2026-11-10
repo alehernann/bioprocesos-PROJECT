@@ -68,7 +68,7 @@ The assessment proceeds through the four CSA steps:
 
 | # | Software Feature / Function | Module | Intended Use | Failure Impact | **Process Risk** | **CSA Assurance Method** |
 |---|-----------------------------|--------|--------------|----------------|------------------|--------------------------|
-| 1 | **Closed-loop control** (Temp, pH, OD, glucose PID) | `bioreactor_twin.py` | Directly manipulates CPPs that define the batch. | Out-of-spec batch, CQA failure. | **High Process Risk** | **Robust Scripted Testing** |
+| 1 | **Control set-points and actuation logic** (T set-points and day-7 shift, pH split-range, DO set-point with OTR ≥ OUR check, adaptive glucose top-up) | `bioreactor_twin.py`, `models.py`, `amab_design_space.py` | Defines the CPP set-points and actuator logic for the batch. | Out-of-spec batch, CQA failure. | **High Process Risk** | **Robust Scripted Testing** |
 | 2 | **Safety interlocks** (shear P/V, CIP velocity, SIP F0) | `bioreactor_twin.py` | Prevents cell damage, ensures cleaning/sterilization efficacy. | Contamination, non-sterile release, equipment/product loss. | **High Process Risk** | **Robust Scripted Testing** |
 | 3 | **MKT calculation** (cold-chain thermal) | `thermal_vtb_mkt.py` | Determines whether storage/transport excursions compromise product. | Undetected potency/stability loss, wrong disposition. | **High Process Risk** | **Robust Scripted Testing** |
 | 4 | **Design Space equations** (A-Mab center/edges) | `amab_design_space.py` | Defines the multivariate acceptable operating region (ICH Q8). | Operation outside validated space, regulatory non-compliance. | **High Process Risk** | **Robust Scripted Testing** |
@@ -82,14 +82,17 @@ The assessment proceeds through the four CSA steps:
 
 ### 5.1 High Process Risk — Robust Scripted Testing
 
-**Closed-loop control.** The PID loops for temperature (URS-01/02), pH split-range with dead-band
-(URS-03/04/05), dissolved oxygen (URS-06) and adaptive glucose feeding (URS-07/08) directly set the
-values of Critical Process Parameters. An error here changes the physical state of the batch and can
-cause a Critical Quality Attribute to fall out of specification. These features demand pre-approved,
+**Control set-points and actuation logic.** THE SYSTEM issues the validated temperature set-points
+and the automated day-7 shift (URS-01/02), drives the pH split-range actuators with dead-band
+(URS-03/04/05), issues the DO set-point and checks oxygen-transfer sufficiency OTR ≥ OUR (URS-06),
+and doses the adaptive glucose top-up (URS-07/08). Regulation of measured temperature and DO inside
+their operational bands is delegated to the local controllers; no temperature or DO PID loop is
+simulated or qualified here. An error in these set-points or in the actuation logic changes the
+physical state of the batch and can cause a Critical Quality Attribute to fall out of specification. These features demand pre-approved,
 step-by-step scripts (`test_oq_01`, `test_oq_02`, `test_oq_03`) with defined expected results and
 retained objective evidence.
 
-**Safety interlocks.** The hydrodynamic-shear interlock (P/V > 47.6 W/m³, URS-09/10), the CIP
+**Safety interlocks.** The hydrodynamic-shear alarm (P/V > 47.6 W/m³ AND sparge > 0.15 vvm, URS-09/10), the CIP
 velocity interlock (≥ 1.52 m/s per ASME BPE, URS-11) and the SIP lethality interlock
 (F0 ≥ 15 min at ≥ 121.1 °C, URS-12) are the last line of defense against cell damage, inadequate
 cleaning and non-sterile product. Failure is catastrophic and often silent until it manifests as
@@ -107,7 +110,7 @@ the validated space. Scripted verification of center and edges (`test_oq_05`) is
 **Audit Trail.** The 21 CFR Part 11 Audit Trail (URS-15) underpins the trustworthiness of every
 GxP record. Any defect is a data-integrity defect. Scripted testing of attributability,
 time-stamping and tamper evidence, with the Annex 22 AI guardrail
-(`test_oq_09`), is required.
+(`test_oq_09`) and the hash protection of the `human_approved` flag (`test_oq_09b`), is required.
 
 **SPC / Six Sigma.** Process-capability and tolerance-interval computation (Gorsky methodology)
 feed statistical release and monitoring decisions. Incorrect Cpk or tolerance intervals corrupt
@@ -140,7 +143,7 @@ boundary interactions, resize behavior) is sufficient and proportionate.
           HIGH assurance effort
                  ▲
                  │   ┌─────────────────────────────────────┐
-   Robust        │   │ Control loops, interlocks, MKT,      │
+   Robust        │   │ Set-points, interlocks, MKT,         │
    Scripted      │   │ Design Space, Audit Trail, SPC,      │
    Testing       │   │ input validation (Category 5 core)   │
                  │   └─────────────────────────────────────┘
@@ -163,14 +166,15 @@ custom-code (GAMP Category 5) core, consistent with the CSA least-burdensome pri
 - The Not-High-Risk and the invalid-input / boundary exploration map to the unscripted tests
   `test_exploratory_10_invalid_pydantic_inputs`, `test_exploratory_11_audit_trail_requires_reason`
   and `test_exploratory_12_welch_ttest_identical_groups_not_significant`.
-- The suite covers 10 scripted tests (`test_oq_01` through `test_oq_09`, including
-  `test_oq_05b_amab_scale_up_kla_pilot_commercial_range`) and 3 exploratory tests
+- The suite covers 14 tests: 11 scripted tests (`test_oq_01` through `test_oq_09`, including
+  `test_oq_05b_amab_scale_up_kla_pilot_commercial_range` and
+  `test_oq_09b_part11_human_approved_mutation_breaks_chain`) and 3 exploratory tests
   (`test_exploratory_10` through `test_exploratory_12`).
 - Full forward/backward traceability is maintained in `03_RTM_Traceability_Matrix.md`.
 
 ## 8. Conclusion
 
-Applying FDA CSA (2026), ISO 13485 and 21 CFR Part 820, the control loops, safety interlocks, MKT
+Applying FDA CSA (2026), ISO 13485 and 21 CFR Part 820, the control set-points and actuation logic, safety interlocks, MKT
 calculation, Design Space equations, SPC capability, Audit Trail and input validation are
 classified **High Process Risk** and verified by **Robust Scripted Testing**. Plotting and UI are
 classified **Not High Process Risk** and assured by **Unscripted Exploratory / Error-Guessing

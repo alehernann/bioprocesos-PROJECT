@@ -70,7 +70,7 @@ DOIs. The in-text citations throughout documents 01, 02 and 03 refer to the numb
 
 19. ASME BPE-2014, Bioprocessing Equipment: An International Standard, The American Society of Mechanical Engineers, New York, NY, 2014.
 
-20. European Commission / EMA & FDA, EudraLex Volume 4, Annex 11 (Computerized Systems) & Draft Annex 22 (Artificial Intelligence); ICH Harmonised Guidelines Q8(R2), Q9(R1), Q10, Q11, Q12; and Ministerio de Salud y Protección Social de Colombia, Resolución 1160 de 2016 (BPM Farmacéuticas / OMS Informes Técnicos 37 y 45) y Resolución 2674 de 2013 (BPM y HACCP en Alimentos).
+20. European Commission / EMA & FDA, EudraLex Volume 4, Annex 11 (Computerized Systems) & Draft Annex 22 (Artificial Intelligence); ICH Harmonised Guidelines Q8(R2), Q9(R1), Q10, Q11, Q12; and Ministerio de Salud y Protección Social de Colombia, Decreto 1782 de 2014 (evaluación farmacológica y farmacéutica de medicamentos biológicos) y Resolución 1160 de 2016 (BPM Farmacéuticas / OMS Informes Técnicos 37 y 45).
 
 ---
 
@@ -101,7 +101,7 @@ any reference.
 | 17 | FDA CSA 2026 guidance (document 02 basis). |
 | 18 | GAMP 5 and Pharma 4.0™ (categorization, document 01/02). |
 | 19 | ASME BPE-2014 hygienic design / CIP velocity (URS-11). |
-| 20 | Annex 11 / Draft Annex 22, ICH guidelines, Colombian BPM resolutions (URS-15). |
+| 20 | Annex 11 / Draft Annex 22, ICH guidelines, Colombian Decreto 1782/2014 and Resolución 1160/2016 (URS-15). |
 
 ---
 
@@ -136,7 +136,7 @@ monitoring, sampling and Nyquist considerations verified by `test_oq_07`.
 This group is the regulatory backbone of documents 01 and 02. The FDA CSA 2026 guidance (Ref. 17)
 drives the risk-based assurance strategy; GAMP 5 and Pharma 4.0™ (Ref. 18) drive software
 categorization. ASME BPE-2014 (Ref. 19) fixes the 1.52 m/s CIP hygienic-flow criterion (URS-11).
-Annex 11, Draft Annex 22, the ICH suite and the Colombian BPM resolutions (Ref. 20) govern
+Annex 11, Draft Annex 22, the ICH suite, Colombian Decreto 1782 de 2014 (biological medicines) and Resolución 1160 de 2016 (BPM) (Ref. 20) govern
 electronic records, the AI guardrail and local regulatory applicability for the Audit Trail (URS-15).
 
 ## Verbatim Integrity Statement

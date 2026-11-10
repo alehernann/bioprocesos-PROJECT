@@ -27,8 +27,8 @@ requirement (no **orphan tests**).
 | Module | Responsibility |
 |--------|----------------|
 | `models.py` | Strongly-typed Pydantic data models and input validation. |
-| `bioreactor_twin.py` | Closed-loop control (PID, split-range, DO, feed) and safety interlocks (shear, CIP, SIP). |
-| `amab_design_space.py` | ISPE A-Mab Design Space center-point and edge-of-failure equations. |
+| `bioreactor_twin.py` | Temperature set-point schedule, pH split-range, adaptive feed / fed-batch simulation and safety interlocks (shear, CIP, SIP). |
+| `amab_design_space.py` | ISPE A-Mab Design Space center-point and edge-of-failure equations; kLa / OTR / OUR scale-up engineering. |
 | `thermal_vtb_mkt.py` | Mean Kinetic Temperature and Validated Thermal Buffer damping. |
 | `spc_six_sigma.py` | Statistical Process Control, tolerance intervals and process capability (Cpk). |
 | `audit_trail_part11.py` | 21 CFR Part 11 compliant, tamper-evident audit trail. |
@@ -37,16 +37,17 @@ requirement (no **orphan tests**).
 
 | Test ID | Scope |
 |---------|-------|
-| `test_oq_01_pid_split_range_deadband` | PID control, pH split-range + dead-band, DO regulation. |
+| `test_oq_01_setpoints_and_ph_split_range_exclusivity` | Validated set-points (T, pH, DO), pH split-range dead-band and mutual exclusivity, OTR ≥ OUR. |
 | `test_oq_02_automated_day7_temperature_shift` | Automated 36.5 °C → 34.0 °C shift at day 7.0. |
-| `test_oq_03_closed_loop_vs_static_titer_gain` | Adaptive glucose feed vs. static feed titer gain. |
-| `test_oq_04_safety_shear_and_cip_sip_interlocks` | Shear P/V, CIP velocity, SIP F0 interlocks. |
+| `test_oq_03_closed_loop_vs_static_titer_gain` | Adaptive glucose top-up (trigger, V_gluc > 0), lactate consumption, directional titer/viability gain vs. static. |
+| `test_oq_04_safety_shear_and_cip_sip_interlocks` | Shear alarm (P/V > 47.6 W/m³ AND sparge > 0.15 vvm), CIP velocity, SIP F0 interlocks. |
 | `test_oq_05_ispe_amab_design_space_center_and_edges` | Design Space center point and edges of failure. |
 | `test_oq_05b_amab_scale_up_kla_pilot_commercial_range` | A-Mab scale-up kLa over the pilot/commercial range. |
 | `test_oq_06_mkt_and_vtb_damping` | MKT computation and VTB thermal damping. |
 | `test_oq_07_fft_nyquist_sampling_validation` | FFT / Nyquist sampling criterion validation. |
 | `test_oq_08_gorsky_spc_tolerance_and_capability` | Gorsky SPC tolerance intervals and capability. |
 | `test_oq_09_part11_audit_trail_and_annex22_guardrail` | Part 11 audit trail and Annex 22 AI guardrail. |
+| `test_oq_09b_part11_human_approved_mutation_breaks_chain` | Part 11 tamper evidence: mutating the stored `human_approved` flag breaks the hash chain. |
 | `test_exploratory_10_invalid_pydantic_inputs` | Exploratory / error-guessing on invalid inputs. |
 | `test_exploratory_11_audit_trail_requires_reason` | Exploratory / error-guessing: audit-trail entry without a reason. |
 | `test_exploratory_12_welch_ttest_identical_groups_not_significant` | Exploratory / error-guessing: Welch t-test on identical groups. |
@@ -55,15 +56,15 @@ requirement (no **orphan tests**).
 
 | URS ID | Requirement (summary) | `src/` Module | CSA Risk Level | OQ Test |
 |--------|-----------------------|---------------|----------------|---------|
-| **URS-01** | Temperature PID to 36.5 °C set-point | `bioreactor_twin.py` | High Process Risk | `test_oq_01_pid_split_range_deadband` |
+| **URS-01** | Validated initial temperature set-point 36.5 °C (band delegated to local controller) | `models.py`, `bioreactor_twin.py` | High Process Risk | `test_oq_01_setpoints_and_ph_split_range_exclusivity` |
 | **URS-02** | Automated day-7 shift 36.5 → 34.0 °C | `bioreactor_twin.py` | High Process Risk | `test_oq_02_automated_day7_temperature_shift` |
-| **URS-03** | pH 7.00 ± 0.20 split-range dead-band | `bioreactor_twin.py` | High Process Risk | `test_oq_01_pid_split_range_deadband` |
-| **URS-04** | pH acid branch via CO2 sparge | `bioreactor_twin.py` | High Process Risk | `test_oq_01_pid_split_range_deadband` |
-| **URS-05** | pH base branch via 1 M Na2CO3 | `bioreactor_twin.py` | High Process Risk | `test_oq_01_pid_split_range_deadband` |
-| **URS-06** | Dissolved oxygen (OD) at 30 % | `bioreactor_twin.py` | High Process Risk | `test_oq_01_pid_split_range_deadband` |
+| **URS-03** | pH 7.00 ± 0.20 split-range dead-band | `bioreactor_twin.py` | High Process Risk | `test_oq_01_setpoints_and_ph_split_range_exclusivity` |
+| **URS-04** | pH acid branch via CO2 sparge | `bioreactor_twin.py` | High Process Risk | `test_oq_01_setpoints_and_ph_split_range_exclusivity` |
+| **URS-05** | pH base branch via 1 M Na2CO3 | `bioreactor_twin.py` | High Process Risk | `test_oq_01_setpoints_and_ph_split_range_exclusivity` |
+| **URS-06** | DO set-point 30 % and mass-transfer sufficiency OTR ≥ OUR | `models.py`, `amab_design_space.py` | High Process Risk | `test_oq_01_setpoints_and_ph_split_range_exclusivity` |
 | **URS-07** | Adaptive glucose feed < 2.0 → 5.0 g/L | `bioreactor_twin.py` | High Process Risk | `test_oq_03_closed_loop_vs_static_titer_gain` |
-| **URS-08** | Closed-loop titer advantage vs static | `bioreactor_twin.py` | High Process Risk | `test_oq_03_closed_loop_vs_static_titer_gain` |
-| **URS-09** | Shear interlock P/V > 47.6 W/m³ | `bioreactor_twin.py` | High Process Risk | `test_oq_04_safety_shear_and_cip_sip_interlocks` |
+| **URS-08** | Closed-loop titer and viability advantage vs static (emergent gain, no fixed band) | `bioreactor_twin.py` | High Process Risk | `test_oq_03_closed_loop_vs_static_titer_gain` |
+| **URS-09** | Shear interlock: `high_shear_alarm` when `power_density_W_m3` > 47.6 W/m³ AND `sparge_vvm` > 0.15 vvm | `bioreactor_twin.py` | High Process Risk | `test_oq_04_safety_shear_and_cip_sip_interlocks` |
 | **URS-10** | Shear interlock scale translation | `bioreactor_twin.py` | High Process Risk | `test_oq_04_safety_shear_and_cip_sip_interlocks` |
 | **URS-11** | CIP velocity interlock ≥ 1.52 m/s (ASME BPE) | `bioreactor_twin.py` | High Process Risk | `test_oq_04_safety_shear_and_cip_sip_interlocks` |
 | **URS-12** | SIP F0 ≥ 15 min at ≥ 121.1 °C | `bioreactor_twin.py` | High Process Risk | `test_oq_04_safety_shear_and_cip_sip_interlocks` |
@@ -71,6 +72,7 @@ requirement (no **orphan tests**).
 | **URS-13** | A-Mab scale-up kLa pilot/commercial range | `amab_design_space.py` | High Process Risk | `test_oq_05b_amab_scale_up_kla_pilot_commercial_range` |
 | **URS-14** | MKT and VTB thermal damping | `thermal_vtb_mkt.py` | High Process Risk | `test_oq_06_mkt_and_vtb_damping` |
 | **URS-15** | Part 11 Audit Trail + SPC capability | `audit_trail_part11.py`, `spc_six_sigma.py` | High Process Risk | `test_oq_09_part11_audit_trail_and_annex22_guardrail`, `test_oq_08_gorsky_spc_tolerance_and_capability` |
+| **URS-15** | Part 11 Audit Trail: `human_approved` is hash-protected (tamper evidence) | `audit_trail_part11.py` | High Process Risk | `test_oq_09b_part11_human_approved_mutation_breaks_chain` |
 | **URS-15** | Part 11 Audit Trail requires a reason | `audit_trail_part11.py` | Exploratory / Error-Guessing | `test_exploratory_11_audit_trail_requires_reason` |
 | **URS-15** | Welch t-test on identical groups is not significant | `spc_six_sigma.py` | Exploratory / Error-Guessing | `test_exploratory_12_welch_ttest_identical_groups_not_significant` |
 
@@ -78,7 +80,7 @@ requirement (no **orphan tests**).
 
 | OQ Test | Covers URS | `src/` Module(s) | CSA Risk |
 |---------|-----------|------------------|----------|
-| `test_oq_01_pid_split_range_deadband` | URS-01, URS-03, URS-04, URS-05, URS-06 | `bioreactor_twin.py` | High |
+| `test_oq_01_setpoints_and_ph_split_range_exclusivity` | URS-01, URS-03, URS-04, URS-05, URS-06 | `models.py`, `bioreactor_twin.py`, `amab_design_space.py` | High |
 | `test_oq_02_automated_day7_temperature_shift` | URS-02 | `bioreactor_twin.py` | High |
 | `test_oq_03_closed_loop_vs_static_titer_gain` | URS-07, URS-08 | `bioreactor_twin.py` | High |
 | `test_oq_04_safety_shear_and_cip_sip_interlocks` | URS-09, URS-10, URS-11, URS-12 | `bioreactor_twin.py` | High |
@@ -88,6 +90,7 @@ requirement (no **orphan tests**).
 | `test_oq_07_fft_nyquist_sampling_validation` | NFR-03 (Nyquist sampling) | `thermal_vtb_mkt.py` | High |
 | `test_oq_08_gorsky_spc_tolerance_and_capability` | URS-15 (SPC/Cpk) | `spc_six_sigma.py` | High |
 | `test_oq_09_part11_audit_trail_and_annex22_guardrail` | URS-15 (Audit Trail) | `audit_trail_part11.py` | High |
+| `test_oq_09b_part11_human_approved_mutation_breaks_chain` | URS-15 (Audit Trail) | `audit_trail_part11.py` | High |
 | `test_exploratory_10_invalid_pydantic_inputs` | NFR-02, NFR-04 (validation) | `models.py` | High (guard) / exploratory |
 | `test_exploratory_11_audit_trail_requires_reason` | URS-15 (Audit Trail) | `audit_trail_part11.py` | Exploratory / Error-Guessing |
 | `test_exploratory_12_welch_ttest_identical_groups_not_significant` | URS-15 (SPC) | `spc_six_sigma.py` | Exploratory / Error-Guessing |
@@ -102,8 +105,8 @@ requirement (no **orphan tests**).
 | Orphan requirements (no test) | 0 |
 | Orphan tests (no requirement) | 0 |
 | High Process Risk requirements | 15 / 15 |
-| OQ tests executed | 13 |
-| Scripted tests (High Process Risk) | 10 (`test_oq_01` … `test_oq_09`, incl. `test_oq_05b`) |
+| OQ tests executed | 14 |
+| Scripted tests (High Process Risk) | 11 (`test_oq_01` … `test_oq_09`, incl. `test_oq_05b` and `test_oq_09b`) |
 | Unscripted Exploratory / Error-Guessing tests | 3 (`test_exploratory_10` … `test_exploratory_12`) |
 
 **Note on `test_oq_07_fft_nyquist_sampling_validation`:** this test verifies the non-functional
@@ -130,21 +133,21 @@ requirement statement to the pass/fail evidence.
 
 | URS ID | Acceptance Criterion | Objective Evidence Produced by OQ |
 |--------|----------------------|-----------------------------------|
-| URS-01 | Steady-state temperature within ±0.3 °C of 36.5 °C set-point. | Simulated trajectory with settling-band assertion. |
+| URS-01 | Default initial temperature set-point is 36.5 °C (`temp_initial_C`, `get_temperature_setpoint(0.0)`). | Set-point value assertions. |
 | URS-02 | Set-point auto-changes 36.5 → 34.0 °C exactly at day 7.0. | Pre/post set-point values and Audit Trail entry. |
-| URS-03 | No actuation while pH in 6.80–7.20 dead-band. | Dead-band quiescence assertion. |
-| URS-04 | CO2 branch active only when pH > 7.20. | Mutual-exclusivity assertion (acid branch). |
-| URS-05 | Na2CO3 1 M branch active only when pH < 6.80. | Mutual-exclusivity assertion (base branch). |
-| URS-06 | OD held within ±5 % of 30 % set-point. | OD trajectory settling assertion. |
-| URS-07 | Feed triggers below 2.0 g/L and targets 5.0 g/L. | Trigger-threshold and recovery assertion. |
-| URS-08 | Closed-loop final titer > static baseline. | Comparative titer assertion. |
-| URS-09 | Interlock fires when P/V > 47.6 W/m³. | Boundary-crossing alarm assertion. |
+| URS-03 | Set-point 7.00 and dead-band 0.20 in `ProcessDescription`; no actuation while pH in 6.80–7.20. | Set-point and dead-band quiescence assertions. |
+| URS-04 | CO2 branch active only when pH > 7.20. | Mutual-exclusivity sweep pH 6.00–8.00 (acid branch). |
+| URS-05 | Na2CO3 1 M branch active only when pH < 6.80. | Mutual-exclusivity sweep pH 6.00–8.00 (base branch). |
+| URS-06 | DO set-point is 30 %; OTR ≥ OUR at the corners Vs 0.005–0.017 m/s × P/V 19–30 W/m³. | Set-point assertion and OTR ≥ OUR / `oxygen_sufficient` assertions. |
+| URS-07 | Glucose falls below 2.0 g/L, stays ≤ 6.5 g/L, is ≥ 2.0 g/L after each feed, and the top-up fires (closed-loop feed volume > basal-bolus volume). | min/max glucose, post-feed recovery and feed-volume assertions; final lactate < peak lactate. Measured (v1.2.0, closed_loop): min G 0.7241 g/L, max G 6.0 g/L, peak L 1.0001 g/L, final L 0.6498 g/L. |
+| URS-08 | Closed-loop final titer and final viability > static baseline (directional; gain not banded). | Comparative titer and viability assertions. Measured (v1.2.0): titer 1.1654 vs 1.0164 g/L (emergent gain +14.66 %), viability 91.56 vs 81.17 %. |
+| URS-09 | `high_shear_alarm` fires only when `power_density_W_m3` > 47.6 W/m³ AND `sparge_vvm` > 0.15 vvm. | Boundary-crossing alarm assertion. |
 | URS-10 | P/V limit evaluated with scale geometry 0.25 L–15,000 L. | Multi-scale consistency assertion. |
 | URS-11 | CIP aborts when velocity < 1.52 m/s. | Interlock/abort assertion. |
 | URS-12 | SIP releases only when F0 ≥ 15 min at ≥ 121.1 °C. | Lethality accumulation and release-gate assertion. |
 | URS-13 | Center point inside, edges flagged outside Design Space. | Center/edge classification assertion. |
 | URS-14 | MKT computed; VTB damping reduces excursion amplitude. | Reference-dataset MKT value assertion. |
-| URS-15 | Audit entries attributable, time-stamped, tamper-evident; Cpk computed. | Record-integrity and capability assertions. |
+| URS-15 | Audit entries attributable, time-stamped, tamper-evident (including the `human_approved` flag); Cpk computed. | Record-integrity, `human_approved` mutation and capability assertions. |
 
 ## 8. Risk-to-Assurance Summary
 

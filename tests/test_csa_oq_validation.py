@@ -50,59 +50,128 @@ from src.thermal_vtb_mkt import (
 # ---------------------------------------------------------------------------
 
 
-def test_oq_01_pid_split_range_deadband():
-    """Split-range pH control: deadband dead-zone and single-actuator response."""
-    # Inside the deadband (setpoint 7.00 +/- 0.20) both actuators must rest at 0.0.
-    for ph in (7.00, 6.85, 7.15):
-        out = compute_split_range_ph_actuators(ph)
+def test_oq_01_setpoints_and_ph_split_range_exclusivity():
+    """Validated set-points, pH split-range exclusivity and O2 transfer sufficiency.
+
+    THE SYSTEM supplies set-points; regulation inside the operational band is
+    delegated to the local controllers, so no closed-loop temperature or DO
+    trajectory (settling band) is simulated or asserted here.
+    """
+    # URS-01 / URS-03 / URS-06: validated default set-points.
+    cfg = ProcessDescription()
+    assert cfg.temp_initial_C == pytest.approx(36.5, abs=1e-9)
+    assert get_temperature_setpoint(0.0) == pytest.approx(36.5, abs=1e-9)
+    assert cfg.ph_setpoint == pytest.approx(7.00, abs=1e-9)
+    assert cfg.ph_deadband == pytest.approx(0.20, abs=1e-9)
+    assert cfg.do_setpoint_pct == pytest.approx(30.0, abs=1e-9)
+
+    # URS-03: inside the deadband (7.00 +/- 0.20) both actuators rest at 0.0.
+    for ph in (6.80, 6.85, 7.00, 7.15, 7.20):
+        out = compute_split_range_ph_actuators(
+            ph, setpoint=cfg.ph_setpoint, deadband=cfg.ph_deadband
+        )
         assert out["co2_valve_pct"] == pytest.approx(0.0, abs=1e-9)
         assert out["base_pump_pct"] == pytest.approx(0.0, abs=1e-9)
 
-    # Above the band: only the CO2 (acidifying) valve engages.
-    high = compute_split_range_ph_actuators(7.35)
-    assert high["co2_valve_pct"] > 0.0
-    assert high["base_pump_pct"] == pytest.approx(0.0, abs=1e-9)
+    # URS-04 / URS-05: mutual exclusivity over the whole pH 6.00-8.00 range
+    # (0.01 steps): never both actuators > 0; CO2 only above, base only below band.
+    upper = cfg.ph_setpoint + cfg.ph_deadband
+    lower = cfg.ph_setpoint - cfg.ph_deadband
+    for k in range(201):
+        ph = 6.00 + 0.01 * k
+        out = compute_split_range_ph_actuators(
+            ph, setpoint=cfg.ph_setpoint, deadband=cfg.ph_deadband
+        )
+        co2, base = out["co2_valve_pct"], out["base_pump_pct"]
+        assert not (co2 > 0.0 and base > 0.0), f"both actuators active at pH {ph:.2f}"
+        if co2 > 0.0:
+            assert ph > upper
+        if base > 0.0:
+            assert ph < lower
 
-    # Below the band: only the base pump engages.
-    low = compute_split_range_ph_actuators(6.65)
-    assert low["base_pump_pct"] > 0.0
-    assert low["co2_valve_pct"] == pytest.approx(0.0, abs=1e-9)
-
-    cfg = ProcessDescription()
-    assert cfg.temp_initial_C == pytest.approx(36.5, abs=1e-9)
-    assert cfg.do_setpoint_pct == pytest.approx(30.0, abs=1e-9)
+    # URS-06: mass-transfer sufficiency OTR >= OUR at the corners of the A-Mab
+    # pilot/commercial window (Vs 0.005-0.017 m/s, P/V 19-30 W/m3), with the OUR
+    # basis of compute_scale_up_engineering (defaults: 15e6 cells/mL, qO2 1.0e-10
+    # mmol/(cell*h)).
+    for vs in (0.005, 0.017):
+        for pv in (19.0, 30.0):
+            eng = compute_scale_up_engineering(vs, pv)
+            assert eng["otr_mmol_L_h"] >= eng["our_max_mmol_L_h"], (
+                f"OTR {eng['otr_mmol_L_h']:.3f} < OUR {eng['our_max_mmol_L_h']:.3f}"
+                f" at Vs={vs}, P/V={pv}"
+            )
+            assert eng["oxygen_sufficient"] is True
 
 
 def test_oq_02_automated_day7_temperature_shift():
-    """Biphasic temperature-shift schedule crosses at shift_day = 7.0."""
+    """Biphasic temperature shift at day 7.0, recorded in an intact audit trail."""
     assert get_temperature_setpoint(6.9) == pytest.approx(36.5, abs=1e-9)
     assert get_temperature_setpoint(7.0) == pytest.approx(34.0, abs=1e-9)
 
+    # URS-02: the automated shift is logged to the Part 11 audit trail.
+    logger = AuditTrailLogger()
+    simulate_cho_fed_batch(ProcessDescription(mode="closed_loop"), audit_logger=logger)
+    shifts = [
+        r for r in logger.records if r["parameter_name"] == "temperature_setpoint_C"
+    ]
+    assert len(shifts) == 1
+    assert shifts[0]["old_value"] == "36.5"
+    assert shifts[0]["new_value"] == "34.0"
+    assert "day 7.0" in shifts[0]["reason_for_change"]
+    assert logger.verify_chain_integrity() is True
+
 
 def test_oq_03_closed_loop_vs_static_titer_gain():
-    """Closed-loop feeding gains +40-46% titer and holds glucose above threshold."""
+    """Adaptive glucose feed: real top-ups, lactate consumption, directional gain.
+
+    The titer gain is NOT asserted against a fixed band: it must emerge from the
+    model equations, so only the direction (closed_loop > static) is required.
+    """
     static = simulate_cho_fed_batch(ProcessDescription(mode="static"))
     closed = simulate_cho_fed_batch(ProcessDescription(mode="closed_loop"))
+    feed_days = (2.0, 4.0, 6.0, 8.0, 10.0, 12.0)
 
-    gain_pct = (
-        (closed["final_titer_g_L"] - static["final_titer_g_L"])
-        / static["final_titer_g_L"]
-        * 100.0
-    )
-    assert 40.0 <= gain_pct <= 46.0
+    # URS-07: glucose actually falls below the 2.0 g/L trigger and is never
+    # overfed above 6.5 g/L.
+    glucose = closed["glucose_g_L"]
+    assert min(glucose) < 2.0
+    assert max(glucose) <= 6.5
 
-    # In closed_loop, glucose must stay above the critical minimum threshold after
-    # each adaptive feed. Inspect the glucose series at every feed-day crossing.
+    # URS-07: after each feed event glucose is back at or above the trigger.
     config = ProcessDescription(mode="closed_loop")
     threshold = config.glucose_min_threshold_g_L
     time_days = closed["time_days"]
-    glucose = closed["glucose_g_L"]
-    for feed_day in (2.0, 4.0, 6.0, 8.0, 10.0, 12.0):
+    for feed_day in feed_days:
         idx = time_days.index(feed_day)
         assert glucose[idx] >= threshold, (
             f"glucose {glucose[idx]:.3f} below threshold {threshold} "
             f"after feed day {feed_day}"
         )
+
+    # URS-07: the glucose top-up really fires (V_gluc > 0). The simulator does not
+    # return the basal-bolus volume, so it is derived from its outputs: the static
+    # run receives only basal boluses, one per feed day, so its total feed volume
+    # divided by the number of volume steps is the unscaled basal bolus. The
+    # closed_loop basal train scales that bolus by the documented Ark adaptive
+    # factors (1.80 on day 8, 1.82 on day 10, 1.0 otherwise).
+    static_steps = [
+        b - a for a, b in zip(static["volume_L"], static["volume_L"][1:]) if b > a
+    ]
+    assert len(static_steps) == len(feed_days)
+    basal_bolus_L = static["total_feed_volume_L"] / len(feed_days)
+    for step in static_steps:
+        assert step == pytest.approx(basal_bolus_L, rel=1e-3)
+    adaptive_factor = {8.0: 1.80, 10.0: 1.82}
+    closed_basal_L = sum(basal_bolus_L * adaptive_factor.get(d, 1.0) for d in feed_days)
+    assert closed["total_feed_volume_L"] > closed_basal_L
+
+    # Net lactate consumption: final lactate below its peak.
+    lactate = closed["lactate_g_L"]
+    assert lactate[-1] < max(lactate)
+
+    # URS-08: directional advantage only (emergent, no fixed gain band).
+    assert closed["final_titer_g_L"] > static["final_titer_g_L"]
+    assert closed["final_viability_pct"] > static["final_viability_pct"]
 
 
 def test_oq_04_safety_shear_and_cip_sip_interlocks():
@@ -266,6 +335,24 @@ def test_oq_09_part11_audit_trail_and_annex22_guardrail():
 
     # Tampering with a stored record breaks the chain (tamper evidence).
     logger.records[0]["new_value"] = "9.99"
+    assert logger.verify_chain_integrity() is False
+
+
+def test_oq_09b_part11_human_approved_mutation_breaks_chain():
+    """Part 11: flipping the stored human_approved flag breaks the hash chain."""
+    logger = AuditTrailLogger()
+    logger.append_record(
+        user_id="jdoe",
+        role="ProcessEngineer",
+        parameter_name="ph_setpoint",
+        old_value="7.00",
+        new_value="7.05",
+        reason_for_change="Documented CPP adjustment per deviation DN-042",
+        human_approved=True,
+    )
+    assert logger.verify_chain_integrity() is True
+
+    logger.records[0]["human_approved"] = False
     assert logger.verify_chain_integrity() is False
 
 

@@ -745,7 +745,9 @@ with tab1:
     st.caption(
         "Fuentes: Quint et al., Ark Biotech & Culture Biosciences 2026 (lazo cerrado); "
         "Kulkarni et al., Culture Biosciences & Bionova Scientific 2026 (base 0.25 L Stratyx); "
-        "ASME BPE-2014 (CIP). Valores calculados en vivo por src/bioreactor_twin.py."
+        "ASME BPE-2014 (CIP). Valores calculados en vivo por src/bioreactor_twin.py. "
+        "La ganancia de titulo es la que producen las ecuaciones (misma cinetica en ambos "
+        "modos); el modelo no se calibra al +43 % reportado por Quint et al."
     )
 
 
@@ -1016,7 +1018,7 @@ with tab3:
     st.markdown(
         "Registro sintetico de aire de un refrigerador farmaceutico 2-8 C a 5 min, con "
         "ciclado de compresor y una excursion. Se compara el **aire crudo** contra viales "
-        "filtrados por el buffer termico virtual (VTB) de 1 mL, 20 mL y 300 mL "
+        "filtrados por el buffer termico virtual (VTB) de 1 mL, 20 mL y 300 L (bulk, tau ~35 h) "
         "(Rusnack, Pharm. Eng. 2026)."
     )
 
@@ -1035,7 +1037,7 @@ with tab3:
         with e4:
             compressor_amp_C = st.slider("Amplitud del compresor (C)", 0.2, 2.0, 1.0, 0.1)
         _leyenda(
-            "La excursion sube la MKT; el vial de 1 mL la sigue y el de 300 mL casi no. "
+            "La excursion sube la MKT; el vial de 1 mL la sigue y el bulk de 300 L casi no. "
             "El compresor es la oscilacion rapida que debe resolver el monitor."
         )
 
@@ -1054,7 +1056,7 @@ with tab3:
     air_steady = baseline + compressor + noise
     air = (air_steady + excursion).tolist()
 
-    volume_keys = ["1 mL", "20 mL (Glycol Ref)", "300 mL (Bulk)"]
+    volume_keys = ["1 mL", "20 mL (Glycol Ref)", "300 L (Bulk)"]
     vtb_traces = {k: apply_vtb_filter(air, volume_key=k) for k in volume_keys}
 
     fig_t = go.Figure()
@@ -1062,7 +1064,7 @@ with tab3:
         go.Scatter(x=t_hours, y=air, mode="lines", name="Aire crudo (5 min)",
                    line=dict(color=P["air"], width=1.4))
     )
-    colors = {"1 mL": P["v1"], "20 mL (Glycol Ref)": P["v20"], "300 mL (Bulk)": P["v300"]}
+    colors = {"1 mL": P["v1"], "20 mL (Glycol Ref)": P["v20"], "300 L (Bulk)": P["v300"]}
     for k in volume_keys:
         fig_t.add_trace(
             go.Scatter(x=t_hours, y=vtb_traces[k], mode="lines", name=f"VTB {k}",
@@ -1213,7 +1215,8 @@ with tab4:
     st.markdown(
         "Control estadistico de procesos usando los datasets de torque de Gorsky "
         f"(Tablas 6-1 n={len(GORSKY_TABLE_6_1_TORQUE_N10)} y 6-2 "
-        f"n={len(GORSKY_TABLE_6_2_TORQUE_N30)}), con LSL {SPC_LSL:g} N y USL {SPC_USL:g} N."
+        f"n={len(GORSKY_TABLE_6_2_TORQUE_N30)}). Unidades: Tabla 6-1 en kp, Tabla 6-2 en lb/in; "
+        f"LSL {SPC_LSL:g} lb/in y USL {SPC_USL:g} lb/in (Tabla 6-2)."
     )
 
     cap = compute_process_capability(GORSKY_TABLE_6_2_TORQUE_N30, lsl=SPC_LSL, usl=SPC_USL)
@@ -1233,7 +1236,7 @@ with tab4:
         p[1].metric("Ppk", f"{cap['ppk']:.2f}", help="Ppk = min(Ppu, Ppl)")
         p[2].metric("Ppu", f"{cap['ppu']:.2f}", help="Ppu = (USL-media)/(3*std_global)")
         p[3].metric("Ppl", f"{cap['ppl']:.2f}", help="Ppl = (media-LSL)/(3*std_global)")
-        p[4].metric("Std global (N)", f"{cap['std']:.2f}", help="std_overall = std(data, ddof=1)")
+        p[4].metric("Std global (lb/in)", f"{cap['std']:.2f}", help="std_overall = std(data, ddof=1)")
     with st.container(border=True):
         _band(f"Capacidad within (corto plazo): std_within = MR-bar / d2, d2 = {mr['d2']:.3f}")
         st.caption(
@@ -1245,8 +1248,8 @@ with tab4:
         w[1].metric("Cpk within", f"{cap['cpk_within']:.2f}", help="Cpk = min(Cpu, Cpl) within")
         w[2].metric("Cpu within", f"{cap['cpu_within']:.2f}")
         w[3].metric("Cpl within", f"{cap['cpl_within']:.2f}")
-        w[4].metric("Std within (N)", f"{cap['std_within']:.2f}", help="std_within = MR-bar / d2")
-        w[5].metric("MR-bar (N)", f"{mr['mr_bar']:.2f}", help="mean(|x[i] - x[i-1]|), compute_moving_range_summary")
+        w[4].metric("Std within (lb/in)", f"{cap['std_within']:.2f}", help="std_within = MR-bar / d2")
+        w[5].metric("MR-bar (lb/in)", f"{mr['mr_bar']:.2f}", help="mean(|x[i] - x[i-1]|), compute_moving_range_summary")
 
     n1, n2, n3, n4, n5 = st.columns(5)
     n1.metric("Shapiro-Wilk p-value", f"{cap['normality_p_value']:.4f}")
@@ -1254,7 +1257,7 @@ with tab4:
           "Normal" if cap["is_normal"] else "No normal", str(cap["is_normal"]))
     _chip(n3, "capable_4sigma (Ppk >= 1.33)", cap["capable_4sigma"],
           "Capaz" if cap["capable_4sigma"] else "No capaz", str(cap["capable_4sigma"]))
-    n4.metric("Media global (N)", f"{cap['mean']:.2f}")
+    n4.metric("Media global (lb/in)", f"{cap['mean']:.2f}")
     n5.metric("N (muestras)", f"{mr['n']}")
 
     ch1, ch2 = st.columns(2)
@@ -1263,7 +1266,7 @@ with tab4:
         fig_sh = go.Figure()
         fig_sh.add_trace(
             go.Scatter(x=x_idx, y=GORSKY_TABLE_6_2_TORQUE_N30, mode="lines+markers",
-                       name="Torque (N)", line=dict(color=P["closed"]), marker=dict(color=P["closed"], size=6))
+                       name="Torque (lb/in)", line=dict(color=P["closed"]), marker=dict(color=P["closed"], size=6))
         )
         x_span = [x_idx[0], x_idx[-1]]
 
@@ -1282,7 +1285,7 @@ with tab4:
         _limit_trace(cap["mean"], f"Media {cap['mean']:.2f}", P["mean"], "solid")
         fig_sh.update_layout(
             title=f"Carta de Shewhart I-MR, Tabla 6-2 (n={len(GORSKY_TABLE_6_2_TORQUE_N30)})",
-            xaxis_title="Muestra (#)", yaxis_title="Torque (N)", height=360,
+            xaxis_title="Muestra (#)", yaxis_title="Torque (lb/in)", height=360,
         )
         # 6 entradas de leyenda -> 3 filas de 2 debajo del grafico, lejos del titulo.
         st.plotly_chart(_apply_figure(fig_sh, legend_rows=3), width="stretch")
@@ -1296,7 +1299,7 @@ with tab4:
                         annotation_text=f"USL {SPC_USL:g}")
         fig_h.update_layout(
             title=f"Distribucion de torque | Pp {cap['pp']:.2f}, Ppk {cap['ppk']:.2f}",
-            xaxis_title="Torque (N)", yaxis_title="Frecuencia (conteo)", height=360,
+            xaxis_title="Torque (lb/in)", yaxis_title="Frecuencia (conteo)", height=360,
         )
         # Misma altura total que la carta de Shewhart para alinear las dos columnas.
         st.plotly_chart(_apply_figure(fig_h, legend_rows=3), width="stretch")
@@ -1310,10 +1313,10 @@ with tab4:
         _band("Intervalo de tolerancia ISO 16269-6 (n=10, Tabla 6-1)")
         ti_cols = st.columns(5)
         ti_cols[0].metric("Factor k", f"{ti['k_factor']:.3f}", help="k_factor por defecto de compute_iso16269_tolerance_interval.")
-        ti_cols[1].metric("Media (N)", f"{ti['mean']:.2f}")
-        ti_cols[2].metric("Desv. std (N)", f"{ti['std']:.2f}")
-        ti_cols[3].metric("Limite inferior (N)", f"{ti['lower_tolerance']:.2f}")
-        ti_cols[4].metric("Limite superior (N)", f"{ti['upper_tolerance']:.2f}")
+        ti_cols[1].metric("Media (kp)", f"{ti['mean']:.2f}")
+        ti_cols[2].metric("Desv. std (kp)", f"{ti['std']:.2f}")
+        ti_cols[3].metric("Limite inferior (kp)", f"{ti['lower_tolerance']:.2f}")
+        ti_cols[4].metric("Limite superior (kp)", f"{ti['upper_tolerance']:.2f}")
 
     _band("Comparar dos reactores")
     st.subheader("Prueba t de Welch entre dos reactores (datos editables)")
