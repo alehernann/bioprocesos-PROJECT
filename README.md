@@ -80,8 +80,8 @@ flowchart TD
 | `docs/01_URS_Bioreactor_Control_System.md` | Especificacion de requisitos de usuario (URS) del sistema de control del biorreactor. |
 | `docs/02_FDA_CSA_Risk_Assessment_2026.md` | Evaluacion de riesgo bajo la guia FDA Computer Software Assurance (CSA) 2026. |
 | `docs/03_RTM_Traceability_Matrix.md` | Matriz de trazabilidad de requisitos (RTM) que vincula URS, riesgo y pruebas. |
-| `docs/04_Automated_OQ_Execution_Log.md` | Log de ejecucion de la calificacion operacional (OQ). **Generado automaticamente** por `tests/conftest.py` en cada corrida de pytest (no editar a mano). |
-| `docs/05_Academic_and_Regulatory_Bibliography.md` | Bibliografia academica, industrial y regulatoria de respaldo. |
+| `docs/04_Automated_OQ_Execution_Log.md` | Log de ejecucion de la calificacion operacional (OQ). **Generado automaticamente** por `tests/conftest.py` en cada corrida de pytest. |
+| `docs/05_Academic_and_Regulatory_Bibliography.md` | Bibliografia academica, industrial y regulatoria de la cual se basa este repositorio. |
 
 ## Instalacion
 
@@ -122,7 +122,7 @@ Los resultados del gemelo digital (14 d, parametros por defecto, v1.2.0) son **v
 - Six Sigma (Gorsky Tabla 6.2, n=30, lb/in): **Ppk 0.51**, **Cpk(within) 0.43**, **Shapiro-Wilk p = 0.243**; intervalo de tolerancia ISO 16269-6 (Tabla 6.1, n=10, kp) con **k_factor 3.394**.
 - Calificacion operacional: **14/14 pruebas OQ** aprobadas.
 
-La ganancia de +14.66 % es menor que el +43 % que reporta el boletin de Ark Biotech (Quint et al., 2026). El modelo no se calibra para reproducir ese valor: las constantes de muerte celular (KD_STARVE, KD_LAC) son supuestos del modelo y deben ajustarse con datos experimentales de viabilidad antes de usar la ganancia como prediccion. En el tablero la **ganancia de titulo se calcula en vivo** a partir de la simulacion y nunca se fija como constante.
+La ganancia de +14.66 % es menor que el +43 % que reporta el boletin de Ark Biotech (Quint et al., 2026). El modelo no reproduce ese valor: las constantes de muerte celular (KD_STARVE, KD_LAC) son supuestos del modelo y deben ajustarse con datos experimentales de viabilidad antes de usar la ganancia como prediccion. En el tablero la **ganancia de titulo se calcula en vivo** a partir de la simulacion y no es constante.
 
 ## Seccion 5: Bibliografia Academica, Industrial y Regulatoria
 Referencias Bibliográficas y Marco Regulatorio (References)
