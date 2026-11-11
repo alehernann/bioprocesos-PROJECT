@@ -175,8 +175,9 @@ código a la medida (GAMP Category 5), en línea con el principio least-burdenso
   corresponden con las pruebas unscripted `test_exploratory_10_invalid_pydantic_inputs`,
   `test_exploratory_11_audit_trail_requires_reason` y
   `test_exploratory_12_welch_ttest_identical_groups_not_significant`.
-- La suite cubre 18 pruebas: 15 pruebas scripted (`test_oq_01` a `test_oq_09`, incluidas
-  `test_oq_03b`, `test_oq_03c`, `test_oq_04b`, `test_oq_05b_amab_scale_up_kla_pilot_commercial_range`,
+- La suite cubre 20 pruebas: 17 pruebas scripted (`test_oq_01` a `test_oq_09`, incluidas
+  `test_oq_03b`, `test_oq_03c`, `test_oq_03d`, `test_oq_03e`, `test_oq_04b`,
+  `test_oq_05b_amab_scale_up_kla_pilot_commercial_range`,
   `test_oq_06b` y `test_oq_09b_part11_human_approved_mutation_breaks_chain`) y 3 pruebas exploratorias
   (`test_exploratory_10` a `test_exploratory_12`).
 - La trazabilidad completa hacia adelante y hacia atrás se mantiene en `03_RTM_Traceability_Matrix.md`.

@@ -134,7 +134,9 @@ split-range.
 velocidad de transferencia de oxígeno alcanza para la demanda del cultivo (**OTR ≥ OUR**) en la
 ventana operativa piloto/comercial de A-Mab. El set-point de DO es configurable (por defecto 30 %;
 `ProcessDescription.do_setpoint_pct`) y entra en la fuerza impulsora: OTR = kLa × C* × (1 − DO/100),
-con C* = 0.210 mmol/L (a 30 % de DO, 0.147 mmol/L). A mayor set-point de DO, menor OTR disponible. La regulación del DO medido se delega al
+con C* = 0.210 mmol/L (a 30 % de DO, 0.147 mmol/L). A mayor set-point de DO, menor OTR disponible. El mismo
+set-point entra en la cinética CHO del gemelo (v1.3.1): por debajo de 20 % de DO, o si OTR < OUR, se reducen
+mu y qp, sube el rendimiento de lactato (efecto Pasteur) y se añade muerte por hipoxia. La regulación del DO medido se delega al
 controlador local; THE SYSTEM no simula ni califica un lazo PID de DO.
 - *Categoría GAMP:* 5 — *Riesgo de proceso:* High — *Módulos:* `models.py`, `amab_design_space.py` — *OQ:* `test_oq_01_setpoints_and_ph_split_range_exclusivity`, `test_oq_06b_do_setpoint_driving_force`
 

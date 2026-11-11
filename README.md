@@ -37,7 +37,7 @@ flowchart TD
 
     subgraph tests["tests/ (Calificacion operacional OQ)"]
         CONF["conftest.py\ngenera docs/04 en cada corrida"]
-        TOQ["test_csa_oq_validation.py\n18 pruebas OQ (FDA CSA)"]
+        TOQ["test_csa_oq_validation.py\n20 pruebas OQ (FDA CSA)"]
     end
 
     subgraph docs["docs/ (Paquete documental GxP)"]
@@ -109,29 +109,66 @@ streamlit run app/dashboard.py
 
 ## Nota de calibracion del gemelo digital
 
-Los resultados del gemelo digital (14 d, parametros por defecto, v1.3.0) son **valores medidos, no forzados**: son la salida directa de las ecuaciones de `simulate_cho_fed_batch`. Los dos modos usan la **misma ley cinetica** (mu, kd, qp, q_G y q_L dependen solo de G, L, T, Xv y la cizalla); `mode` solo decide la dosificacion de los bolos.
+Los resultados del gemelo digital (14 d, parametros por defecto, v1.3.1) son **valores medidos, no forzados**: son la salida directa de las ecuaciones de `simulate_cho_fed_batch`. Los dos modos usan la **misma ley cinetica** (mu, kd, qp, q_G y q_L dependen solo de G, L, T, Xv, la cizalla y el DO); `mode` solo decide la dosificacion de los bolos.
 
-**Modelo v1.3.0:**
+**Modelo v1.3.1:**
 - **Glucosa:** q_G(G, T) = mu/Y_X_G + M_G * G/(G + K_G_UPTAKE), con saturacion Monod en crecimiento y mantenimiento y mu_max(T).
-- **Lactato (continuo, sin ventanas de G ni interruptores de tiempo):** produccion q_L,prod = Y_L/G(T) * q_G, con Y_L/G interpolado de forma continua entre 0.48 g/g a 36.5 C y 0.08 g/g a 34.0 C; consumo q_L,cons = (Q_L_CONS_MAX * K_I_G/(K_I_G + G) + Q_L_ANAPL) * L/(K_L + L), con Monod de lactato, represion Crabtree por glucosa y un termino anaplerotico basal; dL/dt = (q_L,prod - q_L,cons) * Xv. Y_L/G, Q_L_CONS_MAX, Q_L_ANAPL, K_L y K_I_G son **parametros no calibrados**.
-- **Volumen:** V0 = 0.70 * vessel_volume_L. En cada bolo, el basal y el top-up de glucosa se escalan juntos si no caben en el espacio libre, de modo que V(t) <= vessel_volume_L; cada bolo diluye exactamente (C * V_old / V_new).
-- **Cizalla:** la alarma salta si P/V > 47.6 W/m3 **OR** sparge > 0.15 vvm. La intensidad continua sigma_shear = sigma_imp + sigma_sparge + sigma_imp * sigma_sparge (0.0 en nominal) suma KD_SHEAR * sigma_shear a kd y divide qp por (1 + ALPHA_SHEAR_QP * sigma_shear); ALPHA_SHEAR_QP es no calibrado.
+- **Lactato (continuo, sin ventanas de G ni interruptores de tiempo; T es la T(t) instantanea):** produccion q_L,prod = Y_L/G(T) * q_G, con Y_L/G interpolado entre 0.18 g/g a 36.5 C y 0.03 g/g a 34.0 C; consumo q_L,cons = q_L,cons,max(T) * L/(L + K_L) * K_I_G/(K_I_G + G) * (f_basal + (1 - f_basal) * G/(G + K_anap)), con q_L,cons,max interpolado entre 0.008 g/(1e9 cel*d) a 36.5 C y 0.045 a 34.0 C; dL/dt = (q_L,prod - q_L,cons) * Xv.
+- **Oxigeno disuelto:** kLa_eff con la misma ley de `compute_scale_up_engineering` al P/V de la corrida y Vs fijo = 0.015 m/s; OTR_cap = kLa_eff * C* * (1 - DO/100) y OUR = Xv * 1e9 * qO2, ambos en mmol/(L*h); ratio = min(1, OTR_cap/OUR) y DO_eff = DO * ratio. Si DO < 20 % o ratio < 1: f_do = (DO_eff/(DO_eff + 2))/(30/32) * ratio en [0, 1] multiplica mu y qp, Y_L/G se multiplica por 1 + 0.8 * max(0, (20 - DO_eff)/20) (efecto Pasteur) y kd suma KD_HYPOXIA * max((15 - DO_eff)/15, (0.85 - ratio)/0.85, 0). Si no, f_do = 1.
+- **Volumen:** V0 = 0.70 * vessel_volume_L. En cada bolo, el basal y el top-up de glucosa se escalan juntos si no caben en el espacio libre, de modo que V(t) <= vessel_volume_L; si algun bolo se recorta, `bolus_clipped_alarm` = True y el tablero muestra un aviso. Cada bolo diluye exactamente (C * V_old / V_new).
+- **Cizalla:** la alarma salta si P/V > 47.6 W/m3 **OR** sparge > 0.15 vvm. La intensidad continua sigma_shear = sigma_imp + sigma_sparge + sigma_imp * sigma_sparge (0.0 en nominal) suma KD_SHEAR * sigma_shear a kd y divide qp por (1 + ALPHA_SHEAR_QP * sigma_shear).
 
-| Escala | Modo | Titulo final (g/L) | Viabilidad final (%) | Masa cosechada (g) | V0 / Vfinal (L) | min / max G (g/L) | pico / final L (g/L) (dia pico) |
+| Escala | Modo | Titulo final (g/L) | Viabilidad final (%) | Masa cosechada (g) | V0 / Vfinal (L) | min / max G (g/L) | pico / final L (g/L) (dia pico) | VCD pico (1e6 cel/mL) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0.25 L | static | 1.0537 | 80.54 | 0.2355 | 0.1750 / 0.2235 | 0.0044 / 6.0000 | 1.2151 / 0.8793 (d 7.0) | 6.8310 |
+| 0.25 L | closed_loop | 1.2189 | 90.55 | 0.2939 | 0.1750 / 0.2411 | 0.6408 / 6.0000 | 1.3425 / 0.5842 (d 7.0) | 8.1709 |
+| 2.0 L | static | 1.0537 | 80.54 | 1.8841 | 1.4000 / 1.7881 | 0.0044 / 6.0000 | 1.2151 / 0.8793 (d 7.0) | 6.8310 |
+| 2.0 L | closed_loop | 1.2189 | 90.55 | 2.3514 | 1.4000 / 1.9292 | 0.6408 / 6.0000 | 1.3425 / 0.5842 (d 7.0) | 8.1709 |
+
+- **Ganancia emergente closed_loop vs static:** titulo **+15.68 %** y masa cosechada **+24.80 %** en ambas escalas. Las concentraciones son identicas entre 0.25 L y 2.0 L; la masa escala exactamente con el volumen (factor 8). Con los valores por defecto ningun bolo se recorta (`bolus_clipped_alarm` = False).
+- **Lactato:** sube hasta el cambio de temperatura del dia 7 y despues se reconsume en ambos modos; en lazo cerrado la glucosa mantenida sostiene el termino anaplerotico y el lactato final queda por debajo del de la receta estatica.
+
+**Respuesta al setpoint de DO (2.0 L; los mismos valores por litro a 0.25 L):**
+
+| DO (%) | Modo | Titulo final (g/L) | Viabilidad final (%) | pico / final L (g/L) | VCD pico | min ratio OTR/OUR | min f_do |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 0.25 L | static | 0.8312 | 70.73 | 0.1858 | 0.1750 / 0.2235 | 0.0263 / 6.0000 | 2.5635 / 1.3816 (d 7.0) |
-| 0.25 L | closed_loop | 0.8447 | 74.23 | 0.2019 | 0.1750 / 0.2390 | 1.6582 / 6.0000 | 2.6910 / 2.2333 (d 7.3) |
-| 2.0 L | static | 0.8312 | 70.73 | 1.4863 | 1.4000 / 1.7881 | 0.0263 / 6.0000 | 2.5635 / 1.3816 (d 7.0) |
-| 2.0 L | closed_loop | 0.8447 | 74.23 | 1.6151 | 1.4000 / 1.9120 | 1.6582 / 6.0000 | 2.6910 / 2.2333 (d 7.3) |
+| 10 | static | 0.7256 | 70.28 | 1.4143 / 1.0004 | 5.2514 | 1.0000 | 0.8889 |
+| 10 | closed_loop | 0.7347 | 77.48 | 1.4143 / 0.8564 | 5.2514 | 1.0000 | 0.8889 |
+| 30 | static | 1.0537 | 80.54 | 1.2151 / 0.8793 | 6.8310 | 1.0000 | 1.0000 |
+| 30 | closed_loop | 1.2189 | 90.55 | 1.3425 / 0.5842 | 8.1709 | 1.0000 | 1.0000 |
+| 85 | static | 1.0530 | 80.54 | 1.2151 / 0.8792 | 6.8306 | 0.9483 | 0.9871 |
+| 85 | closed_loop | 1.1073 | 90.35 | 1.3394 / 0.5888 | 7.8986 | 0.8201 | 0.8504 |
 
-- **Ganancia emergente closed_loop vs static:** titulo **+1.62 %** y masa cosechada **+8.67 %** en ambas escalas. Las concentraciones son identicas entre 0.25 L y 2.0 L; la masa escala exactamente con el volumen (factor 8). La masa crece mas que el titulo porque el lazo cerrado anade volumen con la reposicion de glucosa.
-- **Lactato:** sube hasta el cambio de temperatura del dia 7 y despues se reconsume. En la receta estatica la glucosa se agota y el reconsumo es mayor (L final 1.3816 g/L); en lazo cerrado la glucosa mantenida reprime el reconsumo (L final 2.2333 g/L).
-- Escalamiento A-Mab: **kLa = 20.0 h^-1** a 15,000 L (Vs = 0.015 m/s, P/V = 26 W/m3; **OTR = 2.94 mmol/L/h** con DO = 30 %, OTR = kLa * 0.210 * (1 - DO/100)); rango **11.10-21.84 h^-1** para Vs = 0.005-0.017 m/s y P/V = 19-30 W/m3.
-- **Setpoint de DO (slider del tablero, 10-90 %, por defecto 30 %):** pasa por `ProcessDescription.do_setpoint_pct` y entra en `compute_scale_up_engineering(do_percent=...)`. Fuerza impulsora = C* (0.210 mmol/L) x (1 - DO/100) y OTR = kLa x fuerza impulsora, asi que un DO mas alto deja menos OTR disponible. El panel recalcula en vivo OTR >= OUR (URS-06) y muestra un aviso de oxigeno insuficiente cuando no se cumple; con la referencia A-Mab (kLa 20.0, VCC 15e6 cel/mL, OUR 1.50 mmol/L/h) eso ocurre por encima de ~64.3 % de DO. El DO no entra en la cinetica CHO (mu, kd, qp).
+- A DO 10 % la hipoxia (efecto Pasteur) sube el lactato y baja titulo y viabilidad; a DO 85 % la fuerza impulsora no alcanza y OTR < OUR en la fase de alta densidad.
+- **Setpoint de DO (slider del tablero, 10-90 %, por defecto 30 %):** pasa por `ProcessDescription.do_setpoint_pct` a las dos corridas del gemelo y a `compute_scale_up_engineering(do_percent=...)`. Fuerza impulsora = C* (0.210 mmol/L) x (1 - DO/100) y OTR = kLa x fuerza impulsora. El panel de escalamiento recalcula OTR >= OUR (URS-06) y avisa si no se cumple; con la referencia A-Mab (kLa 20.0, VCC 15e6 cel/mL, OUR 1.50 mmol/L/h) eso ocurre por encima de ~64.3 % de DO.
+- **Limitaciones conocidas:** (1) la regla de DO tiene una discontinuidad en DO = 20 %: f_do pasa de 1.0 a (20/22)/(30/32) = 0.97 al cruzar 20 % hacia abajo (es un salto en el espacio de parametros, no en el tiempo, porque el setpoint es constante en la corrida); (2) Vs = 0.015 m/s es fijo en el gemelo porque no tiene geometria del recipiente (criterio de escalamiento a Vs constante), asi que kLa solo cambia con P/V.
+- Escalamiento A-Mab: **kLa = 20.0 h^-1** a 15,000 L (Vs = 0.015 m/s, P/V = 26 W/m3; **OTR = 2.94 mmol/L/h** con DO = 30 %); rango **11.10-21.84 h^-1** para Vs = 0.005-0.017 m/s y P/V = 19-30 W/m3.
 - Six Sigma (Gorsky Tabla 6.2, n=30, lb/in): **Ppk 0.51**, **Cpk(within) 0.43**, **Shapiro-Wilk p = 0.243**; intervalo de tolerancia ISO 16269-6 (Tabla 6.1, n=10, kp) con **k_factor 3.394**.
-- Calificacion operacional: **18/18 pruebas OQ** aprobadas.
+- Calificacion operacional: **20/20 pruebas OQ** aprobadas.
 
-**Literatura frente a modelo:** el boletin de Ark Biotech (Quint et al., 2026) reporta un +43 % de titulo; es un dato de literatura, no un resultado de este modelo. La ganancia del modelo (+1.62 %) sale de parametros no calibrados (cinetica de lactato, muerte celular y cizalla) y no debe usarse como prediccion sin ajustarlos a datos experimentales. En el tablero la **ganancia de titulo se calcula en vivo** a partir de la simulacion y no es constante.
+**Parametros de lactato y DO y su trazabilidad:**
+
+| Parametro | Valor | Trazabilidad |
+| --- | --- | --- |
+| Y_LG_GROWTH | 0.18 g/g a 36.5 C | Supuesto de modelado, no calibrado (elegido para situar el pico de lactato en 1.0-1.35 g/L el dia 6-7) |
+| Y_LG_SHIFT | 0.03 g/g a 34.0 C | Supuesto de modelado, no calibrado |
+| q_L,cons,max | 0.008 -> 0.045 g/(1e9 cel*d) (36.5 -> 34.0 C) | Supuesto de modelado, no calibrado |
+| K_L | 0.35 g/L | Supuesto de modelado, no calibrado |
+| K_I_G | 4.5 g/L | Supuesto de modelado, no calibrado |
+| f_basal | 0.05 | Supuesto de modelado, no calibrado |
+| K_anap | 0.60 g/L | Supuesto de modelado, no calibrado |
+| Q_O2_MMOL_CELL_H | 1.0e-10 mmol/(cel*h) | Valor por defecto de `src/amab_design_space.py` (OUR 1.50 mmol/(L*h) a 15e6 cel/mL); el repo no cita una pagina de A-Mab para este valor |
+| C_STAR_O2_MMOL_L | 0.210 mmol/L | `src/amab_design_space.py` lo describe como "A-Mab oxygen-transfer basis" sin pagina concreta; no verificado contra el documento |
+| kLa (ley de Van't Riet) | KLA_COEFF 80.14 * Vs^0.481 * (P/V)^0.194 | `src/amab_design_space.py`: coeficiente recalibrado para dar ~20.0 h^-1 en el punto de referencia A-Mab (Fig. 3.11 / Table 3.22); rango 8-22 h^-1 de A-Mab Table 3.22 (p.105) verificado en 11.10-21.84 h^-1 |
+| Vs | 0.015 m/s (fijo) | `src/amab_design_space.py`: punto de referencia 15,000 L (A-Mab Fig. 3.11 / Table 3.22); dentro del rango 0.005-0.017 m/s de Table 3.22 (p.105) |
+| K_DO_PCT | 2.0 % | Supuesto de modelado, no calibrado |
+| Factor Pasteur | 0.8 | Supuesto de modelado, no calibrado |
+| Umbrales DO 20 % / DO_eff 15 % / ratio 0.85 | 20 / 15 / 0.85 | Supuesto de modelado, no calibrado |
+| KD_HYPOXIA | 0.05 1/d | Supuesto de modelado, no calibrado |
+
+Las paginas de A-Mab v2.1 que cita el repo para el espacio de diseno (pp. 90-92 y 100-106) respaldan las ecuaciones de N-glicanos (`evaluate_amab_design_space`), no la cinetica de lactato ni de DO; el repo no cita la p. 93. La unica pagina de A-Mab citada para transferencia de oxigeno es la de Table 3.22 (p.105).
+
+**Literatura frente a modelo:** el boletin de Ark Biotech (Quint et al., 2026) reporta un +43 % de titulo; es un dato de literatura, no un resultado de este modelo. La ganancia del modelo (+15.68 %) sale de parametros no calibrados (cinetica de lactato, DO, muerte celular y cizalla) y no debe usarse como prediccion sin ajustarlos a datos experimentales. En el tablero la **ganancia de titulo se calcula en vivo** a partir de la simulacion y no es constante.
 
 ## Seccion 5: Bibliografia Academica, Industrial y Regulatoria
 Referencias Bibliográficas y Marco Regulatorio (References)

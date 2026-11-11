@@ -169,11 +169,31 @@ def evaluate_amab_design_space(
     }
 
 
+# --- Oxygen-transfer constants shared with the bioreactor twin (v1.3.1) ---
+# Leading coefficient recalibrated (SI units, no 1e4 factor) so that the A-Mab
+# reference point Vs = 0.015 m/s, P/V = 26.0 W/m3 yields kLa ~= 20.0 h^-1.
+KLA_COEFF = 80.14
+KLA_EXP_VS = 0.481          # Van't Riet exponent on Vs (m/s)
+KLA_EXP_PV = 0.194          # Van't Riet exponent on P/V (W/m3)
+C_STAR_O2_MMOL_L = 0.210    # mmol/L dissolved O2 at air saturation
+Q_O2_MMOL_CELL_H = 1.0e-10  # mmol O2/(cell*h) specific oxygen uptake rate
+AMAB_REF_VS_M_S = 0.015     # m/s, A-Mab 15,000 L reference superficial gas velocity
+
+
+def compute_kla_h_inv(superficial_gas_vel_m_s: float, power_per_vol_W_m3: float) -> float:
+    """Unrounded kLa (1/h) = KLA_COEFF * Vs^0.481 * (P/V)^0.194 (A-Mab Fig. 3.11)."""
+    return (
+        KLA_COEFF
+        * (superficial_gas_vel_m_s ** KLA_EXP_VS)
+        * (power_per_vol_W_m3 ** KLA_EXP_PV)
+    )
+
+
 def compute_scale_up_engineering(
     superficial_gas_vel_m_s: float,
     power_per_vol_W_m3: float,
     vcc_1e6_cells_mL: float = 15.0,
-    qo2_mmol_cell_h: float = 1.0e-10,
+    qo2_mmol_cell_h: float = Q_O2_MMOL_CELL_H,
     do_percent: float = 30.0,
 ) -> dict:
     """Compute oxygen-transfer scale-up engineering parameters.
@@ -216,19 +236,11 @@ def compute_scale_up_engineering(
     driving_force = C* * max(0, 1 - do_percent/100), so OTR = kLa * driving_force.
     At 30 % DO this equals the former fixed term 0.21 - 0.063 = 0.147 mmol/L.
     """
-    # Leading coefficient recalibrated (SI units, no 1e4 factor) so that the
-    # A-Mab reference point Vs=0.015 m/s, P/V=26.0 W/m3 yields kLa ~= 20.0 h^-1.
-    KLA_COEFF = 80.14
-    kla_h_inv = (
-        KLA_COEFF
-        * (superficial_gas_vel_m_s ** 0.481)
-        * (power_per_vol_W_m3 ** 0.194)
-    )
+    kla_h_inv = compute_kla_h_inv(superficial_gas_vel_m_s, power_per_vol_W_m3)
     our_max_mmol_L_h = vcc_1e6_cells_mL * 1.0e9 * qo2_mmol_cell_h
 
     # OTR = kLa * (C* - C_L) with C_L = C* * DO/100 (A-Mab oxygen-transfer basis).
-    c_star_mmol_L = 0.210  # mmol/L O2 at air saturation
-    driving_force_mmol_L = c_star_mmol_L * max(0.0, 1.0 - (do_percent / 100.0))
+    driving_force_mmol_L = C_STAR_O2_MMOL_L * max(0.0, 1.0 - (do_percent / 100.0))
     otr_mmol_L_h = kla_h_inv * driving_force_mmol_L
     oxygen_sufficient = bool(otr_mmol_L_h >= our_max_mmol_L_h)
 

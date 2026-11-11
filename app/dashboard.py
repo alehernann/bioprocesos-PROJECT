@@ -533,6 +533,11 @@ with tab1:
         temp_shift_day=temp_shift_day,
         ph_deadband=ph_deadband,
         sparge_vvm=sparge_vvm,
+        # DO set-point from the scale-up slider (key "do_setpoint_pct"); Streamlit
+        # stores it in session_state before each rerun, so both twin runs use it.
+        do_setpoint_pct=float(
+            st.session_state.get("do_setpoint_pct", ProcessDescription().do_setpoint_pct)
+        ),
     )
     static_res = simulate_cho_fed_batch(ProcessDescription(mode="static", **shared))
     closed_res = simulate_cho_fed_batch(ProcessDescription(mode="closed_loop", **shared))
@@ -550,6 +555,16 @@ with tab1:
     mass_gain_pct = _pct_gain(c_mass, s_mass)
     mass_in_kg = max(s_mass, c_mass) >= 1000.0
     mass_unit = "kg" if mass_in_kg else "g"
+
+    clipped = {n: r for n, r in (("receta estatica", static_res), ("lazo cerrado", closed_res))
+               if r["bolus_clipped_alarm"]}
+    if clipped:
+        st.warning(
+            "Volumen util al 100 %: el recipiente se lleno y los bolos fueron recortados ("
+            + "; ".join(f"{n}: {r['n_bolus_clipped']} bolos, {r['clipped_volume_L']:.4f} L no inyectados"
+                        for n, r in clipped.items())
+            + ")."
+        )
 
     _band("Cosecha al dia final: receta estatica vs lazo cerrado")
     col_s, col_c = st.columns(2)
@@ -954,8 +969,8 @@ with tab2:
             )
             _leyenda(
                 "Fuerza impulsora = C* (0.210 mmol/L) x (1 - DO/100); OTR = kLa x fuerza "
-                "impulsora. A mayor setpoint de DO, menor OTR disponible. Solo afecta el "
-                "balance de oxigeno, no la cinetica CHO."
+                "impulsora. Afecta tanto el margen OTR >= OUR de escalamiento como la cinetica "
+                "CHO (hipoxia/efecto Pasteur bajo 20% DO y limitacion de transferencia si OTR < OUR)."
             )
         # El setpoint pasa por el esquema validado (ProcessDescription) antes de usarse.
         do_setpoint_pct = ProcessDescription(do_setpoint_pct=do_slider_pct).do_setpoint_pct

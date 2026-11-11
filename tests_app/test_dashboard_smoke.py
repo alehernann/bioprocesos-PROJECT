@@ -133,6 +133,54 @@ def test_do_slider_drives_otr_and_oxygen_alarm(at):
     assert otr_shown() == otr_30
     assert alarms() == []
 
+
+def test_do_slider_changes_scaleup_and_twin(at):
+    def titers():
+        return _metric_values(at, "Titulo final (g/L)")
+
+    def viabilities():
+        return _metric_values(at, "Viabilidad final (%)")
+
+    base_otr = _metric_values(at, "OTR (mmol/L/h)")
+    base_titer, base_viab = titers(), viabilities()
+    for do in (10.0, 85.0):
+        at.slider(key="do_setpoint_pct").set_value(do).run()
+        assert not at.exception, [e.value for e in at.exception]
+        expected = [
+            simulate_cho_fed_batch(
+                ProcessDescription(mode=m, vessel_volume_L=2.0, do_setpoint_pct=do)
+            )
+            for m in ("static", "closed_loop")
+        ]
+        assert titers() == [f"{r['final_titer_g_L']:.4f}" for r in expected]
+        assert viabilities() == [f"{r['final_viability_pct']:.2f}" for r in expected]
+        assert _metric_values(at, "OTR (mmol/L/h)") != base_otr
+        assert titers() != base_titer
+    assert any("Afecta tanto el margen OTR >= OUR" in m.value for m in at.markdown)
+    assert not any("Solo afecta el balance de oxigeno" in m.value for m in at.markdown)
+
+
+def test_bolus_clipped_warning(monkeypatch):
+    import src.bioreactor_twin as twin
+
+    def warnings_shown(app):
+        return [w.value for w in app.warning if "Volumen util al 100 %" in w.value]
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        app = AppTest.from_file(APP, default_timeout=TIMEOUT).run()
+    assert warnings_shown(app) == []
+
+    # Real capacity clamp: start at 95 % fill so the feed train must be cut.
+    monkeypatch.setattr(twin, "INITIAL_FILL_FRACTION", 0.95)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        app = AppTest.from_file(APP, default_timeout=TIMEOUT).run()
+    assert not app.exception, [e.value for e in app.exception]
+    shown = warnings_shown(app)
+    assert len(shown) == 1
+    assert "receta estatica" in shown[0] and "lazo cerrado" in shown[0]
+
 def test_spc_metrics_are_live_and_non_zero(at):
     cap = compute_process_capability(GORSKY_TABLE_6_2_TORQUE_N30)
     mr = compute_moving_range_summary(GORSKY_TABLE_6_2_TORQUE_N30)

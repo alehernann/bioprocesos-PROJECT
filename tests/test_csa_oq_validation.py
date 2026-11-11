@@ -220,6 +220,42 @@ def test_oq_03c_lactate_reconsumption_and_nonnegativity():
     assert time_days[peak_idx] > 5.0
     assert lactate[-1] < lactate[peak_idx]
 
+
+def test_oq_03d_lactate_profile_v131():
+    """v1.3.1 lactate profile: closed_loop reconsumes more and keeps higher viability.
+
+    Nominal (DO 30 %) at 0.25 L and 2.0 L, directional assertions only: closed_loop
+    final lactate < static, closed_loop peak > final + 0.30 g/L, closed_loop final
+    viability > 85 % and > static, and closed_loop final titer > static.
+    """
+    for vessel in (0.25, 2.0):
+        static = simulate_cho_fed_batch(ProcessDescription(mode="static", vessel_volume_L=vessel))
+        closed = simulate_cho_fed_batch(
+            ProcessDescription(mode="closed_loop", vessel_volume_L=vessel)
+        )
+        lac_c = closed["lactate_g_L"]
+        assert lac_c[-1] < static["lactate_g_L"][-1], vessel
+        assert max(lac_c) > lac_c[-1] + 0.30, vessel
+        assert closed["final_viability_pct"] > 85.0, vessel
+        assert closed["final_viability_pct"] > static["final_viability_pct"], vessel
+        assert closed["final_titer_g_L"] > static["final_titer_g_L"], vessel
+
+
+def test_oq_03e_bolus_clipped_alarm(monkeypatch):
+    """Capacity clamp alarm: False at the 70 % default fill, True at 95 %; V never exceeds vessel."""
+    import src.bioreactor_twin as twin
+
+    for fill, expected in ((0.70, False), (0.95, True)):
+        monkeypatch.setattr(twin, "INITIAL_FILL_FRACTION", fill)
+        for vessel in (0.25, 2.0):
+            for mode in ("static", "closed_loop"):
+                res = twin.simulate_cho_fed_batch(
+                    ProcessDescription(mode=mode, vessel_volume_L=vessel)
+                )
+                assert res["bolus_clipped_alarm"] is expected, (fill, vessel, mode)
+                assert (res["n_bolus_clipped"] > 0) is expected
+                assert max(res["volume_L"]) <= vessel + 1e-12
+
 def test_oq_04_safety_shear_and_cip_sip_interlocks():
     """GxP safety interlocks: shear alarm, CIP block, CIP velocity, SIP sterility."""
     out = check_safety_interlocks(
@@ -320,11 +356,14 @@ def test_oq_06_mkt_and_vtb_damping():
 
 
 def test_oq_06b_do_setpoint_driving_force():
-    """URS-06: the DO set-point enters the OTR driving force C* * (1 - DO/100).
+    """URS-06: DO set-point drives OTR and the CHO response to hypoxia and O2 limitation.
 
-    At the A-Mab 15,000 L reference (Vs = 0.015 m/s, P/V = 26 W/m3) the default
-    30 % DO gives kLa 20.0 and OTR 2.94; OTR scales with (1 - DO/100), decreases
-    monotonically with DO, and OTR >= OUR fails at a high enough DO.
+    Scale-up: at the A-Mab 15,000 L reference (Vs = 0.015 m/s, P/V = 26 W/m3) the
+    default 30 % DO gives kLa 20.0 and OTR 2.94; OTR scales with (1 - DO/100),
+    decreases monotonically with DO, and OTR >= OUR fails at a high enough DO.
+    Twin (v1.3.1, directional only): at DO 30 the supply ratio and f_do are 1.0 at
+    every step; at DO 10 lactate (peak and final) rises and titer and viability
+    fall; at DO 85 the supply ratio drops below 1 and titer falls versus DO 30.
     """
     ref = compute_scale_up_engineering(0.015, 26.0)
     assert ref["kla_h_inv"] == pytest.approx(20.0, abs=1e-9)
@@ -350,6 +389,21 @@ def test_oq_06b_do_setpoint_driving_force():
     # Once insufficient, it stays insufficient at every higher DO.
     first_bad = flags.index(False)
     assert not any(flags[first_bad:])
+
+    for mode in ("static", "closed_loop"):
+        run = {
+            do: simulate_cho_fed_batch(ProcessDescription(mode=mode, do_setpoint_pct=do))
+            for do in (10.0, 30.0, 85.0)
+        }
+        ref30, low, high = run[30.0], run[10.0], run[85.0]
+        assert all(r == 1.0 for r in ref30["oxygen_supply_ratio"])
+        assert all(f == 1.0 for f in ref30["f_do_metabolic"])
+        assert max(low["lactate_g_L"]) > max(ref30["lactate_g_L"]), mode
+        assert low["lactate_g_L"][-1] > ref30["lactate_g_L"][-1], mode
+        assert low["final_viability_pct"] < ref30["final_viability_pct"], mode
+        assert low["final_titer_g_L"] < ref30["final_titer_g_L"], mode
+        assert high["min_oxygen_supply_ratio"] < 1.0, mode
+        assert high["final_titer_g_L"] < ref30["final_titer_g_L"], mode
 
 def test_oq_07_fft_nyquist_sampling_validation():
     """FFT/Nyquist: a 2.9 cph fridge signal is resolved at 5 min, aliased if coarser.
