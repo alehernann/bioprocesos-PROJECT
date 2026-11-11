@@ -30,7 +30,7 @@ class ProcessDescription(BaseModel):
     power_density_W_m3: float = Field(default=30.0, ge=2.0, le=100.0)
     # Default 0.10 vvm is a pilot-scale sparge regime, not the micro-scale one: the
     # Bionova Scientific / Stratyx(TM) micro-scale basis runs at about 0.00263 vvm.
-    # The high-shear alarm needs P/V > 47.6 W/m3 AND sparge_vvm > 0.15.
+    # The high-shear alarm trips when P/V > 47.6 W/m3 OR sparge_vvm > 0.15.
     sparge_vvm: float = Field(default=0.10, ge=0.0, le=1.0)
     temp_initial_C: float = Field(default=36.5, ge=30.0, le=40.0)
     temp_shift_C: float = Field(default=34.0, ge=30.0, le=40.0)

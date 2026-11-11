@@ -16,6 +16,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from src.models import ProcessDescription
+from src.amab_design_space import compute_scale_up_engineering
 from src.bioreactor_twin import simulate_cho_fed_batch
 from src.spc_six_sigma import (
     GORSKY_TABLE_6_2_TORQUE_N30,
@@ -84,6 +85,53 @@ def test_default_render_is_clean_and_kpis_are_live(at):
     assert _metric_values(at, "Pp") == [f"{cap['pp']:.2f}"]
     assert _metric_values(at, "Cp within") == [f"{cap['cp_within']:.2f}"]
 
+
+
+def test_shear_or_texts_and_live_lactate_acid_note(at):
+    texts = [m.value for m in at.markdown] + [c.value for c in at.caption]
+    # Shear legends describe the OR gate (v1.3.0), never the old AND gate.
+    assert any("P/V > 47.6 O sparge > 0.15" in t and "W/m3" in t for t in texts)
+    assert sum("P/V > 47.6 O sparge > 0.15" in t for t in texts) >= 2
+    assert not any("si P/V ya paso 47.6" in t for t in texts)
+    # pH panel lactate note is computed from the live simulation (2.0 L default).
+    lactate_mw = 90.08
+    note = [t for t in texts if "Carga acida de lactato final" in t]
+    assert len(note) == 1
+    for mode in ("static", "closed_loop"):
+        lac = simulate_cho_fed_batch(
+            ProcessDescription(mode=mode, vessel_volume_L=2.0)
+        )["lactate_g_L"][-1]
+        assert f"{lac:.3f} g/L" in note[0]
+        assert f"{lac / lactate_mw * 1000.0:.2f} mmol/L" in note[0]
+
+
+def test_do_slider_drives_otr_and_oxygen_alarm(at):
+    def otr_shown():
+        return _metric_values(at, "OTR (mmol/L/h)")
+
+    def alarms():
+        return [e.value for e in at.error if "oxigeno insuficiente" in e.value]
+
+    assert at.slider(key="do_setpoint_pct").value == 30.0
+    otr_30 = otr_shown()
+    assert otr_30 == [f"{compute_scale_up_engineering(0.015, 26.0)['otr_mmol_L_h']:.2f}"]
+    assert alarms() == []
+    assert any("URS-06 OK" in s.value for s in at.success)
+
+    at.slider(key="do_setpoint_pct").set_value(85.0).run()
+    # The oxygen alarm is an intended st.error here, so check exceptions only.
+    assert not at.exception, [e.value for e in at.exception]
+    assert [e.value for e in at.error] == alarms()
+    expected = compute_scale_up_engineering(0.015, 26.0, do_percent=85.0)
+    assert expected["oxygen_sufficient"] is False
+    assert otr_shown() == [f"{expected['otr_mmol_L_h']:.2f}"]
+    assert otr_shown() != otr_30
+    assert len(alarms()) == 1
+
+    at.slider(key="do_setpoint_pct").set_value(30.0).run()
+    _clean(at)
+    assert otr_shown() == otr_30
+    assert alarms() == []
 
 def test_spc_metrics_are_live_and_non_zero(at):
     cap = compute_process_capability(GORSKY_TABLE_6_2_TORQUE_N30)

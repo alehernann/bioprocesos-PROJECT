@@ -10,9 +10,9 @@ This module provides:
 4. A mechanistic fed-batch simulation of CHO-K1 culture (viable/dead cells,
    glucose, lactate, titer) with static and closed-loop feeding strategies. The
    closed-loop adaptive feed follows the Ark Biotech & Culture Biosciences technical
-   bulletin (Quint et al., 2026), which reports a +43% titer gain; this model is
-   not calibrated to that value, and its emergent gain is +14.66% (see
-   simulate_cho_fed_batch). The micro-scale basis follows the Stratyx(TM) /
+   bulletin (Quint et al., 2026), which reports a +43% titer gain (literature
+   value); this model is not calibrated to that value, and its emergent gain is
+   reported in simulate_cho_fed_batch (MEASURED VALUES). The micro-scale basis follows the Stratyx(TM) /
    Bionova Scientific 2026 whitepaper.
 
 References
@@ -21,8 +21,6 @@ References
 - Y. Quint et al., "Real-Time Closed-Loop Optimization Delivers 43% Titer Improvement...", Ark Biotech & Culture Biosciences Technical Bulletin, 2026.
 - ASME BPE-2014, *Bioprocessing Equipment: An International Standard*.
 """
-
-import math
 
 import numpy as np
 
@@ -81,6 +79,8 @@ def check_safety_interlocks(
     sip_temps_C: list[float],
     dt_min: float = 1.0,
     audit_logger=None,
+    current_volume_L: float | None = None,
+    vessel_volume_L: float | None = None,
 ) -> dict:
     """Evaluate the GxP safety interlocks for the bioreactor skid.
 
@@ -89,16 +89,19 @@ def check_safety_interlocks(
     batch, CIP velocity below 1.52 m/s, and SIP not sterile. Logging does not change
     the returned flags.
 
-    Returns five boolean/float flags:
+    Returns six boolean/float flags:
 
-    - ``high_shear_alarm``: hydrodynamic-shear alarm (P/V > 47.6 W/m^3 and
-      sparge > 0.15 vvm), per A-Mab / shear-sensitivity context.
+    - ``high_shear_alarm``: hydrodynamic-shear alarm (P/V > 47.6 W/m^3 OR
+      sparge > 0.15 vvm), per A-Mab / shear-sensitivity context. Either source of
+      shear (impeller or bubble/sparge) trips the alarm on its own (v1.3.0).
     - ``cip_interlock_blocked``: CIP valve requested while a batch is active.
     - ``cip_velocity_compliant``: CIP pipe velocity >= 1.52 m/s (ASME BPE-2014, 5 ft/s).
     - ``f0_minutes``: accumulated sterilization lethality F0 at 121.1 C reference.
     - ``sip_sterile_compliant``: F0 >= 15 min and all SIP temperatures >= 121.1 C.
+    - ``overfill_alarm``: liquid volume > vessel volume; False unless both optional
+      ``current_volume_L`` and ``vessel_volume_L`` are supplied.
     """
-    high_shear_alarm = bool(power_density_W_m3 > 47.6 and sparge_vvm > 0.15)
+    high_shear_alarm = bool((power_density_W_m3 > 47.6) or (sparge_vvm > 0.15))
     cip_interlock_blocked = bool(batch_active and cip_valve_requested)
     cip_velocity_compliant = bool(cip_pipe_velocity_m_s >= 1.52)
     f0_minutes = sum(
@@ -107,14 +110,20 @@ def check_safety_interlocks(
     sip_sterile_compliant = bool(
         f0_minutes >= 15.0 and min(sip_temps_C, default=0.0) >= 121.1
     )
+    # Overfill alarm: only evaluated when both volumes are supplied (optional).
+    overfill_alarm = bool(
+        current_volume_L is not None
+        and vessel_volume_L is not None
+        and current_volume_L > vessel_volume_L
+    )
 
     if audit_logger is not None:
         if high_shear_alarm:
             _audit_event(
                 audit_logger,
                 "interlock.high_shear_alarm", "False", "True",
-                f"URS-09 interlock trip: P/V {power_density_W_m3} W/m3 > 47.6 and "
-                f"sparge {sparge_vvm} vvm > 0.15",
+                f"URS-09 interlock trip (P/V > 47.6 W/m3 OR sparge > 0.15 vvm): "
+                f"P/V {power_density_W_m3} W/m3, sparge {sparge_vvm} vvm",
             )
         if cip_interlock_blocked:
             _audit_event(
@@ -128,6 +137,13 @@ def check_safety_interlocks(
                 "interlock.cip_velocity_compliant", "True", "False",
                 f"URS-11 interlock trip: CIP velocity {cip_pipe_velocity_m_s} m/s "
                 f"< 1.52 m/s (ASME BPE-2014)",
+            )
+        if overfill_alarm:
+            _audit_event(
+                audit_logger,
+                "interlock.overfill_alarm", "False", "True",
+                f"Overfill interlock trip: liquid volume {current_volume_L} L > "
+                f"vessel volume {vessel_volume_L} L",
             )
         if not sip_sterile_compliant:
             _audit_event(
@@ -143,6 +159,7 @@ def check_safety_interlocks(
         "cip_velocity_compliant": cip_velocity_compliant,
         "f0_minutes": f0_minutes,
         "sip_sterile_compliant": sip_sterile_compliant,
+        "overfill_alarm": overfill_alarm,
     }
 
 
@@ -165,14 +182,6 @@ def _audit_event(audit_logger, parameter_name, old_value, new_value, reason) -> 
         reason_for_change=reason,
         human_approved=True,
     )
-
-
-def _logistic(x: float) -> float:
-    """Numerically stable logistic function 1 / (1 + exp(-x))."""
-    if x >= 0.0:
-        return 1.0 / (1.0 + math.exp(-x))
-    e = math.exp(x)
-    return e / (1.0 + e)
 
 
 def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dict:
@@ -207,7 +216,7 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
 
     Cell death:
         kd = KD_BASE + KD_STARVE*K_S_G/(K_S_G+G) + KD_LAC*max(0, L - L_TOX)
-             + KD_SHEAR*[high shear]
+             + KD_SHEAR*sigma_shear
         KD_BASE = 0.008 1/d, KD_STARVE = 0.02 1/d (reached as G -> 0),
         KD_LAC = 0.02 1/d per g/L, L_TOX = 1.0 g/L, KD_SHEAR = 0.03 1/d.
         KD_STARVE replaces the old static-only late-culture step (0.018 + 0.0095
@@ -216,48 +225,63 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
         These death constants are model assumptions and still need fitting to
         experimental viability data.
 
+    Hydrodynamic shear (v1.3.0, continuous in P/V and sparge):
+        sigma_imp    = max(0, (P/V - 47.6) / 47.6)
+        sigma_sparge = max(0, (sparge - 0.15) / 0.15)
+        sigma_shear  = sigma_imp + sigma_sparge + sigma_imp * sigma_sparge
+        sigma_shear is exactly 0.0 at or below both thresholds (nominal P/V 30,
+        sparge 0.10) and grows when either source exceeds its threshold. It adds
+        KD_SHEAR * sigma_shear to kd and divides qp by (1 + ALPHA_SHEAR_QP *
+        sigma_shear). It replaces the former step penalty (kd + 0.03 and fPV = 0.63
+        only when P/V > 47.6 AND sparge > 0.15).
+
     Titer:
-        dTiter/dt = qp(T) * fPV * Xv * TITER_UNIT_CONV (fPV applied exactly once).
+        dTiter/dt = qp(T) * f_shear_qp * fPV * Xv * TITER_UNIT_CONV,
+        f_shear_qp = 1 / (1 + ALPHA_SHEAR_QP * sigma_shear) (fPV applied once).
 
     Power/volume factor ``fPV``: 1.08 for P/V >= 30 W/m^3, 1.00 for P/V <= 19,
-    linear interpolation between 19 and 30; under high shear (P/V > 47.6 and
-    sparge > 0.15) fPV = 0.63 (qp penalised -37%) and viability is penalised via
-    KD_SHEAR.
+    linear interpolation between 19 and 30. Shear damage is no longer folded into
+    fPV; it acts only through sigma_shear.
 
-    GLUCOSE UPTAKE (v1.2.0):
-        q_G = mu*Xv/Y_X_G + M_G*Xv*G/(G + K_G_UPTAKE)
-        The growth term already carries the Monod factor G/(G+0.5) through mu; the
-        maintenance term gets its own Monod factor (K_G_UPTAKE = 0.5 g/L), so the
-        total uptake falls smoothly to zero as glucose is exhausted.
+    GLUCOSE UPTAKE (specific, g/(1e9 cell*d)):
+        q_G(G, T) = mu(G, T, ...)/Y_X_G + M_G*G/(G + K_G_UPTAKE)
+        The growth term carries the Monod factor G/(G+0.5) and mu_max(T) through mu;
+        the maintenance term has its own Monod factor (K_G_UPTAKE = 0.5 g/L), so the
+        uptake falls smoothly to zero as glucose is exhausted. Volumetric uptake is
+        q_G * Xv.
 
-    LACTATE DYNAMICS (v1.2.0): three regimes driven ONLY by G, L and t, identical
-    for both feeding strategies, blended with logistic weights so dL/dt is
-    continuous (s(x) = 1/(1+exp(-x)), W_G = 0.1 g/L, W_T = 0.1 d):
-        w_over = s((G - 5.0)/W_G)
-        w_cons = s((t - 6.0)/W_T) * s((G - 2.0)/W_G) * s((5.0 - G)/W_G)
-        dL = Y_L_BASE*q_G*(1 - w_cons) + Y_L_OVERFLOW*q_G*w_over
-             - K_L_CONSUME*L*Xv*w_cons
-    Far from the thresholds this reduces to the piecewise regimes:
-        - overflow,        G > 5.0:                    (Y_L_BASE + Y_L_OVERFLOW)*q_G
-        - net consumption, t >= 6.0, 2.0 <= G <= 5.0:  -K_L_CONSUME * L * Xv
-        - basal, otherwise:                            Y_L_BASE * q_G
+    LACTATE DYNAMICS (v1.3.0, mechanistic and continuous; no G window, no time
+    switch, identical for both feeding strategies):
+        q_L,prod(G, T)    = Y_L_G(T) * q_G(G, T)
+        Y_L_G(T)          = linear in T between 0.08 g/g at 34.0 C and 0.48 g/g at
+                            36.5 C, clamped to that range (continuous in T)
+        q_L,cons(G, L)    = (Q_L_CONS_MAX * K_I_G/(K_I_G + G) + Q_L_ANAPL)
+                            * L/(K_L + L)
+        dL/dt             = (q_L,prod - q_L,cons) * Xv
+    The Crabtree factor K_I_G/(K_I_G + G) represses consumption when glucose is
+    abundant; the anaplerotic term Q_L_ANAPL keeps a small glucose-independent
+    consumption; the Monod factor L/(K_L + L) drives q_L,cons to 0 as L -> 0, so
+    L stays >= 0 by formulation (max(0, .) is only a numerical safety net). Every
+    feed bolus dilutes lactate exactly: L_new = L * V_old / V_new.
 
     Substrate / lactate yield constants (biomass and glycolysis bookkeeping):
         - Y_X_G    = 1.80 (1e6 cells/mL) biomass yield per g/L glucose consumed;
         - M_G      = 0.175 g/L per (1e6 cells/mL * d) maintenance glucose draw;
         - K_G_UPTAKE = 0.5 g/L Monod half-saturation of the maintenance draw;
-        - Y_L_BASE = 0.08 g lactate per g glucose (baseline glycolysis);
-        - Y_L_OVERFLOW = 0.40 extra g lactate per g glucose above the overflow
-          threshold (Warburg-type overflow metabolism of CHO cells);
-        - G_OVERFLOW_THRESHOLD = 5.0 g/L glucose above which overflow lactate applies;
-        - K_L_CONSUME = 0.012 1/d per (1e6 cells/mL) net lactate-consumption rate;
+        - Y_L_G anchors: 0.48 g/g at 36.5 C, 0.08 g/g at 34.0 C (see constants);
+        - Q_L_CONS_MAX = 0.05, Q_L_ANAPL = 0.005 g/(1e9 cell*d); K_L = 0.5 g/L;
+          K_I_G = 1.0 g/L (uncalibrated, see constants);
         - TITER_UNIT_CONV = 1.0: qp in g/(1e9 cell*d) times Xv in 1e6 cells/mL gives
           g/(L*d); the 1e-9 and 1e9 factors cancel exactly.
 
     VARIABLE-VOLUME FED-BATCH BALANCE (liquid volume V as a state variable)
     -----------------------------------------------------------------------
-    Liquid volume V (L) is tracked dynamically from V_0 = 0.76 * vessel_volume_L
-    (a 76% initial working volume, leaving headroom for the fed-batch bolus train).
+    Liquid volume V (L) is tracked dynamically from V_0 = INITIAL_FILL_FRACTION *
+    vessel_volume_L = 0.70 * vessel_volume_L (v1.3.0), leaving 30 % headroom for
+    the fed-batch bolus train. At every feed event the requested base bolus and
+    glucose top-up are scaled together by
+    scale_factor = min(1, (vessel_volume_L - V) / (v_basal + v_gluc)), so
+    V(t) <= vessel_volume_L always. Each event is recorded in ``feed_events``.
     At each feed-event crossing of days 2, 4, 6, 8, 10, 12 a feed volume is added
     and all concentrations are diluted by the ratio V_actual / V_new:
 
@@ -269,29 +293,33 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
 
     FEED SEQUENCE on crossing days 2, 4, 6, 8, 10, 12 (v1.2.0):
         1. The Euler step is integrated first; its result is G_pre_feed.
-        2. Base bolus V_boost is added. Xv, Xd, L and Titer are diluted by
-           V_actual/(V_actual + V_boost) and
+        2. Base bolus V_boost is requested; the post-bolus glucose would be
            G_actual = (G_pre_feed*V_actual + V_boost*G_BOOST_CONC)/(V_actual + V_boost).
         3. closed_loop only: if G_pre_feed < glucose_min_threshold_g_L or
            G_actual < glucose_min_threshold_g_L (default 2.0), a top-up from the
            C_stock = 500 g/L stock is sized to restore G exactly to
            glucose_refill_target_g_L (default 5.0):
-           V_gluc = V * (G_target - G_actual) / (C_stock - G_target),
-           followed by a second dilution of Xv, Xd, L and Titer. In static mode
-           V_gluc = 0.0.
+           V_gluc = (V + V_boost) * (G_target - G_actual) / (C_stock - G_target).
+           In static mode V_gluc = 0.0.
+        4. Capacity clamp: both volumes are scaled together if they exceed the
+           headspace vessel_volume_L - V.
+        5. One exact dilution with the injected volumes:
+           C_new = C * V_old / V_new for Xv, Xd, L and Titer, and
+           G_new = (G_pre_feed*V_old + v_basal*G_BOOST_CONC + v_gluc*C_stock)/V_new.
+           Without the clamp this equals steps 2 and 3 applied in sequence.
 
     ``config.mode`` is read ONLY in the feed-dosing block (adaptive bolus factor and
     glucose top-up). Reported titers, viabilities and the closed-loop titer gain are
     the real outputs of these equations and are not forced to hit any target band.
 
-    MEASURED VALUES (v1.2.0, defaults, 14 d; identical titer and viability at 0.25 L
-    and 2.0 L because the balance is per unit volume):
-        - static:      titer 1.0164 g/L, viability 81.17 %, min/max G 0.0057/6.0 g/L,
-                       max/final L 1.0889/1.0783 g/L;
-        - closed_loop: titer 1.1654 g/L, viability 91.56 %, min/max G 0.7241/6.0 g/L,
-                       max/final L 1.0001/0.6498 g/L;
-        - emergent titer gain +14.66 %; harvested mass 0.2466 vs 0.3048 g (0.25 L)
-          and 1.9731 vs 2.4384 g (2.0 L).
+    MEASURED VALUES (v1.3.0 Modules 1-2, defaults, 14 d, 2.0 L; titer and viability
+    are per unit volume and match at 0.25 L):
+        - static:      titer 0.8312 g/L, viability 70.73 %, min/max G 0.0263/6.0 g/L,
+                       L peak 2.5635 g/L (day 7.0), L final 1.3816 g/L;
+        - closed_loop: titer 0.8447 g/L, viability 74.23 %, min/max G 1.6582/6.0 g/L,
+                       L peak 2.6910 g/L (day 7.3), L final 2.2333 g/L;
+        - emergent titer gain +1.62 %. These are outputs of uncalibrated lactate
+          and shear parameters, not predictions.
 
     Returns the time series (``time_days``, ``vcd``, ``viability_pct``,
     ``glucose_g_L``, ``lactate_g_L``, ``titer_g_L``, ``temp_C``, ``volume_L``) and
@@ -306,17 +334,25 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
     # glucose Ks already used in the growth term mu, so both uptake terms saturate
     # consistently and vanish smoothly as G -> 0.
     K_G_UPTAKE = 0.5        # g/L
-    Y_L_BASE = 0.08         # g lactate per g glucose (baseline glycolysis)
-    Y_L_OVERFLOW = 0.40     # extra g lactate per g glucose above overflow threshold
-    G_OVERFLOW_THRESHOLD = 5.0  # g/L glucose above which overflow lactate applies
-    # Net lactate-consumption window, defined only by state (G) and time (t).
-    G_CONSUME_LOW = 2.0     # g/L lower glucose bound of the consumption window
-    G_CONSUME_HIGH = 5.0    # g/L upper glucose bound of the consumption window
-    T_CONSUME_START = 6.0   # d, earliest time for net lactate consumption
-    K_L_CONSUME = 0.012     # 1/d per (1e6 cells/mL) net lactate consumption
-    # Logistic transition widths for the lactate regimes (numerical smoothing).
-    W_G = 0.1               # g/L
-    W_T = 0.1               # d (one Euler step)
+    # --- Mechanistic lactate kinetics (v1.3.0) ---
+    # Lactate yield on glucose, continuous in T between the two temperature anchors.
+    # 0.48 g/g at 36.5 C equals the former basal + overflow yield (0.08 + 0.40) of
+    # this model and lies inside the 0.5-1.0 g/g range commonly reported for CHO in
+    # exponential growth (theoretical max 1.0 g/g); 0.08 g/g at 34.0 C is the former
+    # basal yield and represents the lower glycolytic flux after the temperature
+    # shift. Both are model values, NOT CALIBRATED to this cell line.
+    Y_L_G_ANCHORS = (0.08, 0.48)  # g lactate / g glucose at (34.0 C, 36.5 C)
+    # Maximum specific lactate consumption, g/(1e9 cell*d) (= 0.05 g/L/d per
+    # 1e6 cells/mL, about 0.55 pmol/cell/d). Order of magnitude of reported CHO
+    # lactate-consumption rates; NOT CALIBRATED.
+    Q_L_CONS_MAX = 0.05
+    # Basal anaplerotic lactate consumption (glucose-independent), g/(1e9 cell*d),
+    # 10 % of Q_L_CONS_MAX. NOT CALIBRATED.
+    Q_L_ANAPL = 0.005
+    K_L = 0.5               # g/L Monod half-saturation of lactate consumption (NOT CALIBRATED)
+    # Crabtree repression of lactate consumption by glucose: K_I_G/(K_I_G + G).
+    # 1.0 g/L means consumption is halved at G = 1 g/L. NOT CALIBRATED.
+    K_I_G = 1.0             # g/L
     TITER_UNIT_CONV = 1.0   # g/(1e9 cell*d) * (1e6 cells/mL) -> g/(L*d); factors cancel
 
     # --- Unified kinetic law (v1.2.0): identical for every feeding mode ---
@@ -332,9 +368,15 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
     KD_STARVE = 0.02        # 1/d extra death at full glucose starvation (G -> 0)
     KD_LAC = 0.02           # 1/d per g/L lactate above L_TOX
     L_TOX = 1.0             # g/L lactate toxicity onset
-    KD_SHEAR = 0.03         # 1/d high-shear death penalty
+    KD_SHEAR = 0.03         # 1/d extra death per unit of sigma_shear
+    # Shear penalty on qp: qp / (1 + ALPHA_SHEAR_QP * sigma_shear). NOT CALIBRATED:
+    # 1.0 is a neutral first-order assumption (qp halves at sigma_shear = 1). It
+    # must be fitted to productivity-vs-shear data and must not be tuned to hit a
+    # target titer.
+    ALPHA_SHEAR_QP = 1.0
 
     # --- Variable-volume fed-batch balance constants ---
+    INITIAL_FILL_FRACTION = 0.70  # V0 = 0.70 * vessel_volume_L (30 % headroom for feeds)
     C_STOCK = 500.0         # g/L concentrated glucose stock (closed_loop top-up)
     G_TARGET = float(config.glucose_refill_target_g_L)  # g/L glucose target for the closed_loop top-up
     G_MIN = float(config.glucose_min_threshold_g_L)     # g/L top-up trigger
@@ -352,16 +394,20 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
     L = 0.1     # g/L
     Titer = 0.0
 
-    # Liquid-volume state: 76% initial working volume of the vessel.
-    V_0 = 0.76 * config.vessel_volume_L
+    # Liquid-volume state: initial working volume = INITIAL_FILL_FRACTION of the
+    # vessel; V(t) is clamped to vessel_volume_L at every feed event.
+    V_0 = INITIAL_FILL_FRACTION * config.vessel_volume_L
     V = V_0
 
     # Power/volume productivity factor and high-shear penalty
     pv = config.power_density_W_m3
-    high_shear = (pv > 47.6) and (config.sparge_vvm > 0.15)
-    if high_shear:
-        fPV = 0.63
-    elif pv >= 30.0:
+    # Continuous shear intensity from impeller power and sparge (0.0 below both).
+    sigma_imp = max(0.0, (pv - 47.6) / 47.6)
+    sigma_sparge = max(0.0, (config.sparge_vvm - 0.15) / 0.15)
+    sigma_shear = sigma_imp + sigma_sparge + (sigma_imp * sigma_sparge)
+    f_shear_qp = 1.0 / (1.0 + ALPHA_SHEAR_QP * sigma_shear)
+
+    if pv >= 30.0:
         fPV = 1.08
     elif pv <= 19.0:
         fPV = 1.00
@@ -370,6 +416,7 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
 
     feed_days = [2.0, 4.0, 6.0, 8.0, 10.0, 12.0]
     fed_done = {d: False for d in feed_days}
+    feed_events = []  # per-bolus volume and mass-balance record
 
     vcd_series = []
     viability_series = []
@@ -425,47 +472,41 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
         mu = mu_max * (G / (G + K_S_G)) * (K_I_L / (L + K_I_L)) * (1 - Xv / X_MAX)
 
         # Cell-death rate: basal + glucose starvation (inverse Monod, -> KD_STARVE
-        # as G -> 0) + lactate toxicity above L_TOX + high-shear penalty.
+        # as G -> 0) + lactate toxicity above L_TOX + continuous shear term.
         kd = (
             KD_BASE
             + KD_STARVE * K_S_G / (K_S_G + G)
             + KD_LAC * max(0.0, L - L_TOX)
-            + (KD_SHEAR if high_shear else 0.0)
+            + KD_SHEAR * sigma_shear
         )
 
         dXv = (mu - kd) * Xv
         dXd = kd * Xv
 
-        # Substrate consumption: growth-associated (Monod already inside mu) plus
-        # maintenance with its own Monod saturation, so q_G -> 0 smoothly as G -> 0.
-        glucose_uptake = (mu * Xv) / Y_X_G + M_G * Xv * (G / (G + K_G_UPTAKE))
+        # Specific glucose uptake q_G(G, T): growth-associated (Monod and mu_max(T)
+        # already inside mu) plus maintenance with its own Monod saturation.
+        q_G = mu / Y_X_G + M_G * (G / (G + K_G_UPTAKE))
+        glucose_uptake = q_G * Xv
         # Numerical guard only: one Euler step cannot remove more glucose than exists.
         glucose_uptake = min(glucose_uptake, G / dt) if dt > 0 else glucose_uptake
         dG = -glucose_uptake
 
-        # Lactate dynamics: overflow / net consumption / basal regimes blended with
-        # logistic weights in G and t, so dL/dt is continuous. In the limits far
-        # from the thresholds it reduces exactly to the three piecewise regimes.
-        w_over = _logistic((G - G_OVERFLOW_THRESHOLD) / W_G)
-        w_cons = (
-            _logistic((t - T_CONSUME_START) / W_T)
-            * _logistic((G - G_CONSUME_LOW) / W_G)
-            * _logistic((G_CONSUME_HIGH - G) / W_G)
-        )
-        dL = (
-            Y_L_BASE * glucose_uptake * (1.0 - w_cons)
-            + Y_L_OVERFLOW * glucose_uptake * w_over
-            - K_L_CONSUME * L * Xv * w_cons
-        )
+        # Mechanistic lactate balance (no G window, no time switch):
+        # production follows glucose uptake with a T-dependent yield; consumption
+        # is Monod in L, repressed by glucose (Crabtree) plus a basal anaplerotic term.
+        y_l_g = float(np.interp(temp_C, T_ANCHORS_C, Y_L_G_ANCHORS))
+        lactate_prod = y_l_g * glucose_uptake                     # g/(L*d)
+        q_L_cons = (Q_L_CONS_MAX * K_I_G / (K_I_G + G) + Q_L_ANAPL) * L / (K_L + L)
+        dL = lactate_prod - q_L_cons * Xv
 
-        # fPV is applied exactly once, identically in every mode.
-        dTiter = qp * fPV * Xv * TITER_UNIT_CONV
+        # fPV and the shear factor are applied exactly once, identically in every mode.
+        dTiter = qp * f_shear_qp * fPV * Xv * TITER_UNIT_CONV
 
         # Euler update
         Xv = max(0.0, Xv + dXv * dt)
         Xd = max(0.0, Xd + dXd * dt)
         G = max(0.0, G + dG * dt)
-        L = max(0.0, L + dL * dt)
+        L = max(0.0, L + dL * dt)  # safety net; Monod in L keeps L >= 0
         Titer = max(0.0, Titer + dTiter * dt)
 
         # Feeding at the crossing of each feed day -- variable-volume balance.
@@ -477,8 +518,8 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
                 G_pre_feed = G
                 V_actual = V
 
-                # Step 2: base feed bolus. The Ark adaptive factor scales it in
-                # closed_loop on the day-8 / day-10 crossings.
+                # Step 2: requested base feed bolus. The Ark adaptive factor scales it
+                # in closed_loop on the day-8 / day-10 crossings.
                 if config.mode == "closed_loop":
                     if fd == 8.0:
                         adaptive_factor = 1.80
@@ -488,48 +529,83 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
                         adaptive_factor = 1.0
                 else:
                     adaptive_factor = 1.0
+                v_basal_req_L = (0.042 + 0.0042) * V_0 * adaptive_factor
 
-                # Base feed bolus volume (static: unscaled; closed_loop: scaled).
-                V_boost = (0.042 + 0.0042) * V_0 * adaptive_factor
-
-                V_after_boost = V_actual + V_boost
-                dilution = V_actual / V_after_boost
-                Xv *= dilution
-                Xd *= dilution
-                L *= dilution
-                Titer *= dilution
+                # Step 3: requested closed_loop glucose top-up from the C_STOCK stock,
+                # sized (before the capacity clamp) to bring G exactly to G_TARGET
+                # after the base bolus:
+                #   G_actual = (G_pre_feed*V + v_basal*G_BOOST_CONC) / (V + v_basal)
+                #   (G_actual*(V + v_basal) + v_gluc*C_STOCK) / (V + v_basal + v_gluc) = G_TARGET
                 G_actual = (
-                    G_pre_feed * V_actual + V_boost * G_BOOST_CONC
-                ) / V_after_boost
-                V = V_after_boost
-                G = G_actual
-
-                # Step 3: closed_loop glucose top-up from the C_STOCK stock, sized by
-                # mass balance to bring G exactly to G_TARGET:
-                #   (G_actual*V + V_gluc*C_STOCK) / (V + V_gluc) = G_TARGET
+                    G_pre_feed * V_actual + v_basal_req_L * G_BOOST_CONC
+                ) / (V_actual + v_basal_req_L)
+                v_gluc_req_L = 0.0
                 if config.mode == "closed_loop" and (
                     G_pre_feed < G_MIN or G_actual < G_MIN
                 ):
-                    V_gluc = max(
-                        0.0, V * (G_TARGET - G_actual) / (C_STOCK - G_TARGET)
+                    v_gluc_req_L = max(
+                        0.0,
+                        (V_actual + v_basal_req_L) * (G_TARGET - G_actual)
+                        / (C_STOCK - G_TARGET),
                     )
-                    if V_gluc > 0.0:
-                        V_new = V + V_gluc
-                        dilution = V / V_new
-                        Xv *= dilution
-                        Xd *= dilution
-                        L *= dilution
-                        Titer *= dilution
-                        G = (G_actual * V + V_gluc * C_STOCK) / V_new
-                        V = V_new
-                        if audit_logger is not None:
-                            _audit_event(
-                                audit_logger,
-                                "glucose_g_L", f"{G_actual:.4f}", f"{G:.4f}",
-                                f"URS-07 glucose top-up at culture day {fd:.1f}: "
-                                f"G_pre_feed {G_pre_feed:.4f} g/L, V_gluc "
-                                f"{V_gluc:.6f} L of {C_STOCK:.0f} g/L stock",
-                            )
+
+                # Step 4: vessel-capacity clamp. Both volumes are scaled together so
+                # V(t) never exceeds vessel_volume_L.
+                available_headspace_L = max(0.0, config.vessel_volume_L - V_actual)
+                total_requested_bolo_L = v_basal_req_L + v_gluc_req_L
+                scale_factor = 1.0
+                if total_requested_bolo_L > available_headspace_L:
+                    scale_factor = (
+                        available_headspace_L / total_requested_bolo_L
+                        if total_requested_bolo_L > 0 else 0.0
+                    )
+                v_basal_L = v_basal_req_L * scale_factor
+                v_gluc_L = v_gluc_req_L * scale_factor
+
+                # Step 5: exact mass balance over the volume actually injected.
+                # Every concentration is diluted as C * V_old / V_new; glucose adds
+                # the mass contained in the injected basal medium and stock.
+                V_new = V_actual + v_basal_L + v_gluc_L
+                if V_new > V_actual:
+                    dilution = V_actual / V_new
+                    pre = {"Xv": Xv, "Xd": Xd, "G": G_pre_feed, "L": L, "Titer": Titer}
+                    Xv *= dilution
+                    Xd *= dilution
+                    L *= dilution
+                    Titer *= dilution
+                    G = (
+                        G_pre_feed * V_actual
+                        + v_basal_L * G_BOOST_CONC
+                        + v_gluc_L * C_STOCK
+                    ) / V_new
+                    V = V_new
+                else:
+                    pre = {"Xv": Xv, "Xd": Xd, "G": G_pre_feed, "L": L, "Titer": Titer}
+
+                feed_events.append(
+                    {
+                        "day": fd,
+                        "step_index_after": i + 1,
+                        "V_old_L": V_actual,
+                        "V_new_L": V,
+                        "v_basal_requested_L": v_basal_req_L,
+                        "v_gluc_requested_L": v_gluc_req_L,
+                        "scale_factor": scale_factor,
+                        "v_basal_L": v_basal_L,
+                        "v_gluc_L": v_gluc_L,
+                        "glucose_added_g": v_basal_L * G_BOOST_CONC + v_gluc_L * C_STOCK,
+                        "pre": pre,
+                    }
+                )
+
+                if v_gluc_L > 0.0 and audit_logger is not None:
+                    _audit_event(
+                        audit_logger,
+                        "glucose_g_L", f"{G_actual:.4f}", f"{G:.4f}",
+                        f"URS-07 glucose top-up at culture day {fd:.1f}: "
+                        f"G_pre_feed {G_pre_feed:.4f} g/L, V_gluc "
+                        f"{v_gluc_L:.6f} L of {C_STOCK:.0f} g/L stock",
+                    )
 
                 fed_done[fd] = True
 
@@ -553,4 +629,5 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
         "peak_vcd": round(float(peak_vcd), 4),
         "harvested_mass_g": round(harvested_mass_g, 4),
         "total_feed_volume_L": round(total_feed_volume_L, 4),
+        "feed_events": feed_events,
     }

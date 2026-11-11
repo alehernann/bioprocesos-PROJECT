@@ -40,10 +40,14 @@ implementado y probado (sin **requisitos huérfanos**) y (b) cada prueba se traz
 | `test_oq_01_setpoints_and_ph_split_range_exclusivity` | Set-points validados (T, pH, DO), dead-band y exclusión mutua del split-range de pH, OTR ≥ OUR. |
 | `test_oq_02_automated_day7_temperature_shift` | Cambio automático de 36.5 °C → 34.0 °C en el día 7.0. |
 | `test_oq_03_closed_loop_vs_static_titer_gain` | Reposición adaptativa de glucosa (disparo, V_gluc > 0), consumo de lactato, ganancia direccional de título/viabilidad frente a static. |
-| `test_oq_04_safety_shear_and_cip_sip_interlocks` | Alarma de cizalla (P/V > 47.6 W/m³ AND sparge > 0.15 vvm), velocidad de CIP, interlocks de F0 de SIP. |
+| `test_oq_03b_vessel_capacity_and_bolus_mass_balance` | V0 = 0.70 × vessel, V(t) ≤ vessel_volume_L (0.25 y 2.0 L, ambos modos) y balance de masa exacto en cada bolo. |
+| `test_oq_03c_lactate_reconsumption_and_nonnegativity` | Reconsumo de lactato en closed_loop (L final < L pico, pico después del día 5) y L(t) ≥ 0 en ambos modos. |
+| `test_oq_04_safety_shear_and_cip_sip_interlocks` | Alarma de cizalla (P/V > 47.6 W/m³ OR sparge > 0.15 vvm), velocidad de CIP, interlocks de F0 de SIP. |
+| `test_oq_04b_shear_or_gate_and_continuous_penalty` | Compuerta OR de cizalla: solo P/V alto (65, 0.10), solo sparge alto (30, 0.22) y ambos (65, 0.22) disparan la alarma y bajan título y viabilidad frente a nominal; (30, 0.10) y (47.6, 0.15) no la disparan. |
 | `test_oq_05_ispe_amab_design_space_center_and_edges` | Punto central y bordes de falla del Design Space. |
 | `test_oq_05b_amab_scale_up_kla_pilot_commercial_range` | kLa de escalamiento A-Mab en el rango piloto/comercial. |
 | `test_oq_06_mkt_and_vtb_damping` | Cálculo de MKT y amortiguamiento térmico del VTB. |
+| `test_oq_06b_do_setpoint_driving_force` | Set-point de DO en la fuerza impulsora: a 30 % kLa 20.0 y OTR 2.94; OTR ∝ (1 − DO/100); OTR decreciente con el DO; OTR ≥ OUR deja de cumplirse a DO alto. |
 | `test_oq_07_fft_nyquist_sampling_validation` | Validación del criterio de muestreo FFT / Nyquist. |
 | `test_oq_08_gorsky_spc_tolerance_and_capability` | Intervalos de tolerancia y capacidad SPC de Gorsky. |
 | `test_oq_09_part11_audit_trail_and_annex22_guardrail` | Audit trail de Part 11 y guardrail de AI del Annex 22. |
@@ -62,10 +66,14 @@ implementado y probado (sin **requisitos huérfanos**) y (b) cada prueba se traz
 | **URS-04** | Rama ácida de pH por sparge de CO2 | `bioreactor_twin.py` | High Process Risk | `test_oq_01_setpoints_and_ph_split_range_exclusivity` |
 | **URS-05** | Rama básica de pH con Na2CO3 1 M | `bioreactor_twin.py` | High Process Risk | `test_oq_01_setpoints_and_ph_split_range_exclusivity` |
 | **URS-06** | Set-point de DO de 30 % y suficiencia de transferencia de masa OTR ≥ OUR | `models.py`, `amab_design_space.py` | High Process Risk | `test_oq_01_setpoints_and_ph_split_range_exclusivity` |
+| **URS-06** | Set-point de DO configurable en la fuerza impulsora C* × (1 − DO/100) y verificación OTR ≥ OUR | `models.py`, `amab_design_space.py` | High Process Risk | `test_oq_06b_do_setpoint_driving_force` |
 | **URS-07** | Alimentación adaptativa de glucosa < 2.0 → 5.0 g/L | `bioreactor_twin.py` | High Process Risk | `test_oq_03_closed_loop_vs_static_titer_gain` |
 | **URS-08** | Ventaja de título y viabilidad del lazo cerrado frente a static (ganancia emergente, sin banda fija) | `bioreactor_twin.py` | High Process Risk | `test_oq_03_closed_loop_vs_static_titer_gain` |
-| **URS-09** | Interlock de cizalla: `high_shear_alarm` cuando `power_density_W_m3` > 47.6 W/m³ AND `sparge_vvm` > 0.15 vvm | `bioreactor_twin.py` | High Process Risk | `test_oq_04_safety_shear_and_cip_sip_interlocks` |
+| **URS-07** | Capacidad del recipiente y balance de masa exacto de los bolos (V0 = 0.70 × vessel, V(t) ≤ vessel) | `bioreactor_twin.py` | High Process Risk | `test_oq_03b_vessel_capacity_and_bolus_mass_balance` |
+| **URS-07** | Cinética continua de lactato: reconsumo tras el pico y L(t) ≥ 0 | `bioreactor_twin.py` | High Process Risk | `test_oq_03c_lactate_reconsumption_and_nonnegativity` |
+| **URS-09** | Interlock de cizalla: `high_shear_alarm` cuando `power_density_W_m3` > 47.6 W/m³ OR `sparge_vvm` > 0.15 vvm | `bioreactor_twin.py` | High Process Risk | `test_oq_04_safety_shear_and_cip_sip_interlocks` |
 | **URS-10** | Traslado de escala del interlock de cizalla | `bioreactor_twin.py` | High Process Risk | `test_oq_04_safety_shear_and_cip_sip_interlocks` |
+| **URS-09** | Compuerta OR de cizalla y penalización continua (sigma_shear) sobre kd y qp | `bioreactor_twin.py` | High Process Risk | `test_oq_04b_shear_or_gate_and_continuous_penalty` |
 | **URS-11** | Interlock de velocidad de CIP ≥ 1.52 m/s (ASME BPE) | `bioreactor_twin.py` | High Process Risk | `test_oq_04_safety_shear_and_cip_sip_interlocks` |
 | **URS-12** | F0 de SIP ≥ 15 min a ≥ 121.1 °C | `bioreactor_twin.py` | High Process Risk | `test_oq_04_safety_shear_and_cip_sip_interlocks` |
 | **URS-13** | Centro/bordes del A-Mab Design Space | `amab_design_space.py` | High Process Risk | `test_oq_05_ispe_amab_design_space_center_and_edges` |
@@ -83,10 +91,14 @@ implementado y probado (sin **requisitos huérfanos**) y (b) cada prueba se traz
 | `test_oq_01_setpoints_and_ph_split_range_exclusivity` | URS-01, URS-03, URS-04, URS-05, URS-06 | `models.py`, `bioreactor_twin.py`, `amab_design_space.py` | High |
 | `test_oq_02_automated_day7_temperature_shift` | URS-02 | `bioreactor_twin.py` | High |
 | `test_oq_03_closed_loop_vs_static_titer_gain` | URS-07, URS-08 | `bioreactor_twin.py` | High |
+| `test_oq_03b_vessel_capacity_and_bolus_mass_balance` | URS-07 | `bioreactor_twin.py` | High |
+| `test_oq_03c_lactate_reconsumption_and_nonnegativity` | URS-07, URS-08 | `bioreactor_twin.py` | High |
 | `test_oq_04_safety_shear_and_cip_sip_interlocks` | URS-09, URS-10, URS-11, URS-12 | `bioreactor_twin.py` | High |
+| `test_oq_04b_shear_or_gate_and_continuous_penalty` | URS-09 | `bioreactor_twin.py` | High |
 | `test_oq_05_ispe_amab_design_space_center_and_edges` | URS-13 | `amab_design_space.py` | High |
 | `test_oq_05b_amab_scale_up_kla_pilot_commercial_range` | URS-13 | `amab_design_space.py` | High |
 | `test_oq_06_mkt_and_vtb_damping` | URS-14 | `thermal_vtb_mkt.py` | High |
+| `test_oq_06b_do_setpoint_driving_force` | URS-06 | `amab_design_space.py`, `models.py` | High |
 | `test_oq_07_fft_nyquist_sampling_validation` | NFR-03 (muestreo Nyquist) | `thermal_vtb_mkt.py` | High |
 | `test_oq_08_gorsky_spc_tolerance_and_capability` | URS-15 (SPC/Cpk) | `spc_six_sigma.py` | High |
 | `test_oq_09_part11_audit_trail_and_annex22_guardrail` | URS-15 (Audit Trail) | `audit_trail_part11.py` | High |
@@ -105,8 +117,8 @@ implementado y probado (sin **requisitos huérfanos**) y (b) cada prueba se traz
 | Requisitos huérfanos (sin prueba) | 0 |
 | Pruebas huérfanas (sin requisito) | 0 |
 | Requisitos High Process Risk | 15 / 15 |
-| Pruebas OQ ejecutadas | 14 |
-| Pruebas scripted (High Process Risk) | 11 (`test_oq_01` … `test_oq_09`, incl. `test_oq_05b` y `test_oq_09b`) |
+| Pruebas OQ ejecutadas | 18 |
+| Pruebas scripted (High Process Risk) | 15 (`test_oq_01` … `test_oq_09`, incl. `test_oq_03b`, `test_oq_03c`, `test_oq_04b`, `test_oq_05b`, `test_oq_06b` y `test_oq_09b`) |
 | Pruebas Unscripted Exploratory / Error-Guessing | 3 (`test_exploratory_10` … `test_exploratory_12`) |
 
 **Nota sobre `test_oq_07_fft_nyquist_sampling_validation`:** esta prueba verifica el criterio no
@@ -139,10 +151,10 @@ del requisito y la evidencia de aprobado/fallido.
 | URS-03 | Set-point 7.00 y dead-band 0.20 en `ProcessDescription`; sin actuación mientras el pH esté en 6.80–7.20. | Aserciones del set-point y de reposo dentro de la dead-band. |
 | URS-04 | La rama de CO2 se activa solo cuando pH > 7.20. | Barrido de exclusión mutua en pH 6.00–8.00 (rama ácida). |
 | URS-05 | La rama de Na2CO3 1 M se activa solo cuando pH < 6.80. | Barrido de exclusión mutua en pH 6.00–8.00 (rama básica). |
-| URS-06 | El set-point de DO es 30 %; OTR ≥ OUR en las esquinas Vs 0.005–0.017 m/s × P/V 19–30 W/m³. | Aserción del set-point y aserciones OTR ≥ OUR / `oxygen_sufficient`. |
-| URS-07 | La glucosa baja de 2.0 g/L, se mantiene ≤ 6.5 g/L, queda ≥ 2.0 g/L después de cada alimentación y la reposición se dispara (volumen alimentado en lazo cerrado > volumen de los bolos basales). | Aserciones de glucosa mín./máx., de recuperación tras cada alimentación y de volumen alimentado; lactato final < lactato pico. Medido (v1.2.0, closed_loop): G mín. 0.7241 g/L, G máx. 6.0 g/L, L pico 1.0001 g/L, L final 0.6498 g/L. |
-| URS-08 | Título final y viabilidad final del lazo cerrado > línea base static (direccional; la ganancia no se acota a una banda). | Aserciones comparativas de título y viabilidad. Medido (v1.2.0): título 1.1654 vs 1.0164 g/L (ganancia emergente +14.66 %), viabilidad 91.56 vs 81.17 %. |
-| URS-09 | `high_shear_alarm` se dispara solo cuando `power_density_W_m3` > 47.6 W/m³ AND `sparge_vvm` > 0.15 vvm. | Aserción de la alarma al cruzar la frontera. |
+| URS-06 | El set-point de DO es 30 %; OTR ≥ OUR en las esquinas Vs 0.005–0.017 m/s × P/V 19–30 W/m³. | Aserción del set-point y aserciones OTR ≥ OUR / `oxygen_sufficient`; con DO configurable, OTR ∝ (1 − DO/100), decreciente y `oxygen_sufficient` False a DO alto (`test_oq_06b`). |
+| URS-07 | La glucosa baja de 2.0 g/L, se mantiene ≤ 6.5 g/L, queda ≥ 2.0 g/L después de cada alimentación y la reposición se dispara (volumen alimentado en lazo cerrado > volumen de los bolos basales). | Aserciones de glucosa mín./máx., de recuperación tras cada alimentación y de volumen alimentado; lactato final < lactato pico. Medido (v1.3.0, closed_loop): G mín. 1.6582 g/L, G máx. 6.0 g/L, L pico 2.6910 g/L (día 7.3), L final 2.2333 g/L; V(t) ≤ vessel y balance de masa exacto por bolo (`test_oq_03b`); L(t) ≥ 0 (`test_oq_03c`). |
+| URS-08 | Título final y viabilidad final del lazo cerrado > línea base static (direccional; la ganancia no se acota a una banda). | Aserciones comparativas de título y viabilidad. Medido (v1.3.0): título 0.8447 vs 0.8312 g/L (ganancia emergente +1.62 %), viabilidad 74.23 vs 70.73 %. |
+| URS-09 | `high_shear_alarm` se dispara cuando `power_density_W_m3` > 47.6 W/m³ OR `sparge_vvm` > 0.15 vvm; no se dispara con ambos en o por debajo de su umbral. | Aserción de la alarma al cruzar la frontera; aserciones direccionales de título y viabilidad menores que en nominal para (65, 0.10), (30, 0.22) y (65, 0.22) (`test_oq_04b`). |
 | URS-10 | El límite P/V se evalúa con la geometría de cada escala, de 0.25 L a 15,000 L. | Aserción de consistencia entre escalas. |
 | URS-11 | El CIP se aborta cuando la velocidad es < 1.52 m/s. | Aserción de interlock/aborto. |
 | URS-12 | El SIP libera solo cuando F0 ≥ 15 min a ≥ 121.1 °C. | Aserción de acumulación de letalidad y de la compuerta de liberación. |

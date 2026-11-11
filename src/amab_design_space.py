@@ -174,6 +174,7 @@ def compute_scale_up_engineering(
     power_per_vol_W_m3: float,
     vcc_1e6_cells_mL: float = 15.0,
     qo2_mmol_cell_h: float = 1.0e-10,
+    do_percent: float = 30.0,
 ) -> dict:
     """Compute oxygen-transfer scale-up engineering parameters.
 
@@ -206,8 +207,14 @@ def compute_scale_up_engineering(
 
     Returns ``kla_h_inv`` (volumetric mass-transfer coefficient, 1/h),
     ``our_max_mmol_L_h`` (maximum oxygen uptake rate, mmol/(L*h)),
-    ``otr_mmol_L_h`` (oxygen-transfer rate at the saturation driving force
-    0.21 - 0.063 mmol/L) and ``oxygen_sufficient`` (OTR >= OUR).
+    ``otr_mmol_L_h`` (oxygen-transfer rate) and ``oxygen_sufficient`` (OTR >= OUR).
+
+    DISSOLVED-OXYGEN DRIVING FORCE (v1.3.0)
+    ---------------------------------------
+    ``do_percent`` is the DO set-point in % of air saturation (default 30.0). The
+    driving force is explicit: C* = 0.210 mmol/L (air saturation) and
+    driving_force = C* * max(0, 1 - do_percent/100), so OTR = kLa * driving_force.
+    At 30 % DO this equals the former fixed term 0.21 - 0.063 = 0.147 mmol/L.
     """
     # Leading coefficient recalibrated (SI units, no 1e4 factor) so that the
     # A-Mab reference point Vs=0.015 m/s, P/V=26.0 W/m3 yields kLa ~= 20.0 h^-1.
@@ -219,9 +226,10 @@ def compute_scale_up_engineering(
     )
     our_max_mmol_L_h = vcc_1e6_cells_mL * 1.0e9 * qo2_mmol_cell_h
 
-    # OTR = kLa * (C* - C_L); saturation driving force in mmol/L for air-sparged
-    # culture at the DO setpoint (A-Mab oxygen-transfer basis).
-    otr_mmol_L_h = kla_h_inv * (0.21 - 0.063)
+    # OTR = kLa * (C* - C_L) with C_L = C* * DO/100 (A-Mab oxygen-transfer basis).
+    c_star_mmol_L = 0.210  # mmol/L O2 at air saturation
+    driving_force_mmol_L = c_star_mmol_L * max(0.0, 1.0 - (do_percent / 100.0))
+    otr_mmol_L_h = kla_h_inv * driving_force_mmol_L
     oxygen_sufficient = bool(otr_mmol_L_h >= our_max_mmol_L_h)
 
     return {

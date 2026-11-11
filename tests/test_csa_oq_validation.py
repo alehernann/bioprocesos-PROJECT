@@ -174,6 +174,52 @@ def test_oq_03_closed_loop_vs_static_titer_gain():
     assert closed["final_viability_pct"] > static["final_viability_pct"]
 
 
+
+def test_oq_03b_vessel_capacity_and_bolus_mass_balance():
+    """V0 = 0.70*vessel, V(t) <= vessel and exact mass balance in every feed bolus.
+
+    Checked at 0.25 L and 2.0 L in both modes. The mass balance is verified against
+    the recorded post-feed series: C_before*V_old + added == C_after*V_new.
+    """
+    for vessel in (0.25, 2.0):
+        for mode in ("static", "closed_loop"):
+            res = simulate_cho_fed_batch(
+                ProcessDescription(mode=mode, vessel_volume_L=vessel)
+            )
+            volume = res["volume_L"]
+            assert volume[0] == pytest.approx(0.70 * vessel, abs=1e-12)
+            assert max(volume) <= vessel + 1e-12
+            assert len(res["feed_events"]) == 6
+            for ev in res["feed_events"]:
+                k = ev["step_index_after"]
+                v_old, v_new = ev["V_old_L"], ev["V_new_L"]
+                assert 0.0 <= ev["scale_factor"] <= 1.0
+                assert v_new == pytest.approx(
+                    v_old + ev["v_basal_L"] + ev["v_gluc_L"], abs=1e-12
+                )
+                assert volume[k] == pytest.approx(v_new, abs=1e-12)
+                for key, series, added in (
+                    ("G", "glucose_g_L", ev["glucose_added_g"]),
+                    ("L", "lactate_g_L", 0.0),
+                    ("Titer", "titer_g_L", 0.0),
+                    ("Xv", "vcd", 0.0),
+                ):
+                    before = ev["pre"][key] * v_old + added
+                    after = res[series][k] * v_new
+                    assert after == pytest.approx(before, abs=1e-9), (vessel, mode, key)
+
+
+def test_oq_03c_lactate_reconsumption_and_nonnegativity():
+    """closed_loop reconsumes lactate after a peak past day 5; L(t) >= 0 in both modes."""
+    for mode in ("static", "closed_loop"):
+        res = simulate_cho_fed_batch(ProcessDescription(mode=mode))
+        assert min(res["lactate_g_L"]) >= 0.0
+    closed = simulate_cho_fed_batch(ProcessDescription(mode="closed_loop"))
+    lactate, time_days = closed["lactate_g_L"], closed["time_days"]
+    peak_idx = max(range(len(lactate)), key=lactate.__getitem__)
+    assert time_days[peak_idx] > 5.0
+    assert lactate[-1] < lactate[peak_idx]
+
 def test_oq_04_safety_shear_and_cip_sip_interlocks():
     """GxP safety interlocks: shear alarm, CIP block, CIP velocity, SIP sterility."""
     out = check_safety_interlocks(
@@ -190,6 +236,37 @@ def test_oq_04_safety_shear_and_cip_sip_interlocks():
     assert out["cip_velocity_compliant"] is True
     assert out["sip_sterile_compliant"] is True
 
+
+
+def test_oq_04b_shear_or_gate_and_continuous_penalty():
+    """Shear alarm is P/V > 47.6 OR sparge > 0.15; each excess lowers titer and viability.
+
+    Directional assertions only (no numeric bands): every high-shear scenario must
+    trip the alarm and reduce final titer and final viability versus nominal.
+    """
+    common = dict(
+        batch_active=False,
+        cip_valve_requested=False,
+        cip_pipe_velocity_m_s=1.52,
+        sip_temps_C=[121.5] * 15,
+    )
+    for pv, sparge in ((30.0, 0.10), (47.6, 0.15)):
+        out = check_safety_interlocks(power_density_W_m3=pv, sparge_vvm=sparge, **common)
+        assert out["high_shear_alarm"] is False, (pv, sparge)
+    for mode in ("static", "closed_loop"):
+        nominal = simulate_cho_fed_batch(
+            ProcessDescription(mode=mode, power_density_W_m3=30.0, sparge_vvm=0.10)
+        )
+        for pv, sparge in ((65.0, 0.10), (30.0, 0.22), (65.0, 0.22)):
+            out = check_safety_interlocks(
+                power_density_W_m3=pv, sparge_vvm=sparge, **common
+            )
+            assert out["high_shear_alarm"] is True, (pv, sparge)
+            res = simulate_cho_fed_batch(
+                ProcessDescription(mode=mode, power_density_W_m3=pv, sparge_vvm=sparge)
+            )
+            assert res["final_titer_g_L"] < nominal["final_titer_g_L"], (mode, pv, sparge)
+            assert res["final_viability_pct"] < nominal["final_viability_pct"], (mode, pv, sparge)
 
 def test_oq_05_ispe_amab_design_space_center_and_edges():
     """A-Mab design space: centre-point intercepts hold; extreme corner fails."""
@@ -240,6 +317,39 @@ def test_oq_06_mkt_and_vtb_damping():
     # produce a lower-variance filtered series than the 1 mL buffer.
     assert np.std(bulk) < np.std(small)
 
+
+
+def test_oq_06b_do_setpoint_driving_force():
+    """URS-06: the DO set-point enters the OTR driving force C* * (1 - DO/100).
+
+    At the A-Mab 15,000 L reference (Vs = 0.015 m/s, P/V = 26 W/m3) the default
+    30 % DO gives kLa 20.0 and OTR 2.94; OTR scales with (1 - DO/100), decreases
+    monotonically with DO, and OTR >= OUR fails at a high enough DO.
+    """
+    ref = compute_scale_up_engineering(0.015, 26.0)
+    assert ref["kla_h_inv"] == pytest.approx(20.0, abs=1e-9)
+    assert ref["otr_mmol_L_h"] == pytest.approx(2.94, abs=1e-9)
+    assert ref == compute_scale_up_engineering(0.015, 26.0, do_percent=30.0)
+    assert ref["oxygen_sufficient"] is True
+
+    otr30 = compute_scale_up_engineering(0.015, 26.0, do_percent=30.0)["otr_mmol_L_h"]
+    otr50 = compute_scale_up_engineering(0.015, 26.0, do_percent=50.0)["otr_mmol_L_h"]
+    assert otr50 / otr30 == pytest.approx((1 - 0.50) / (1 - 0.30), abs=5e-3)
+
+    do_grid = list(range(10, 101, 5))
+    otrs = [
+        compute_scale_up_engineering(0.015, 26.0, do_percent=float(d))["otr_mmol_L_h"]
+        for d in do_grid
+    ]
+    assert all(b < a for a, b in zip(otrs, otrs[1:]))
+    flags = [
+        compute_scale_up_engineering(0.015, 26.0, do_percent=float(d))["oxygen_sufficient"]
+        for d in do_grid
+    ]
+    assert flags[0] is True and flags[-1] is False
+    # Once insufficient, it stays insufficient at every higher DO.
+    first_bad = flags.index(False)
+    assert not any(flags[first_bad:])
 
 def test_oq_07_fft_nyquist_sampling_validation():
     """FFT/Nyquist: a 2.9 cph fridge signal is resolved at 5 min, aliased if coarser.

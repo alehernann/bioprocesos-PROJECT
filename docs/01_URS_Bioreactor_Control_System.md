@@ -132,10 +132,11 @@ split-range.
 **THE SYSTEM SHALL** enviar al controlador local de DO un set-point de oxígeno disuelto (OD) de
 **30 %** de saturación de aire (`ProcessDescription.do_setpoint_pct`), y **SHALL** verificar que la
 velocidad de transferencia de oxígeno alcanza para la demanda del cultivo (**OTR ≥ OUR**) en la
-ventana operativa piloto/comercial de A-Mab. OTR se calcula como kLa × (0.21 − 0.063) mmol/L, la
-fuerza impulsora entre la saturación de aire y 30 % de DO. La regulación del DO medido se delega al
+ventana operativa piloto/comercial de A-Mab. El set-point de DO es configurable (por defecto 30 %;
+`ProcessDescription.do_setpoint_pct`) y entra en la fuerza impulsora: OTR = kLa × C* × (1 − DO/100),
+con C* = 0.210 mmol/L (a 30 % de DO, 0.147 mmol/L). A mayor set-point de DO, menor OTR disponible. La regulación del DO medido se delega al
 controlador local; THE SYSTEM no simula ni califica un lazo PID de DO.
-- *Categoría GAMP:* 5 — *Riesgo de proceso:* High — *Módulos:* `models.py`, `amab_design_space.py` — *OQ:* `test_oq_01_setpoints_and_ph_split_range_exclusivity`
+- *Categoría GAMP:* 5 — *Riesgo de proceso:* High — *Módulos:* `models.py`, `amab_design_space.py` — *OQ:* `test_oq_01_setpoints_and_ph_split_range_exclusivity`, `test_oq_06b_do_setpoint_driving_force`
 
 ### 5.4 Alimentación adaptativa de glucosa
 
@@ -157,8 +158,9 @@ se reporta tal cual, sin restringirla a una banda fija.
 ### 5.5 Interlock de seguridad por cizalla hidrodinámica
 
 #### URS-09 — Interlock de cizalla hidrodinámica (P/V)
-**WHEN** `power_density_W_m3` > **47.6 W/m³** **AND** `sparge_vvm` > **0.15 vvm** (deben cumplirse
-ambas condiciones; un P/V por encima de 47.6 W/m³ con sparge ≤ 0.15 vvm no dispara la alarma),
+**WHEN** `power_density_W_m3` > **47.6 W/m³** **OR** `sparge_vvm` > **0.15 vvm** (basta con que se
+cumpla una de las dos condiciones: la cizalla del impulsor o la del sparge dispara la alarma por sí
+sola; en P/V = 47.6 W/m³ y sparge = 0.15 vvm exactos no se dispara),
 **THE SYSTEM SHALL** levantar la alarma de cizalla hidrodinámica (`high_shear_alarm = True`) y,
 cuando se le pasa un logger de Audit Trail, registrar el disparo en el Audit Trail de Part 11,
 aplicando el mismo límite en todas las escalas. THE SYSTEM no limita por sí mismo la agitación ni el

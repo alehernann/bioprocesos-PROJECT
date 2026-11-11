@@ -96,7 +96,7 @@ Quality Attribute de especificación. Estas funcionalidades exigen scripts paso 
 previamente (`test_oq_01`, `test_oq_02`, `test_oq_03`), con resultados esperados definidos y
 evidencia objetiva conservada.
 
-**Interlocks de seguridad.** La alarma de cizalla hidrodinámica (P/V > 47.6 W/m³ AND sparge > 0.15 vvm, URS-09/10), el
+**Interlocks de seguridad.** La alarma de cizalla hidrodinámica (P/V > 47.6 W/m³ OR sparge > 0.15 vvm, URS-09/10), el
 interlock de velocidad de CIP (≥ 1.52 m/s según ASME BPE, URS-11) y el interlock de letalidad de SIP
 (F0 ≥ 15 min a ≥ 121.1 °C, URS-12) son la última línea de defensa contra el daño celular, la limpieza
 insuficiente y el producto no estéril. Una falla es catastrófica y a menudo silenciosa hasta que se
@@ -175,9 +175,9 @@ código a la medida (GAMP Category 5), en línea con el principio least-burdenso
   corresponden con las pruebas unscripted `test_exploratory_10_invalid_pydantic_inputs`,
   `test_exploratory_11_audit_trail_requires_reason` y
   `test_exploratory_12_welch_ttest_identical_groups_not_significant`.
-- La suite cubre 14 pruebas: 11 pruebas scripted (`test_oq_01` a `test_oq_09`, incluidas
-  `test_oq_05b_amab_scale_up_kla_pilot_commercial_range` y
-  `test_oq_09b_part11_human_approved_mutation_breaks_chain`) y 3 pruebas exploratorias
+- La suite cubre 18 pruebas: 15 pruebas scripted (`test_oq_01` a `test_oq_09`, incluidas
+  `test_oq_03b`, `test_oq_03c`, `test_oq_04b`, `test_oq_05b_amab_scale_up_kla_pilot_commercial_range`,
+  `test_oq_06b` y `test_oq_09b_part11_human_approved_mutation_breaks_chain`) y 3 pruebas exploratorias
   (`test_exploratory_10` a `test_exploratory_12`).
 - La trazabilidad completa hacia adelante y hacia atrás se mantiene en `03_RTM_Traceability_Matrix.md`.
 

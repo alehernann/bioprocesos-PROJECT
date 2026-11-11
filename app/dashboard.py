@@ -482,7 +482,7 @@ with tab1:
                 step=0.5,
                 help="Ventana operativa recomendada 19-30 W/m3. Bounds [2, 100].",
             )
-            _leyenda("A la derecha, hasta 30 W/m3, el titulo sube un poco. Si pasas 47.6 y el sparge esta por encima de 0.15, hay cizalla: caen viabilidad y titulo.")
+            _leyenda("A la derecha, hasta 30 W/m3, el titulo sube un poco. Por encima de 47.6 W/m3 salta la alarma de cizalla aunque el sparge sea bajo (P/V > 47.6 O sparge > 0.15). Cada exceso sube kd y baja qp de forma continua: caen viabilidad y titulo.")
         with g2:
             temp_shift_day = st.slider(
                 "Dia del cambio termico (d)",
@@ -502,7 +502,7 @@ with tab1:
                 step=0.01,
                 help="Bounds sparge_vvm [0, 1].",
             )
-            _leyenda("Hasta 0.15 las curvas no se mueven. Por encima de 0.15, si P/V ya paso 47.6, la cizalla baja viabilidad y titulo.")
+            _leyenda("Hasta 0.15 vvm el sparge no agrega cizalla. Por encima de 0.15 salta la alarma aunque P/V sea bajo (P/V > 47.6 O sparge > 0.15), y el exceso sube kd y baja qp de forma continua: caen viabilidad y titulo. Si ambos se pasan, el efecto se combina.")
 
         _band("Volumen y controlador de pH")
         g4, g5 = st.columns(2)
@@ -513,7 +513,7 @@ with tab1:
                 max_value=35000.0,
                 value=2.0,
                 step=0.25,
-                help="Bounds ProcessDescription: (0, 35000] L. El modelo arranca con V_0 = 76 % del nominal.",
+                help="Bounds ProcessDescription: (0, 35000] L. El modelo arranca con V_0 = 70 % del nominal y nunca supera el volumen del recipiente.",
             )
             _leyenda("A la derecha hay mas litros: suben la masa de anticuerpo, el feed y V(t). Los g/L de las curvas no cambian.")
         with g5:
@@ -741,13 +741,25 @@ with tab1:
             f"{get_temperature_setpoint(temp_shift_day, shift_day=temp_shift_day):.1f}",
             help=f"get_temperature_setpoint antes y desde el dia {temp_shift_day:.1f}.",
         )
+        # Carga acida de lactato al final del cultivo, leida de la simulacion en vivo.
+        LACTATE_MW_G_MOL = 90.08
+        s_lac_final = static_res["lactate_g_L"][-1]
+        c_lac_final = closed_res["lactate_g_L"][-1]
+        st.caption(
+            "Carga acida de lactato final (la base debe neutralizarla): "
+            f"receta estatica {s_lac_final:.3f} g/L = "
+            f"{s_lac_final / LACTATE_MW_G_MOL * 1000.0:.2f} mmol/L; "
+            f"lazo cerrado {c_lac_final:.3f} g/L = "
+            f"{c_lac_final / LACTATE_MW_G_MOL * 1000.0:.2f} mmol/L "
+            f"(MW lactato {LACTATE_MW_G_MOL} g/mol)."
+        )
 
     st.caption(
         "Fuentes: Quint et al., Ark Biotech & Culture Biosciences 2026 (lazo cerrado); "
         "Kulkarni et al., Culture Biosciences & Bionova Scientific 2026 (base 0.25 L Stratyx); "
         "ASME BPE-2014 (CIP). Valores calculados en vivo por src/bioreactor_twin.py. "
         "La ganancia de titulo es la que producen las ecuaciones (misma cinetica en ambos "
-        "modos); el modelo no se calibra al +43 % reportado por Quint et al."
+        "modos). El +43 % de Quint et al. es un dato de literatura, no un resultado de este modelo."
     )
 
 
@@ -916,7 +928,7 @@ with tab2:
                  "bajo un criterio de escalamiento a P/V y Vs constantes.",
         )
         preset_volume_L = SCALE_PRESETS[st.session_state.scale_preset]
-        e1, e2, e3 = st.columns(3)
+        e1, e2, e3, e4 = st.columns(4)
         with e1:
             superficial_gas_vel_m_s = st.slider(
                 "Velocidad superficial de gas Vs (m/s)",
@@ -930,18 +942,36 @@ with tab2:
             )
         with e3:
             vcc = st.slider("VCC (1e6 cel/mL)", 1.0, 60.0, 15.0, 0.5)
+        with e4:
+            do_slider_pct = st.slider(
+                "Setpoint de DO (% saturacion de aire)",
+                min_value=10.0,
+                max_value=90.0,
+                value=float(ProcessDescription().do_setpoint_pct),
+                step=1.0,
+                key="do_setpoint_pct",
+                help="ProcessDescription.do_setpoint_pct; bounds del modelo [10, 100] %.",
+            )
+            _leyenda(
+                "Fuerza impulsora = C* (0.210 mmol/L) x (1 - DO/100); OTR = kLa x fuerza "
+                "impulsora. A mayor setpoint de DO, menor OTR disponible. Solo afecta el "
+                "balance de oxigeno, no la cinetica CHO."
+            )
+        # El setpoint pasa por el esquema validado (ProcessDescription) antes de usarse.
+        do_setpoint_pct = ProcessDescription(do_setpoint_pct=do_slider_pct).do_setpoint_pct
 
         scale = compute_scale_up_engineering(
             superficial_gas_vel_m_s=superficial_gas_vel_m_s,
             power_per_vol_W_m3=power_per_vol_W_m3,
             vcc_1e6_cells_mL=vcc,
+            do_percent=do_setpoint_pct,
         )
         sc1, sc2, sc3, sc4 = st.columns(4)
         sc1.metric("kLa (1/h)", f"{scale['kla_h_inv']:.2f}")
         sc2.metric(
             "OTR (mmol/L/h)",
             f"{scale['otr_mmol_L_h']:.2f}",
-            help="OTR = kLa * (0.21 - 0.063) mmol/L (fuerza impulsora A-Mab).",
+            help=f"OTR = kLa * 0.210 * (1 - DO/100) mmol/L con DO = {do_setpoint_pct:g} % (fuerza impulsora explicita A-Mab).",
         )
         sc3.metric("OUR max (mmol/L/h)", f"{scale['our_max_mmol_L_h']:.2f}")
         _chip(
@@ -951,6 +981,17 @@ with tab2:
             "Suficiente" if scale["oxygen_sufficient"] else "Insuficiente",
             str(scale["oxygen_sufficient"]),
         )
+        if scale["oxygen_sufficient"]:
+            st.success(
+                f"URS-06 OK: con DO {do_setpoint_pct:g} %, OTR {scale['otr_mmol_L_h']:.2f} "
+                f">= OUR {scale['our_max_mmol_L_h']:.2f} mmol/L/h."
+            )
+        else:
+            st.error(
+                f"URS-06 oxigeno insuficiente: con DO {do_setpoint_pct:g} %, OTR "
+                f"{scale['otr_mmol_L_h']:.2f} < OUR {scale['our_max_mmol_L_h']:.2f} mmol/L/h. "
+                "Baja el setpoint de DO o sube kLa (Vs, P/V)."
+            )
 
         v1, v2, v3 = st.columns(3)
         if preset_volume_L is None:
@@ -976,7 +1017,9 @@ with tab2:
 
         vs_axis = np.linspace(VS_VALID_MIN, VS_VALID_MAX, 25)
         otr_axis = [
-            compute_scale_up_engineering(float(v), power_per_vol_W_m3, vcc)["otr_mmol_L_h"]
+            compute_scale_up_engineering(
+                float(v), power_per_vol_W_m3, vcc, do_percent=do_setpoint_pct
+            )["otr_mmol_L_h"]
             for v in vs_axis
         ]
         fig_o = go.Figure()
