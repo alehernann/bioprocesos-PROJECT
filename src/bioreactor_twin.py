@@ -181,6 +181,22 @@ AUDIT_SYSTEM_USER = "system:bioreactor_twin"
 AUDIT_SYSTEM_ROLE = "AutomatedControl"
 
 
+# DO hypoxia response (v1.3.1 C0 fix). Monod in the effective DO normalised at the
+# 20 % lower bound of the DO operating band, so the factor is exactly 1.0 at and
+# above 20 % and continuous below it. K_DO_PCT is NOT CALIBRATED.
+K_DO_PCT = 2.0               # % air saturation, Monod half-saturation for O2
+DO_HYPOXIA_NORM_PCT = 20.0   # % DO at which do_hypoxia_factor reaches 1.0
+
+
+def do_hypoxia_factor(do_eff_pct: float) -> float:
+    """min(1, (DO/(DO + K_DO_PCT)) / (20/(20 + K_DO_PCT))): 1.0 for DO >= 20 %, C0-continuous."""
+    return min(
+        1.0,
+        (do_eff_pct / (do_eff_pct + K_DO_PCT))
+        / (DO_HYPOXIA_NORM_PCT / (DO_HYPOXIA_NORM_PCT + K_DO_PCT)),
+    )
+
+
 def _audit_event(audit_logger, parameter_name, old_value, new_value, reason) -> None:
     """Append one automatic system event to ``audit_logger`` (read-only on state)."""
     audit_logger.append_record(
@@ -249,10 +265,11 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
         OTR_cap = kLa_eff * C* * max(0, 1 - DO/100)        [mmol/(L*h)]
         OUR     = Xv * 1e9 * Q_O2_MMOL_CELL_H              [mmol/(L*h)]
         ratio   = min(1, OTR_cap / OUR); DO_eff = DO * ratio
-        If DO < 20 % or ratio < 1: f_do = (DO_eff/(DO_eff+2))/(30/32) * ratio in
-        [0, 1]; Y_L/G *= 1 + 0.8 * max(0, (20 - DO_eff)/20); kd += KD_HYPOXIA *
-        max((15 - DO_eff)/15, (0.85 - ratio)/0.85, 0). Otherwise f_do = 1. f_do
-        multiplies mu and qp. The DO set-point is ProcessDescription.do_setpoint_pct.
+        Always applied, C0-continuous (no branch):
+        f_do = min(1, (DO_eff/(DO_eff+2))/(20/22)) * ratio (exactly 1 at DO_eff >= 20
+        with ratio = 1); Y_L/G *= 1 + 0.8 * max(0, (20 - DO_eff)/20); kd +=
+        KD_HYPOXIA * (max(0, (15 - DO_eff)/15) + max(0, (0.85 - ratio)/0.85)),
+        exactly 0 at both thresholds. f_do multiplies mu and qp. The DO set-point is ProcessDescription.do_setpoint_pct.
 
     Titer:
         dTiter/dt = qp(T) * f_do * f_shear_qp * fPV * Xv * TITER_UNIT_CONV,
@@ -387,12 +404,10 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
     F_BASAL = 0.05          # dimensionless
     K_ANAP = 0.60           # g/L
     # --- Dissolved-oxygen coupling (v1.3.1) ---
-    # Below DO 20 % or when OTR cannot cover OUR, growth and productivity are
-    # throttled by a Monod term in the effective DO (K_DO_PCT), lactate yield rises
-    # (Pasteur effect) and severe hypoxia adds death. All NOT CALIBRATED.
-    K_DO_PCT = 2.0          # % air saturation, Monod half-saturation for O2
-    DO_REF_PCT = 30.0       # % reference DO at which f_do_metabolic = 1
-    DO_LOW_PCT = 20.0       # % below which the O2 penalty is evaluated
+    # Growth and productivity are throttled by do_hypoxia_factor(DO_eff) times the
+    # supply ratio; lactate yield rises below 20 % (Pasteur effect) and severe
+    # hypoxia adds death. All NOT CALIBRATED.
+    DO_LOW_PCT = DO_HYPOXIA_NORM_PCT  # % below which the Pasteur yield rise starts
     DO_HYPOXIA_PCT = 15.0   # % severe-hypoxia onset (effective DO)
     RATIO_HYPOXIA = 0.85    # supply ratio below which severe hypoxia starts
     Y_LG_HYPOXIA_GAIN = 0.8  # max relative rise of Y_L/G as DO_eff -> 0
@@ -512,22 +527,14 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
         our_demand_mmol_L_h = (Xv * 1.0e9) * Q_O2_MMOL_CELL_H
         oxygen_supply_ratio = min(1.0, otr_cap_mmol_L_h / max(1e-9, our_demand_mmol_L_h))
         do_eff_pct = do_pct * oxygen_supply_ratio
-        if do_pct < DO_LOW_PCT or oxygen_supply_ratio < 1.0:
-            f_do_metabolic = (
-                (do_eff_pct / (do_eff_pct + K_DO_PCT))
-                / (DO_REF_PCT / (DO_REF_PCT + K_DO_PCT))
-                * oxygen_supply_ratio
-            )
-            f_do_metabolic = min(1.0, max(0.0, f_do_metabolic))
-            y_lg_do_factor = 1.0 + Y_LG_HYPOXIA_GAIN * max(0.0, (DO_LOW_PCT - do_eff_pct) / DO_LOW_PCT)
-            hypoxic_deficit = max(
-                max(0.0, (DO_HYPOXIA_PCT - do_eff_pct) / DO_HYPOXIA_PCT),
-                max(0.0, (RATIO_HYPOXIA - oxygen_supply_ratio) / RATIO_HYPOXIA),
-            )
-        else:
-            f_do_metabolic = 1.0
-            y_lg_do_factor = 1.0
-            hypoxic_deficit = 0.0
+        # C0-continuous DO response, always applied (no branch): each term is
+        # exactly 1 (or 0 for the death ramp) at and above its threshold.
+        f_do_metabolic = do_hypoxia_factor(do_eff_pct) * oxygen_supply_ratio
+        y_lg_do_factor = 1.0 + Y_LG_HYPOXIA_GAIN * max(0.0, (DO_LOW_PCT - do_eff_pct) / DO_LOW_PCT)
+        hypoxic_deficit = (
+            max(0.0, (DO_HYPOXIA_PCT - do_eff_pct) / DO_HYPOXIA_PCT)
+            + max(0.0, (RATIO_HYPOXIA - oxygen_supply_ratio) / RATIO_HYPOXIA)
+        )
 
         # Record current state
         o2_ratio_series.append(oxygen_supply_ratio)

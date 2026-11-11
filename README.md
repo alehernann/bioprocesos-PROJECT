@@ -114,7 +114,7 @@ Los resultados del gemelo digital (14 d, parametros por defecto, v1.3.1) son **v
 **Modelo v1.3.1:**
 - **Glucosa:** q_G(G, T) = mu/Y_X_G + M_G * G/(G + K_G_UPTAKE), con saturacion Monod en crecimiento y mantenimiento y mu_max(T).
 - **Lactato (continuo, sin ventanas de G ni interruptores de tiempo; T es la T(t) instantanea):** produccion q_L,prod = Y_L/G(T) * q_G, con Y_L/G interpolado entre 0.18 g/g a 36.5 C y 0.03 g/g a 34.0 C; consumo q_L,cons = q_L,cons,max(T) * L/(L + K_L) * K_I_G/(K_I_G + G) * (f_basal + (1 - f_basal) * G/(G + K_anap)), con q_L,cons,max interpolado entre 0.008 g/(1e9 cel*d) a 36.5 C y 0.045 a 34.0 C; dL/dt = (q_L,prod - q_L,cons) * Xv.
-- **Oxigeno disuelto:** kLa_eff con la misma ley de `compute_scale_up_engineering` al P/V de la corrida y Vs fijo = 0.015 m/s; OTR_cap = kLa_eff * C* * (1 - DO/100) y OUR = Xv * 1e9 * qO2, ambos en mmol/(L*h); ratio = min(1, OTR_cap/OUR) y DO_eff = DO * ratio. Si DO < 20 % o ratio < 1: f_do = (DO_eff/(DO_eff + 2))/(30/32) * ratio en [0, 1] multiplica mu y qp, Y_L/G se multiplica por 1 + 0.8 * max(0, (20 - DO_eff)/20) (efecto Pasteur) y kd suma KD_HYPOXIA * max((15 - DO_eff)/15, (0.85 - ratio)/0.85, 0). Si no, f_do = 1.
+- **Oxigeno disuelto:** kLa_eff con la misma ley de `compute_scale_up_engineering` al P/V de la corrida y Vs fijo = 0.015 m/s; OTR_cap = kLa_eff * C* * (1 - DO/100) y OUR = Xv * 1e9 * qO2, ambos en mmol/(L*h); ratio = min(1, OTR_cap/OUR) y DO_eff = DO * ratio. Siempre aplicado y continuo (C0, sin ramas): f_do = min(1, (DO_eff/(DO_eff + 2))/(20/22)) * ratio multiplica mu y qp (vale exactamente 1 con DO_eff >= 20 % y ratio = 1); Y_L/G se multiplica por 1 + 0.8 * max(0, (20 - DO_eff)/20) (efecto Pasteur) y kd suma KD_HYPOXIA * (max(0, (15 - DO_eff)/15) + max(0, (0.85 - ratio)/0.85)), que es exactamente 0 en los umbrales.
 - **Volumen:** V0 = 0.70 * vessel_volume_L. En cada bolo, el basal y el top-up de glucosa se escalan juntos si no caben en el espacio libre, de modo que V(t) <= vessel_volume_L; si algun bolo se recorta, `bolus_clipped_alarm` = True y el tablero muestra un aviso. Cada bolo diluye exactamente (C * V_old / V_new).
 - **Cizalla:** la alarma salta si P/V > 47.6 W/m3 **OR** sparge > 0.15 vvm. La intensidad continua sigma_shear = sigma_imp + sigma_sparge + sigma_imp * sigma_sparge (0.0 en nominal) suma KD_SHEAR * sigma_shear a kd y divide qp por (1 + ALPHA_SHEAR_QP * sigma_shear).
 
@@ -132,16 +132,16 @@ Los resultados del gemelo digital (14 d, parametros por defecto, v1.3.1) son **v
 
 | DO (%) | Modo | Titulo final (g/L) | Viabilidad final (%) | pico / final L (g/L) | VCD pico | min ratio OTR/OUR | min f_do |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 10 | static | 0.7256 | 70.28 | 1.4143 / 1.0004 | 5.2514 | 1.0000 | 0.8889 |
-| 10 | closed_loop | 0.7347 | 77.48 | 1.4143 / 0.8564 | 5.2514 | 1.0000 | 0.8889 |
+| 10 | static | 0.7687 | 69.23 | 1.4638 / 1.0526 | 5.4616 | 1.0000 | 0.9167 |
+| 10 | closed_loop | 0.8089 | 77.71 | 1.5135 / 0.9198 | 5.6681 | 1.0000 | 0.9167 |
 | 30 | static | 1.0537 | 80.54 | 1.2151 / 0.8793 | 6.8310 | 1.0000 | 1.0000 |
 | 30 | closed_loop | 1.2189 | 90.55 | 1.3425 / 0.5842 | 8.1709 | 1.0000 | 1.0000 |
-| 85 | static | 1.0530 | 80.54 | 1.2151 / 0.8792 | 6.8306 | 0.9483 | 0.9871 |
-| 85 | closed_loop | 1.1073 | 90.35 | 1.3394 / 0.5888 | 7.8986 | 0.8201 | 0.8504 |
+| 85 | static | 1.0469 | 80.55 | 1.2144 / 0.8783 | 6.8227 | 0.9494 | 0.9494 |
+| 85 | closed_loop | 1.0734 | 90.37 | 1.3364 / 0.5905 | 7.8121 | 0.8292 | 0.8292 |
 
 - A DO 10 % la hipoxia (efecto Pasteur) sube el lactato y baja titulo y viabilidad; a DO 85 % la fuerza impulsora no alcanza y OTR < OUR en la fase de alta densidad.
 - **Setpoint de DO (slider del tablero, 10-90 %, por defecto 30 %):** pasa por `ProcessDescription.do_setpoint_pct` a las dos corridas del gemelo y a `compute_scale_up_engineering(do_percent=...)`. Fuerza impulsora = C* (0.210 mmol/L) x (1 - DO/100) y OTR = kLa x fuerza impulsora. El panel de escalamiento recalcula OTR >= OUR (URS-06) y avisa si no se cumple; con la referencia A-Mab (kLa 20.0, VCC 15e6 cel/mL, OUR 1.50 mmol/L/h) eso ocurre por encima de ~64.3 % de DO.
-- **Limitaciones conocidas:** (1) la regla de DO tiene una discontinuidad en DO = 20 %: f_do pasa de 1.0 a (20/22)/(30/32) = 0.97 al cruzar 20 % hacia abajo (es un salto en el espacio de parametros, no en el tiempo, porque el setpoint es constante en la corrida); (2) Vs = 0.015 m/s es fijo en el gemelo porque no tiene geometria del recipiente (criterio de escalamiento a Vs constante), asi que kLa solo cambia con P/V.
+- **Continuidad del DO (C0):** el factor de hipoxia esta normalizado en el limite inferior de 20 % de DO, asi que f_do vale exactamente 1.0 en 20 % y varia de forma continua por debajo (|f_do(20) - f_do(19.99)| < 1e-3); no hay salto en ningun DO. **Limitacion conocida:** Vs = 0.015 m/s es fijo en el gemelo porque no tiene geometria del recipiente (criterio de escalamiento a Vs constante), asi que kLa solo cambia con P/V.
 - Escalamiento A-Mab: **kLa = 20.0 h^-1** a 15,000 L (Vs = 0.015 m/s, P/V = 26 W/m3; **OTR = 2.94 mmol/L/h** con DO = 30 %); rango **11.10-21.84 h^-1** para Vs = 0.005-0.017 m/s y P/V = 19-30 W/m3.
 - Six Sigma (Gorsky Tabla 6.2, n=30, lb/in): **Ppk 0.51**, **Cpk(within) 0.43**, **Shapiro-Wilk p = 0.243**; intervalo de tolerancia ISO 16269-6 (Tabla 6.1, n=10, kp) con **k_factor 3.394**.
 - Calificacion operacional: **20/20 pruebas OQ** aprobadas.

@@ -28,6 +28,7 @@ from src.bioreactor_twin import (
     check_safety_interlocks,
     compute_split_range_ph_actuators,
     get_temperature_setpoint,
+    do_hypoxia_factor,
     simulate_cho_fed_batch,
 )
 from src.models import ProcessDescription
@@ -389,6 +390,10 @@ def test_oq_06b_do_setpoint_driving_force():
     # Once insufficient, it stays insufficient at every higher DO.
     first_bad = flags.index(False)
     assert not any(flags[first_bad:])
+
+    # C0 continuity of the hypoxia factor at the 20 % normalisation point.
+    assert do_hypoxia_factor(20.0) == pytest.approx(1.0, abs=1e-12)
+    assert abs(do_hypoxia_factor(20.0) - do_hypoxia_factor(19.99)) < 1e-3
 
     for mode in ("static", "closed_loop"):
         run = {
