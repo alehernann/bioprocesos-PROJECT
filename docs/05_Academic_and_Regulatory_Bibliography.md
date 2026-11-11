@@ -1,20 +1,21 @@
-# 05 — Academic and Regulatory Bibliography
+# 05 — Bibliografía académica y regulatoria
 
-| Field | Value |
+| Campo | Valor |
 |-------|-------|
-| **Document ID** | BIB-BRX-001 |
-| **Title** | Referencias Bibliográficas y Marco Regulatorio (References) |
-| **Version** | 1.0 |
-| **Scope** | Bioprocess modeling, scale-up, QbD, digital twins, process-validation statistics, cold-chain thermodynamics, signal processing, Quality 4.0, and regulatory / computerized-system guidance. |
+| **ID del documento** | BIB-BRX-001 |
+| **Título** | Referencias Bibliográficas y Marco Regulatorio (References) |
+| **Versión** | 1.0 |
+| **Alcance** | Modelamiento de bioprocesos, escalamiento, QbD, gemelos digitales, estadística de validación de procesos, termodinámica de cadena de frío, procesamiento de señales, Quality 4.0 y guías regulatorias y de sistemas computarizados. |
 
 ---
 
 ## Referencias Bibliográficas y Marco Regulatorio (References)
 
-This bibliography is the authoritative, verbatim reference list underpinning the entire validation
-package. The four thematic sections (A–D) group the twenty references by subject matter. Each entry
-is reproduced exactly as supplied, including trademark symbols (™, ®), en dashes (–), accents and
-DOIs. The in-text citations throughout documents 01, 02 and 03 refer to the numbers below.
+Esta bibliografía es la lista de referencias oficial y literal que respalda todo el paquete de
+validación. Las cuatro secciones temáticas (A–D) agrupan las veinte referencias por tema. Cada
+entrada se reproduce exactamente como se entregó, incluidos los símbolos de marca (™, ®), los guiones
+medios (–), los acentos y los DOI. Las citas en el texto de los documentos 01, 02 y 03 remiten a los
+números de abajo.
 
 ---
 
@@ -74,90 +75,92 @@ DOIs. The in-text citations throughout documents 01, 02 and 03 refer to the numb
 
 ---
 
-## Citation Mapping to Validation Documents
+## Correspondencia de citas con los documentos de validación
 
-The following table summarizes how the references above are used across the validation package
-(documents 01–03). It is provided for reviewer convenience and does not alter the verbatim text of
-any reference.
+La tabla siguiente resume cómo se usan las referencias anteriores en el paquete de validación
+(documentos 01–03). Se incluye para facilitar la revisión y no altera el texto literal de ninguna
+referencia.
 
-| Ref # | Primary Use in Package |
+| Ref # | Uso principal en el paquete |
 |-------|------------------------|
-| 1 | A-Mab Design Space reference process (URS-13, `amab_design_space.py`). |
-| 2 | Stratyx™ micro-scale cultivation basis for 0.25 L scale (URS-01). |
-| 3 | Real-time closed-loop optimization / titer gain (URS-07/08). |
-| 4 | NISTCHO reference cell line characterization. |
-| 5 | Bioreactor contamination investigation practice (CIP/SIP rationale). |
-| 6 | Hydrodynamic shear sensitivity of cells (URS-09/10, P/V limit). |
-| 7 | Integrated continuous bioprocessing context. |
-| 8 | High-density CHO perfusion context. |
-| 9 | Gorsky process-validation statistics (URS-15, `spc_six_sigma.py`). |
-| 10 | Bayesian ICH Q8 Design Space definition (URS-13). |
-| 11 | Multivariate Bayesian reliable operating region (URS-13). |
-| 12 | ISO 16269-6 statistical tolerance intervals (SPC). |
-| 13 | ASTM E2281 capability indices (Cpk). |
-| 14 | MKT and fixed thermal buffer limitations (URS-14, `thermal_vtb_mkt.py`). |
-| 15 | Quality 4.0 management principles. |
-| 16 | Effective sampling in utility systems (Nyquist/SPC context). |
-| 17 | FDA CSA 2026 guidance (document 02 basis). |
-| 18 | GAMP 5 and Pharma 4.0™ (categorization, document 01/02). |
-| 19 | ASME BPE-2014 hygienic design / CIP velocity (URS-11). |
-| 20 | Annex 11 / Draft Annex 22, ICH guidelines, Colombian Decreto 1782/2014 and Resolución 1160/2016 (URS-15). |
+| 1 | Proceso de referencia del A-Mab Design Space (URS-13, `amab_design_space.py`). |
+| 2 | Base de cultivo en micro-escala Stratyx™ para la escala de 0.25 L (URS-01). |
+| 3 | Optimización en lazo cerrado en tiempo real / ganancia de título (URS-07/08). |
+| 4 | Caracterización de la línea celular de referencia NISTCHO. |
+| 5 | Práctica de investigación de contaminación en biorreactores (justificación de CIP/SIP). |
+| 6 | Sensibilidad celular a la cizalla hidrodinámica (URS-09/10, límite P/V). |
+| 7 | Contexto de bioprocesamiento continuo integrado. |
+| 8 | Contexto de perfusión CHO de alta densidad. |
+| 9 | Estadística de validación de procesos de Gorsky (URS-15, `spc_six_sigma.py`). |
+| 10 | Definición bayesiana del Design Space de ICH Q8 (URS-13). |
+| 11 | Región operativa confiable bayesiana multivariada (URS-13). |
+| 12 | Intervalos de tolerancia estadísticos ISO 16269-6 (SPC). |
+| 13 | Índices de capacidad ASTM E2281 (Cpk). |
+| 14 | MKT y limitaciones de los buffers térmicos físicos fijos (URS-14, `thermal_vtb_mkt.py`). |
+| 15 | Principios de gestión de Quality 4.0. |
+| 16 | Muestreo efectivo en sistemas de servicios (contexto Nyquist/SPC). |
+| 17 | Guía FDA CSA 2026 (base del documento 02). |
+| 18 | GAMP 5 y Pharma 4.0™ (categorización, documento 01/02). |
+| 19 | Diseño higiénico ASME BPE-2014 / velocidad de CIP (URS-11). |
+| 20 | Annex 11 / Draft Annex 22, guías ICH, Decreto 1782/2014 y Resolución 1160/2016 de Colombia (URS-15). |
 
 ---
 
-## Thematic Notes by Section
+## Notas temáticas por sección
 
-The following notes contextualize each thematic group. They are commentary only; the verbatim
-reference text above is the authoritative record and is not modified by these notes.
+Las notas siguientes dan contexto a cada grupo temático. Son solo comentarios; el texto literal de
+las referencias de arriba es el registro oficial y estas notas no lo modifican.
 
-### Section A — Bioprocess Modeling, Scale-Up, QbD and Digital Twins
-This group anchors the physical and biological model of the CHO-K1 fed-batch digital twin. The
-A-Mab case study (Ref. 1) supplies the canonical Design Space used by `amab_design_space.py`. The
-Stratyx™ and real-time closed-loop optimization sources (Refs. 2–3) justify the micro-scale start
-point (0.25 L) and the adaptive-feed titer advantage claimed in URS-07/08. The NISTCHO reference
-line (Ref. 4) and the perfusion/continuous-processing works (Refs. 7–8) frame cell-line and mode
-context. Contamination-investigation practice (Ref. 5) and hydrodynamic-shear sensitivity (Ref. 6)
-directly motivate the CIP/SIP and P/V shear interlocks (URS-09 through URS-12).
+### Sección A — Modelamiento de bioprocesos, escalamiento, QbD y gemelos digitales
+Este grupo sostiene el modelo físico y biológico del gemelo digital CHO-K1 fed-batch. El caso de
+estudio A-Mab (Ref. 1) aporta el Design Space canónico que usa `amab_design_space.py`. Las fuentes de
+Stratyx™ y de optimización en lazo cerrado en tiempo real (Refs. 2–3) justifican el punto de partida
+en micro-escala (0.25 L) y la ventaja de título de la alimentación adaptativa planteada en
+URS-07/08. La línea de referencia NISTCHO (Ref. 4) y los trabajos de perfusión y procesamiento
+continuo (Refs. 7–8) dan el contexto de la línea celular y del modo de operación. La práctica de
+investigación de contaminación (Ref. 5) y la sensibilidad a la cizalla hidrodinámica (Ref. 6)
+motivan directamente los interlocks de CIP/SIP y de cizalla P/V (URS-09 a URS-12).
 
-### Section B — Process-Validation Statistics, Six Sigma and Bayesian Reliability
-This group underpins the statistical core in `spc_six_sigma.py`. Gorsky (Ref. 9) provides the
-process-validation statistical methodology; Peterson (Ref. 10) and Stockdale & Cheng (Ref. 11)
-provide the Bayesian Design Space and reliable-operating-region approaches consistent with ICH Q8.
-ISO 16269-6 (Ref. 12) and ASTM E2281 (Ref. 13) define the tolerance-interval and capability-index
-machinery used for Cpk and release decisions (URS-15, `test_oq_08`).
+### Sección B — Estadística de validación de procesos, Six Sigma y confiabilidad bayesiana
+Este grupo sostiene el núcleo estadístico de `spc_six_sigma.py`. Gorsky (Ref. 9) aporta la
+metodología estadística de validación de procesos; Peterson (Ref. 10) y Stockdale & Cheng (Ref. 11)
+aportan los enfoques bayesianos de Design Space y de región operativa confiable coherentes con
+ICH Q8. ISO 16269-6 (Ref. 12) y ASTM E2281 (Ref. 13) definen el cálculo de intervalos de tolerancia
+e índices de capacidad que se usa para el Cpk y las decisiones de liberación (URS-15, `test_oq_08`).
 
-### Section C — Cold-Chain Thermodynamics, MKT, Signal Processing and Quality 4.0
-This group supports `thermal_vtb_mkt.py` and the signal-processing validation. Rusnack (Ref. 14),
-with its Zenodo datasets, provides the Mean Kinetic Temperature and fixed-thermal-buffer limitation
-basis for URS-14. The Quality 4.0 (Ref. 15) and effective-sampling (Ref. 16) sources frame the
-monitoring, sampling and Nyquist considerations verified by `test_oq_07`.
+### Sección C — Termodinámica de cadena de frío, MKT, procesamiento de señales y Quality 4.0
+Este grupo respalda `thermal_vtb_mkt.py` y la validación del procesamiento de señales. Rusnack
+(Ref. 14), con sus datasets en Zenodo, aporta la base de Mean Kinetic Temperature y de las
+limitaciones de los buffers térmicos fijos para URS-14. Las fuentes de Quality 4.0 (Ref. 15) y de
+muestreo efectivo (Ref. 16) enmarcan las consideraciones de monitoreo, muestreo y Nyquist que
+verifica `test_oq_07`.
 
-### Section D — Regulatory Guidance, Computerized-System Validation and Hygienic Design
-This group is the regulatory backbone of documents 01 and 02. The FDA CSA 2026 guidance (Ref. 17)
-drives the risk-based assurance strategy; GAMP 5 and Pharma 4.0™ (Ref. 18) drive software
-categorization. ASME BPE-2014 (Ref. 19) fixes the 1.52 m/s CIP hygienic-flow criterion (URS-11).
-Annex 11, Draft Annex 22, the ICH suite, Colombian Decreto 1782 de 2014 (biological medicines) and Resolución 1160 de 2016 (BPM) (Ref. 20) govern
-electronic records, the AI guardrail and local regulatory applicability for the Audit Trail (URS-15).
+### Sección D — Guías regulatorias, validación de sistemas computarizados y diseño higiénico
+Este grupo es la columna vertebral regulatoria de los documentos 01 y 02. La guía FDA CSA 2026
+(Ref. 17) orienta la estrategia de aseguramiento basada en riesgo; GAMP 5 y Pharma 4.0™ (Ref. 18)
+orientan la categorización del software. ASME BPE-2014 (Ref. 19) fija el criterio higiénico de flujo
+de CIP de 1.52 m/s (URS-11). Annex 11, Draft Annex 22, el conjunto de guías ICH, el Decreto 1782 de 2014 (medicamentos biológicos) y la Resolución 1160 de 2016 (BPM) de Colombia (Ref. 20) rigen
+los registros electrónicos, el guardrail de AI y la aplicabilidad regulatoria local del Audit Trail (URS-15).
 
-## Verbatim Integrity Statement
+## Declaración de integridad literal
 
-All twenty references (1–20) are reproduced exactly as supplied, preserving:
-- trademark and registered marks: STRATYX™, wave bioreactor™, GAMP®, ISPE Baseline®, Pharma 4.0™;
-- en dashes in page and date ranges (for example, pp. 115–136 and pp. 959–975);
-- Spanish accents and diacritics (Estadística, Termodinámica, Guías, Resolución, Protección);
-- DOIs and Zenodo identifiers exactly as listed.
+Las veinte referencias (1–20) se reproducen exactamente como se entregaron, preservando:
+- las marcas comerciales y registradas: STRATYX™, wave bioreactor™, GAMP®, ISPE Baseline®, Pharma 4.0™;
+- los guiones medios en rangos de páginas y fechas (por ejemplo, pp. 115–136 y pp. 959–975);
+- los acentos y diacríticos del español (Estadística, Termodinámica, Guías, Resolución, Protección);
+- los DOI y los identificadores de Zenodo exactamente como aparecen.
 
-No reference has been abbreviated, reordered, merged, or paraphrased. Any future edit to this
-bibliography must preserve byte-for-byte fidelity of the twenty reference entries under formal
-change control.
+Ninguna referencia se ha abreviado, reordenado, fusionado ni parafraseado. Cualquier edición futura
+de esta bibliografía debe preservar byte a byte las veinte entradas de referencia bajo control de
+cambios formal.
 
-## Document Control
+## Control del documento
 
-| Attribute | Value |
+| Atributo | Valor |
 |-----------|-------|
-| Total references | 20 |
-| Thematic sections | 4 (A, B, C, D) |
-| Source documents citing this bibliography | 01 (URS), 02 (CSA Risk Assessment), 03 (RTM) |
-| Modification policy | Verbatim reference text is frozen; only surrounding commentary may be revised under change control. |
+| Total de referencias | 20 |
+| Secciones temáticas | 4 (A, B, C, D) |
+| Documentos que citan esta bibliografía | 01 (URS), 02 (CSA Risk Assessment), 03 (RTM) |
+| Política de modificación | El texto literal de las referencias está congelado; solo el comentario que lo rodea puede revisarse bajo control de cambios. |
 
-*End of document BIB-BRX-001.*
+*Fin del documento BIB-BRX-001.*

@@ -1,184 +1,194 @@
-# 02 — FDA Computer Software Assurance (CSA) Risk Assessment — 2026
+# 02 — Evaluación de riesgo FDA Computer Software Assurance (CSA) — 2026
 
-| Field | Value |
+| Campo | Valor |
 |-------|-------|
-| **Document ID** | CSA-RA-2026-001 |
-| **Title** | Risk Assessment under FDA CSA for Production and Quality System Software |
-| **Version** | 1.0 |
-| **Primary Guidance** | FDA *Computer Software Assurance for Production and Quality System Software*, CDRH/CBER/CDER, Feb 3, 2026 |
-| **Supporting Standards** | ISO 13485:2016, 21 CFR Part 820 (QSR), GAMP 5 (2nd ed.), 21 CFR Part 11, EudraLex Annex 11, Draft Annex 22 (AI) |
-| **System Under Assessment** | CHO-K1 Fed-Batch Bioreactor Control System (digital twin) |
+| **ID del documento** | CSA-RA-2026-001 |
+| **Título** | Evaluación de riesgo bajo FDA CSA para software de producción y del sistema de calidad |
+| **Versión** | 1.0 |
+| **Guía principal** | FDA *Computer Software Assurance for Production and Quality System Software*, CDRH/CBER/CDER, Feb 3, 2026 |
+| **Normas de soporte** | ISO 13485:2016, 21 CFR Part 820 (QSR), GAMP 5 (2nd ed.), 21 CFR Part 11, EudraLex Annex 11, Draft Annex 22 (AI) |
+| **Sistema evaluado** | Sistema de control del biorreactor CHO-K1 fed-batch (gemelo digital) |
 
 ---
 
-## 1. Purpose
+## 1. Propósito
 
-This Risk Assessment applies the **FDA Computer Software Assurance (CSA)** paradigm to the
-bioreactor control system. CSA shifts the emphasis from exhaustive, documentation-heavy
-*Computer System Validation (CSV)* toward **critical thinking** and **risk-based assurance**:
-effort is concentrated where software failure would most directly affect **product quality**,
-**patient safety**, or **data integrity**.
+Esta evaluación de riesgo aplica el enfoque **FDA Computer Software Assurance (CSA)** al sistema de
+control del biorreactor. CSA desplaza el énfasis desde la *Computer System Validation (CSV)*
+exhaustiva y cargada de documentación hacia el **pensamiento crítico** y el **aseguramiento basado
+en riesgo**: el esfuerzo se concentra donde una falla del software afectaría más directamente la
+**calidad del producto**, la **seguridad del paciente** o la **integridad de los datos**.
 
-The core CSA question for each software feature is:
+La pregunta central de CSA para cada funcionalidad del software es:
 
-> *"If this software feature failed or behaved incorrectly, could it directly compromise
-> product quality, process safety, or the integrity of a quality record?"*
+> *"Si esta funcionalidad del software fallara o se comportara de forma incorrecta, ¿podría
+> comprometer directamente la calidad del producto, la seguridad del proceso o la integridad de un
+> registro de calidad?"*
 
-- If **yes**, the feature is **High Process Risk** and receives **Robust Scripted Testing**
-  (pre-approved, step-by-step scripts with expected results and objective evidence).
-- If **no**, the feature is **Not High Process Risk** and may be assured with the least-burdensome
-  appropriate method: **Unscripted Exploratory Testing**, **Ad-hoc Testing**, or
-  **Error-Guessing Testing**, with record-of-activity rather than fully pre-scripted evidence.
+- Si la respuesta es **sí**, la funcionalidad es **High Process Risk** y recibe **Robust Scripted
+  Testing** (scripts paso a paso aprobados previamente, con resultados esperados y evidencia
+  objetiva).
+- Si la respuesta es **no**, la funcionalidad es **Not High Process Risk** y puede asegurarse con el
+  método apropiado menos oneroso: **Unscripted Exploratory Testing**, **Ad-hoc Testing** o
+  **Error-Guessing Testing**, con un registro de la actividad en lugar de evidencia completamente
+  pre-escrita.
 
-## 2. Regulatory Basis and Interpretation
+## 2. Base regulatoria e interpretación
 
 ### 2.1 FDA CSA (2026)
-CSA promotes a **least-burdensome** assurance approach proportional to risk. It explicitly
-endorses **unscripted testing** (exploratory, ad-hoc, error-guessing) for lower-risk features and
-reserves **scripted testing** (limited and robust) for higher-risk features. The assurance
-activity and its evidence must be **commensurate with the risk**.
+CSA promueve un enfoque de aseguramiento **least-burdensome** (el menos oneroso), proporcional al
+riesgo. Respalda de forma explícita el **unscripted testing** (exploratorio, ad-hoc, error-guessing)
+para funcionalidades de menor riesgo y reserva el **scripted testing** (limitado y robusto) para las
+de mayor riesgo. La actividad de aseguramiento y su evidencia deben ser **proporcionales al riesgo**.
 
 ### 2.2 ISO 13485:2016
-Clause 4.1.6 requires validation of software used in the quality management system using a
-**risk-based** approach proportionate to the risk associated with its use. This aligns directly
-with the CSA intended-use and risk-determination steps.
+La cláusula 4.1.6 exige validar el software usado en el sistema de gestión de calidad con un enfoque
+**basado en riesgo**, proporcional al riesgo asociado a su uso. Esto coincide directamente con los
+pasos de uso previsto y determinación de riesgo de CSA.
 
 ### 2.3 21 CFR Part 820 (Quality System Regulation)
-§ 820.70(i) requires that software used to automate production or the quality system be validated
-for its intended use according to an established protocol. CSA is the FDA's modern interpretation
-of how to satisfy § 820.70(i) efficiently.
+El § 820.70(i) exige que el software usado para automatizar la producción o el sistema de calidad se
+valide para su uso previsto según un protocolo establecido. CSA es la interpretación moderna de la
+FDA sobre cómo cumplir el § 820.70(i) de forma eficiente.
 
-## 3. CSA Risk Determination Methodology
+## 3. Metodología de determinación del riesgo CSA
 
-The assessment proceeds through the four CSA steps:
+La evaluación sigue los cuatro pasos de CSA:
 
-1. **Identify the intended use** of each software feature.
-2. **Determine the risk** the feature poses to process/product (High vs. Not-High Process Risk).
-3. **Determine the appropriate assurance activity** (scripted vs. unscripted).
-4. **Establish the appropriate record** (objective evidence proportional to risk).
+1. **Identificar el uso previsto** de cada funcionalidad del software.
+2. **Determinar el riesgo** que la funcionalidad representa para el proceso/producto (High vs. Not-High Process Risk).
+3. **Determinar la actividad de aseguramiento apropiada** (scripted vs. unscripted).
+4. **Establecer el registro apropiado** (evidencia objetiva proporcional al riesgo).
 
-### 3.1 Risk Factors Considered
-- **Direct product-quality impact** — does the feature control a CPP or evaluate a CQA?
-- **Safety impact** — does the feature act as a safety interlock?
-- **Data-integrity impact** — does the feature create/modify a Part 11 record?
-- **Detectability** — would a failure be obvious or silent?
-- **Downstream propagation** — does an error cascade into release decisions?
+### 3.1 Factores de riesgo considerados
+- **Impacto directo en la calidad del producto** — ¿la funcionalidad controla un CPP o evalúa un CQA?
+- **Impacto en la seguridad** — ¿la funcionalidad actúa como interlock de seguridad?
+- **Impacto en la integridad de datos** — ¿la funcionalidad crea o modifica un registro de Part 11?
+- **Detectabilidad** — ¿una falla sería evidente o silenciosa?
+- **Propagación aguas abajo** — ¿un error se propaga hasta las decisiones de liberación?
 
-## 4. Risk Classification Matrix
+## 4. Matriz de clasificación de riesgo
 
-| # | Software Feature / Function | Module | Intended Use | Failure Impact | **Process Risk** | **CSA Assurance Method** |
+| # | Funcionalidad / función del software | Módulo | Uso previsto | Impacto de una falla | **Process Risk** | **Método de aseguramiento CSA** |
 |---|-----------------------------|--------|--------------|----------------|------------------|--------------------------|
-| 1 | **Control set-points and actuation logic** (T set-points and day-7 shift, pH split-range, DO set-point with OTR ≥ OUR check, adaptive glucose top-up) | `bioreactor_twin.py`, `models.py`, `amab_design_space.py` | Defines the CPP set-points and actuator logic for the batch. | Out-of-spec batch, CQA failure. | **High Process Risk** | **Robust Scripted Testing** |
-| 2 | **Safety interlocks** (shear P/V, CIP velocity, SIP F0) | `bioreactor_twin.py` | Prevents cell damage, ensures cleaning/sterilization efficacy. | Contamination, non-sterile release, equipment/product loss. | **High Process Risk** | **Robust Scripted Testing** |
-| 3 | **MKT calculation** (cold-chain thermal) | `thermal_vtb_mkt.py` | Determines whether storage/transport excursions compromise product. | Undetected potency/stability loss, wrong disposition. | **High Process Risk** | **Robust Scripted Testing** |
-| 4 | **Design Space equations** (A-Mab center/edges) | `amab_design_space.py` | Defines the multivariate acceptable operating region (ICH Q8). | Operation outside validated space, regulatory non-compliance. | **High Process Risk** | **Robust Scripted Testing** |
-| 5 | **Audit Trail** (21 CFR Part 11) | `audit_trail_part11.py` | Creates attributable, tamper-evident GxP records. | Data-integrity breach, loss of record trustworthiness. | **High Process Risk** | **Robust Scripted Testing** |
-| 6 | **SPC / Six Sigma capability** (Cpk, tolerance intervals) | `spc_six_sigma.py` | Statistical release/monitoring decisions on process data. | Incorrect capability conclusion feeding disposition. | **High Process Risk** | **Robust Scripted Testing** |
-| 7 | **Input validation** (Pydantic typed models) | `models.py` | Guards the High-Risk core from malformed input. | Propagates bad data into control/record logic. | **High Process Risk** | **Robust Scripted Testing** |
-| 8 | **Charting / plotting** (Plotly figures) | visualization layer | Visual rendering of already-computed, validated data. | Cosmetic/display only; underlying data unaffected. | **Not High Process Risk** | **Unscripted Exploratory / Error-Guessing Testing** |
-| 9 | **UI layout / navigation** (Streamlit widgets) | visualization layer | Operator ergonomics and presentation. | Inconvenience; no direct quality/safety/data impact. | **Not High Process Risk** | **Unscripted Exploratory / Error-Guessing Testing** |
+| 1 | **Set-points de control y lógica de actuación** (set-points de T y cambio del día 7, split-range de pH, set-point de DO con verificación OTR ≥ OUR, reposición adaptativa de glucosa) | `bioreactor_twin.py`, `models.py`, `amab_design_space.py` | Define los set-points de los CPP y la lógica de los actuadores del lote. | Lote fuera de especificación, falla de un CQA. | **High Process Risk** | **Robust Scripted Testing** |
+| 2 | **Interlocks de seguridad** (cizalla P/V, velocidad de CIP, F0 de SIP) | `bioreactor_twin.py` | Previene el daño celular y asegura la eficacia de la limpieza y la esterilización. | Contaminación, liberación no estéril, pérdida de equipo o producto. | **High Process Risk** | **Robust Scripted Testing** |
+| 3 | **Cálculo de MKT** (térmica de cadena de frío) | `thermal_vtb_mkt.py` | Determina si las excursiones de almacenamiento o transporte comprometen el producto. | Pérdida de potencia o estabilidad no detectada, disposición equivocada. | **High Process Risk** | **Robust Scripted Testing** |
+| 4 | **Ecuaciones del Design Space** (centro/bordes de A-Mab) | `amab_design_space.py` | Define la región operativa aceptable multivariada (ICH Q8). | Operación fuera del espacio validado, incumplimiento regulatorio. | **High Process Risk** | **Robust Scripted Testing** |
+| 5 | **Audit Trail** (21 CFR Part 11) | `audit_trail_part11.py` | Crea registros GxP atribuibles y con evidencia de manipulación. | Brecha de integridad de datos, pérdida de confiabilidad de los registros. | **High Process Risk** | **Robust Scripted Testing** |
+| 6 | **Capacidad SPC / Six Sigma** (Cpk, intervalos de tolerancia) | `spc_six_sigma.py` | Decisiones estadísticas de liberación y monitoreo sobre datos de proceso. | Conclusión de capacidad incorrecta que alimenta la disposición. | **High Process Risk** | **Robust Scripted Testing** |
+| 7 | **Validación de entradas** (modelos tipados Pydantic) | `models.py` | Protege el núcleo High-Risk de entradas mal formadas. | Propaga datos erróneos a la lógica de control y de registros. | **High Process Risk** | **Robust Scripted Testing** |
+| 8 | **Gráficas** (figuras Plotly) | capa de visualización | Representación visual de datos ya calculados y validados. | Solo cosmético o de presentación; los datos subyacentes no se afectan. | **Not High Process Risk** | **Unscripted Exploratory / Error-Guessing Testing** |
+| 9 | **Diseño y navegación de la UI** (widgets de Streamlit) | capa de visualización | Ergonomía y presentación para el operador. | Incomodidad; sin impacto directo en calidad, seguridad o datos. | **Not High Process Risk** | **Unscripted Exploratory / Error-Guessing Testing** |
 
-## 5. Rationale for Each Classification
+## 5. Justificación de cada clasificación
 
 ### 5.1 High Process Risk — Robust Scripted Testing
 
-**Control set-points and actuation logic.** THE SYSTEM issues the validated temperature set-points
-and the automated day-7 shift (URS-01/02), drives the pH split-range actuators with dead-band
-(URS-03/04/05), issues the DO set-point and checks oxygen-transfer sufficiency OTR ≥ OUR (URS-06),
-and doses the adaptive glucose top-up (URS-07/08). Regulation of measured temperature and DO inside
-their operational bands is delegated to the local controllers; no temperature or DO PID loop is
-simulated or qualified here. An error in these set-points or in the actuation logic changes the
-physical state of the batch and can cause a Critical Quality Attribute to fall out of specification. These features demand pre-approved,
-step-by-step scripts (`test_oq_01`, `test_oq_02`, `test_oq_03`) with defined expected results and
-retained objective evidence.
+**Set-points de control y lógica de actuación.** THE SYSTEM envía los set-points de temperatura
+validados y el cambio automático del día 7 (URS-01/02), acciona los actuadores split-range de pH con
+dead-band (URS-03/04/05), envía el set-point de DO y verifica la suficiencia de la transferencia de
+oxígeno OTR ≥ OUR (URS-06), y dosifica la reposición adaptativa de glucosa (URS-07/08). La regulación
+de la temperatura y el DO medidos dentro de sus bandas operacionales se delega a los controladores
+locales; aquí no se simula ni se califica ningún lazo PID de temperatura o de DO. Un error en estos
+set-points o en la lógica de actuación cambia el estado físico del lote y puede sacar un Critical
+Quality Attribute de especificación. Estas funcionalidades exigen scripts paso a paso aprobados
+previamente (`test_oq_01`, `test_oq_02`, `test_oq_03`), con resultados esperados definidos y
+evidencia objetiva conservada.
 
-**Safety interlocks.** The hydrodynamic-shear alarm (P/V > 47.6 W/m³ AND sparge > 0.15 vvm, URS-09/10), the CIP
-velocity interlock (≥ 1.52 m/s per ASME BPE, URS-11) and the SIP lethality interlock
-(F0 ≥ 15 min at ≥ 121.1 °C, URS-12) are the last line of defense against cell damage, inadequate
-cleaning and non-sterile product. Failure is catastrophic and often silent until it manifests as
-contamination. Robust scripted testing (`test_oq_04`) with boundary and failure-mode cases is mandatory.
+**Interlocks de seguridad.** La alarma de cizalla hidrodinámica (P/V > 47.6 W/m³ AND sparge > 0.15 vvm, URS-09/10), el
+interlock de velocidad de CIP (≥ 1.52 m/s según ASME BPE, URS-11) y el interlock de letalidad de SIP
+(F0 ≥ 15 min a ≥ 121.1 °C, URS-12) son la última línea de defensa contra el daño celular, la limpieza
+insuficiente y el producto no estéril. Una falla es catastrófica y a menudo silenciosa hasta que se
+manifiesta como contaminación. Es obligatorio el robust scripted testing (`test_oq_04`) con casos de
+frontera y de modos de falla.
 
-**MKT calculation.** Mean Kinetic Temperature (URS-14) governs disposition decisions for
-temperature-sensitive product. A miscalculation could release degraded material or needlessly
-discard good material; both are high-impact. Scripted testing against reference datasets
-(`test_oq_06`) is required.
+**Cálculo de MKT.** La Mean Kinetic Temperature (URS-14) gobierna las decisiones de disposición de
+producto sensible a la temperatura. Un error de cálculo podría liberar material degradado o
+descartar sin necesidad material en buen estado; ambos casos son de alto impacto. Se requiere
+scripted testing contra datasets de referencia (`test_oq_06`).
 
-**Design Space equations.** The A-Mab Design Space (URS-13) encodes the ICH Q8 multivariate
-acceptable region. Erroneous center-point or edge-of-failure logic could permit operation outside
-the validated space. Scripted verification of center and edges (`test_oq_05`) is required.
+**Ecuaciones del Design Space.** El A-Mab Design Space (URS-13) codifica la región aceptable
+multivariada de ICH Q8. Una lógica errónea del punto central o de los bordes de falla podría
+permitir operar fuera del espacio validado. Se requiere verificación scripted del centro y los
+bordes (`test_oq_05`).
 
-**Audit Trail.** The 21 CFR Part 11 Audit Trail (URS-15) underpins the trustworthiness of every
-GxP record. Any defect is a data-integrity defect. Scripted testing of attributability,
-time-stamping and tamper evidence, with the Annex 22 AI guardrail
-(`test_oq_09`) and the hash protection of the `human_approved` flag (`test_oq_09b`), is required.
+**Audit Trail.** El Audit Trail de 21 CFR Part 11 (URS-15) sostiene la confiabilidad de cada
+registro GxP. Cualquier defecto es un defecto de integridad de datos. Se requiere scripted testing
+de la atribuibilidad, la marca de tiempo y la evidencia de manipulación, junto con el guardrail de
+AI del Annex 22 (`test_oq_09`) y la protección por hash del indicador `human_approved` (`test_oq_09b`).
 
-**SPC / Six Sigma.** Process-capability and tolerance-interval computation (Gorsky methodology)
-feed statistical release and monitoring decisions. Incorrect Cpk or tolerance intervals corrupt
-quality decisions, so scripted testing (`test_oq_08`) is required.
+**SPC / Six Sigma.** El cálculo de capacidad de proceso y de intervalos de tolerancia (metodología
+de Gorsky) alimenta decisiones estadísticas de liberación y monitoreo. Un Cpk o unos intervalos de
+tolerancia incorrectos corrompen las decisiones de calidad, por lo que se requiere scripted testing
+(`test_oq_08`).
 
-**Input validation.** The Pydantic typed models (`models.py`) are the gatekeeper that prevents
-malformed data from reaching the High-Risk core. Although defensive, a validation gap would
-propagate bad data everywhere, so it is treated as High Process Risk. Note that exploring *invalid*
-inputs is complementary and covered by the unscripted `test_exploratory_10_invalid_pydantic_inputs`,
-together with `test_exploratory_11_audit_trail_requires_reason` (error-guessing on invalid
-reasons for change in the Audit Trail) and
-`test_exploratory_12_welch_ttest_identical_groups_not_significant` (SPC boundary case of identical
-groups, i.e. zero difference in means, in the Welch t-test).
+**Validación de entradas.** Los modelos tipados Pydantic (`models.py`) son el filtro que impide que
+datos mal formados lleguen al núcleo High-Risk. Aunque su función es defensiva, un hueco en la
+validación propagaría datos erróneos a todas partes, por lo que se trata como High Process Risk.
+Explorar entradas *inválidas* es complementario y lo cubre el unscripted
+`test_exploratory_10_invalid_pydantic_inputs`, junto con `test_exploratory_11_audit_trail_requires_reason`
+(error-guessing sobre razones de cambio inválidas en el Audit Trail) y
+`test_exploratory_12_welch_ttest_identical_groups_not_significant` (caso de frontera de SPC con
+grupos idénticos, es decir, diferencia de medias igual a cero, en la prueba t de Welch).
 
 ### 5.2 Not High Process Risk — Unscripted Exploratory / Error-Guessing Testing
 
-**Charting / plotting.** Plotly figures render data that has *already* been computed and validated
-by the High-Risk modules. A rendering defect is cosmetic: it does not change the underlying batch
-data, control actions, or records. The appropriate, least-burdensome assurance is unscripted
-exploratory testing and error-guessing (does the chart render? are axes labeled? does it handle an
-empty series gracefully?) with a record of the activity rather than a full pre-approved script.
+**Gráficas.** Las figuras Plotly representan datos que los módulos High-Risk *ya* calcularon y
+validaron. Un defecto de representación es cosmético: no cambia los datos del lote, las acciones de
+control ni los registros. El aseguramiento apropiado y menos oneroso es el unscripted exploratory
+testing y el error-guessing (¿se dibuja la gráfica?, ¿los ejes tienen etiqueta?, ¿maneja bien una
+serie vacía?), con un registro de la actividad en lugar de un script completo aprobado previamente.
 
-**UI layout / navigation.** Streamlit widgets and page layout affect operator ergonomics, not
-product quality, safety, or data integrity. Exploratory and error-guessing testing (click-through,
-boundary interactions, resize behavior) is sufficient and proportionate.
+**Diseño y navegación de la UI.** Los widgets de Streamlit y la disposición de la página afectan la
+ergonomía del operador, no la calidad del producto, la seguridad ni la integridad de los datos. Las
+pruebas exploratorias y de error-guessing (recorrido por clics, interacciones de frontera,
+comportamiento al redimensionar) son suficientes y proporcionales.
 
-## 6. Assurance Effort Allocation (CSA Principle)
+## 6. Asignación del esfuerzo de aseguramiento (principio CSA)
 
 ```
-          HIGH assurance effort
+          Esfuerzo de aseguramiento ALTO
                  ▲
                  │   ┌─────────────────────────────────────┐
    Robust        │   │ Set-points, interlocks, MKT,         │
    Scripted      │   │ Design Space, Audit Trail, SPC,      │
-   Testing       │   │ input validation (Category 5 core)   │
+   Testing       │   │ validación de entradas (Category 5)  │
                  │   └─────────────────────────────────────┘
                  │
    Unscripted    │        ┌───────────────────────────┐
-   Exploratory / │        │ Plotting, UI / navigation  │
-   Error-Guessing│        │ (presentation layer)       │
+   Exploratory / │        │ Gráficas, UI / navegación  │
+   Error-Guessing│        │ (capa de presentación)     │
                  │        └───────────────────────────┘
                  ▼
-          LOW assurance effort
+          Esfuerzo de aseguramiento BAJO
 ```
 
-The majority of validation effort is deliberately concentrated on the High Process Risk,
-custom-code (GAMP Category 5) core, consistent with the CSA least-burdensome principle.
+La mayor parte del esfuerzo de validación se concentra a propósito en el núcleo High Process Risk de
+código a la medida (GAMP Category 5), en línea con el principio least-burdensome de CSA.
 
-## 7. Linkage to Testing and Traceability
+## 7. Vínculo con las pruebas y la trazabilidad
 
-- High Process Risk features map to the scripted OQ tests `test_oq_01` through `test_oq_09` in
-  `tests/test_csa_oq_validation.py`.
-- The Not-High-Risk and the invalid-input / boundary exploration map to the unscripted tests
-  `test_exploratory_10_invalid_pydantic_inputs`, `test_exploratory_11_audit_trail_requires_reason`
-  and `test_exploratory_12_welch_ttest_identical_groups_not_significant`.
-- The suite covers 14 tests: 11 scripted tests (`test_oq_01` through `test_oq_09`, including
-  `test_oq_05b_amab_scale_up_kla_pilot_commercial_range` and
-  `test_oq_09b_part11_human_approved_mutation_breaks_chain`) and 3 exploratory tests
-  (`test_exploratory_10` through `test_exploratory_12`).
-- Full forward/backward traceability is maintained in `03_RTM_Traceability_Matrix.md`.
+- Las funcionalidades High Process Risk se corresponden con las pruebas OQ scripted `test_oq_01` a
+  `test_oq_09` en `tests/test_csa_oq_validation.py`.
+- Las funcionalidades Not-High-Risk y la exploración de entradas inválidas y de casos de frontera se
+  corresponden con las pruebas unscripted `test_exploratory_10_invalid_pydantic_inputs`,
+  `test_exploratory_11_audit_trail_requires_reason` y
+  `test_exploratory_12_welch_ttest_identical_groups_not_significant`.
+- La suite cubre 14 pruebas: 11 pruebas scripted (`test_oq_01` a `test_oq_09`, incluidas
+  `test_oq_05b_amab_scale_up_kla_pilot_commercial_range` y
+  `test_oq_09b_part11_human_approved_mutation_breaks_chain`) y 3 pruebas exploratorias
+  (`test_exploratory_10` a `test_exploratory_12`).
+- La trazabilidad completa hacia adelante y hacia atrás se mantiene en `03_RTM_Traceability_Matrix.md`.
 
-## 8. Conclusion
+## 8. Conclusión
 
-Applying FDA CSA (2026), ISO 13485 and 21 CFR Part 820, the control set-points and actuation logic, safety interlocks, MKT
-calculation, Design Space equations, SPC capability, Audit Trail and input validation are
-classified **High Process Risk** and verified by **Robust Scripted Testing**. Plotting and UI are
-classified **Not High Process Risk** and assured by **Unscripted Exploratory / Error-Guessing
-Testing**. This allocation focuses assurance where failure would most affect product quality,
-safety and data integrity.
+Al aplicar FDA CSA (2026), ISO 13485 y 21 CFR Part 820, los set-points de control y la lógica de
+actuación, los interlocks de seguridad, el cálculo de MKT, las ecuaciones del Design Space, la
+capacidad SPC, el Audit Trail y la validación de entradas se clasifican como **High Process Risk** y
+se verifican con **Robust Scripted Testing**. Las gráficas y la UI se clasifican como **Not High
+Process Risk** y se aseguran con **Unscripted Exploratory / Error-Guessing Testing**. Esta asignación
+concentra el aseguramiento donde una falla afectaría más la calidad del producto, la seguridad y la
+integridad de los datos.
 
-*End of document CSA-RA-2026-001.*
+*Fin del documento CSA-RA-2026-001.*
