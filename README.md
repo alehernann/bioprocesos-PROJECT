@@ -85,6 +85,8 @@ flowchart TD
 
 Nota: docs/04_Automated_OQ_Execution_Log.md se mantiene en inglés porque se regenera automáticamente en cada ejecución de pytest tests/.
 
+Version del software: **1.3.2** (`src/__init__.py`). El historial de cambios esta en [`CHANGELOG.md`](CHANGELOG.md).
+
 ## Instalacion
 
 ```bash
@@ -100,6 +102,14 @@ Correr la suite de calificacion operacional (OQ) desde la raiz del repositorio (
 ```bash
 python -m pytest -v
 ```
+
+Correr la prueba de humo del tablero (Streamlit AppTest; no modifica el log OQ):
+
+```bash
+python -m pytest -v tests_app
+```
+
+La CI de GitHub Actions (`.github/workflows/csa_validation.yml`) ejecuta Python 3.11 y corre las dos suites en cada push y pull request a `main`. No se ha verificado la compatibilidad con otras versiones de Python. La CI no publica `docs/04_Automated_OQ_Execution_Log.md`: el log versionado se genera localmente al ejecutar `python -m pytest -v`, y la CI vuelve a correr las pruebas de forma independiente.
 
 Lanzar el tablero interactivo:
 
@@ -144,7 +154,7 @@ Los resultados del gemelo digital (14 d, parametros por defecto, v1.3.1) son **v
 - **Setpoint de DO (slider del tablero, 10-90 %, por defecto 30 %):** pasa por `ProcessDescription.do_setpoint_pct` a las dos corridas del gemelo y a `compute_scale_up_engineering(do_percent=...)`. Fuerza impulsora = C* (0.210 mmol/L, supuesto de modelado) x (1 - DO/100) y OTR = kLa x fuerza impulsora. El panel de escalamiento recalcula OTR >= OUR (URS-06) y avisa si no se cumple; con la referencia A-Mab (kLa 20.0, VCC 15e6 cel/mL, OUR 1.50 mmol/L/h) eso ocurre por encima de ~64.3 % de DO.
 - **Continuidad del DO (C0):** el factor de hipoxia esta normalizado en 20 % de DO (supuesto de modelado, no calibrado; A-Mab opero la produccion a 30-70 % de DO, Tabla 3.14), asi que f_do vale exactamente 1.0 en 20 % y varia de forma continua por debajo (|f_do(20) - f_do(19.99)| < 1e-3); no hay salto en ningun DO. **Limitacion conocida:** Vs = 0.015 m/s es fijo en el gemelo porque no tiene geometria del recipiente (criterio de escalamiento a Vs constante), asi que kLa solo cambia con P/V.
 - Escalamiento: **kLa = 20.0 h^-1** en el punto de 15,000 L de A-Mab (Tabla 3.22: Vs = 0.015 m/s, P/V = 26 W/m3; **OTR = 2.94 mmol/L/h** con DO = 30 %); **11.10-21.84 h^-1** en las esquinas de prueba Vs = 0.005-0.017 m/s (supuesto de modelado) y P/V = 19-30 W/m3 (Bionova). A-Mab Tabla 3.22 reporta kLa medido de 8-20 h^-1, asi que la esquina superior (21.84) queda por encima de ese rango.
-- Six Sigma (Gorsky Tabla 6.2, n=30, lb/in): **Ppk 0.51**, **Cpk(within) 0.43**, **Shapiro-Wilk p = 0.243**; intervalo de tolerancia ISO 16269-6 (Tabla 6.1, n=10, kp) con **k_factor 3.394**.
+- Six Sigma (Gorsky Tabla 6.2, n=30, lb/in; unidad impresa asi en Gorsky, Tabla 6-2; dimensionalmente un torque se expresaria en lbf·in, observacion del repo, no de la fuente): **Ppk 0.51**, **Cpk(within) 0.43**, **Shapiro-Wilk p = 0.243**; intervalo de tolerancia ISO 16269-6 (Tabla 6.1, n=10, kp) con **k_factor 3.394**.
 - Calificacion operacional: **20/20 pruebas OQ** aprobadas.
 
 **Parametros de lactato y DO y su trazabilidad:**
@@ -164,7 +174,7 @@ Los resultados del gemelo digital (14 d, parametros por defecto, v1.3.1) son **v
 | Vs | 0.015 m/s (fijo) | Punto de 15,000 L de A-Mab (Tabla 3.22). A-Mab (p.98) indica que P/V y Vs no tienen por que mantenerse constantes al escalar |
 | mu_max / qp (anclas 34.0 y 36.5 C) | 0.12 / 0.58 1/d; 0.0185 / 0.0115 g/(1e9 cel*d) | Supuesto de modelado, no calibrado |
 | Ventana P/V de prueba | 19 y 30 W/m3 | Bionova (Ref. 2, pp. 3-4) |
-| Sparge micro-escala Bionova | 0.00263 vvm | Derivado de 0.5 mL/min / 190 mL (Bionova, Ref. 2) |
+| Sparge micro-escala Bionova | 0.00263 vvm | 0.5 mL/min / 190 mL = 0.00263 vvm (Bionova, Ref. 2, pp. 3-4) |
 | Umbral de sparge | 0.15 vvm | Supuesto de modelado, sin fuente bibliografica |
 | Factores adaptativos Ark | 1.80 (dia 8) / 1.82 (dia 10) | Ark reporta +80 % / +82 % frente al plan del dia 0 ("by day eight ... up to 82%") |
 | K_DO_PCT | 2.0 % | Supuesto de modelado, no calibrado |

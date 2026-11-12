@@ -5,7 +5,7 @@
 |-------|-------|
 | **ID del documento** | URS-BRX-001 |
 | **Título** | Especificación de Requisitos de Usuario del sistema de control del biorreactor CHO-K1 fed-batch |
-| **Versión** | 2.1 |
+| **Versión** | 1.3.2 |
 | **Estado** | Aprobado para implementación |
 | **Marco regulatorio** | GAMP 5 (2nd ed.), ICH Q8(R2)/Q9(R1)/Q10/Q11, FDA CSA (Feb 2026), 21 CFR Part 11, EudraLex Annex 11 |
 | **Producto** | Anticuerpo monoclonal (caso de referencia A-Mab) expresado en CHO-K1 |
@@ -50,7 +50,7 @@ módulo fuente en `src/` y una prueba de Operational Qualification (OQ) en
 | **P/V** | Potencia volumétrica aplicada (W/m³), indicador indirecto de la cizalla hidrodinámica. |
 | **CIP** | Clean-In-Place (limpieza in situ). |
 | **SIP** | Sterilize-In-Place (esterilización in situ). |
-| **F0** | Letalidad acumulada (minutos equivalentes a 121.1 °C, z = 10 °C). |
+| **F0** | Letalidad acumulada (minutos equivalentes a 121.1 °C, z = 10 °C). 121.1 °C = 250 °F, temperatura de referencia convencional de F0 con z = 10 °C; la fuente farmacéutica no está en la bibliografía del proyecto. |
 | **MKT** | Mean Kinetic Temperature (temperatura cinética media). |
 | **VTB** | Virtual thermal buffer (amortiguador térmico virtual; Rusnack). |
 | **GAMP** | Good Automated Manufacturing Practice. |
@@ -262,5 +262,17 @@ riesgo CSA y un caso de prueba OQ en la Requirements Traceability Matrix (docume
 
 Esta URS se acepta cuando los 15 requisitos de usuario quedan demostrados con evidencia OQ aprobada
 y la RTM muestra 100 % de trazabilidad bidireccional, sin requisitos huérfanos ni pruebas huérfanas.
+
+## Historial de versiones
+
+Historial de versiones del documento. Las versiones son las del software (`src/__init__.py`); ver `CHANGELOG.md`.
+
+| Versión | Fecha | Resumen |
+|---------|-------|---------|
+| 1.1.2 | 2026-11-08 | Documento en inglés vigente en la versión 1.1.2 del software (creado en 24464b3; la cabecera decía 2.1). |
+| 1.2.0 | 2026-11-10 | 98ffe46: URS-01 y URS-06 delegan la regulación al controlador local; URS-09 con compuerta AND. |
+| 1.3.0 | 2026-11-11 | 664efca: traducción al español. 6d8c509: URS-09 con compuerta OR; URS-06 con fuerza impulsora del DO configurable. |
+| 1.3.1 | 2026-11-11 | fd01ad7: URS-06 describe el acople del DO con la cinética del gemelo. |
+| 1.3.2 | 2026-11-12 | b0fa17d y Bloque 2: textos alineados con el código y la evidencia bibliográfica; versión del documento alineada con el software; historial añadido. |
 
 *Fin del documento URS-BRX-001.*

@@ -4,7 +4,7 @@
 |-------|-------|
 | **ID del documento** | CSA-RA-2026-001 |
 | **Título** | Evaluación de riesgo bajo FDA CSA para software de producción y del sistema de calidad |
-| **Versión** | 1.0 |
+| **Versión** | 1.3.2 |
 | **Guía principal** | FDA *Computer Software Assurance for Production and Quality Management System Software*, CDRH/CBER/CDER, Feb 3, 2026 |
 | **Normas de soporte** | ISO 13485:2016, 21 CFR Part 820 (QSR), GAMP 5 (2nd ed.), 21 CFR Part 11, EudraLex Annex 11, Draft Annex 22 (AI) |
 | **Sistema evaluado** | Sistema de control del biorreactor CHO-K1 fed-batch (gemelo digital) |
@@ -197,5 +197,17 @@ se verifican con **Robust Scripted Testing**. Las gráficas y la UI se clasifica
 Process Risk** y se aseguran con **Unscripted Exploratory / Error-Guessing Testing**. Esta asignación
 concentra el aseguramiento donde una falla afectaría más la calidad del producto, la seguridad y la
 integridad de los datos.
+
+## Historial de versiones
+
+Historial de versiones del documento. Las versiones son las del software (`src/__init__.py`); ver `CHANGELOG.md`.
+
+| Versión | Fecha | Resumen |
+|---------|-------|---------|
+| 1.1.2 | 2026-11-08 | f34af71 y f2a64d1: trazabilidad de 13 pruebas OQ y texto de las pruebas exploratorias (en inglés). |
+| 1.2.0 | 2026-11-10 | 98ffe46: sincronización con la cinética unificada y el Audit Trail de Part 11. |
+| 1.3.0 | 2026-11-11 | 664efca: traducción al español. 6d8c509: compuerta OR de cizalla y pruebas nuevas. |
+| 1.3.1 | 2026-11-11 | fd01ad7: lista de pruebas OQ actualizada (20 pruebas). |
+| 1.3.2 | 2026-11-12 | b0fa17d y Bloque 2: textos alineados con el código y la evidencia bibliográfica; versión del documento alineada con el software; historial añadido. |
 
 *Fin del documento CSA-RA-2026-001.*

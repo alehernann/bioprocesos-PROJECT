@@ -468,8 +468,9 @@ def test_oq_08_gorsky_spc_tolerance_and_capability():
     assert cap["ppk"] == pytest.approx(0.51, abs=0.01)
     # Backward-compatible cpk = round(ppk, 2).
     assert cap["cpk"] == pytest.approx(0.51, abs=0.01)
-    # Within (Cp/Cpk) moving-range short-term capability (Gorsky Fig. 6.5, p.130
-    # reference ~0.42). Actual measured value is 0.43, inside the +/-0.03 band.
+    # Within (Cp/Cpk) moving-range short-term capability. 0.42 is the reference
+    # value in Gorsky Fig. 6.5 (p.130); 0.43 is the value this repo computes from
+    # the Table 6-2 data. The assertion tolerance is +/-0.03.
     assert cap["cpk_within"] == pytest.approx(0.42, abs=0.03)
     assert cap["capable_4sigma"] is False
     # Shapiro-Wilk: the n=30 torque dataset is approximately normal (p ~ 0.24).

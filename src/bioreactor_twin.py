@@ -113,6 +113,8 @@ def check_safety_interlocks(
     - ``cip_interlock_blocked``: CIP valve requested while a batch is active.
     - ``cip_velocity_compliant``: CIP pipe velocity >= 1.52 m/s (ASME BPE-2014, 5 ft/s).
     - ``f0_minutes``: accumulated sterilization lethality F0 at 121.1 C reference.
+      121.1 C = 250 F, the conventional F0 reference temperature with z = 10 C;
+      the pharmaceutical source is not in the project bibliography.
     - ``sip_sterile_compliant``: F0 >= 15 min and all SIP temperatures >= 121.1 C.
     - ``overfill_alarm``: liquid volume > vessel volume; False unless both optional
       ``current_volume_L`` and ``vessel_volume_L`` are supplied.

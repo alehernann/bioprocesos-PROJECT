@@ -4,7 +4,7 @@
 |-------|-------|
 | **ID del documento** | BIB-BRX-001 |
 | **Título** | Referencias Bibliográficas y Marco Regulatorio (References) |
-| **Versión** | 1.0 |
+| **Versión** | 1.3.2 |
 | **Alcance** | Modelamiento de bioprocesos, escalamiento, QbD, gemelos digitales, estadística de validación de procesos, termodinámica de cadena de frío, procesamiento de señales, Quality 4.0 y guías regulatorias y de sistemas computarizados. |
 
 ---
@@ -86,7 +86,7 @@ referencia.
 | Ref # | Uso principal en el paquete |
 |-------|------------------------|
 | 1 | Proceso de referencia del A-Mab Design Space (URS-13, `amab_design_space.py`); forma de la ley de kLa, Ec. 4 y punto de 15,000 L de la Tabla 3.22 (URS-06); P/V máximo de 47.6 W/m³ demostrado aceptable a 2 L, Tabla 3.22 (URS-09/10). |
-| 2 | Base de cultivo en micro-escala Stratyx™ / Bionova: escala de 0.25 L con volumen inicial de 190 mL (alcance de URS-BRX-001, `models.py`); perfil 36.5 → 34 °C en el día 7 con NISTCHO, CHO-K1 (URS-01/02); P/V de 19 y 30 W/m³ (URS-06); glucosa medida pre-feed en los días de alimentación (URS-07); sparge de 0.00263 vvm derivado de 0.5 mL/min / 190 mL (`models.py`). |
+| 2 | Base de cultivo en micro-escala Stratyx™ / Bionova: escala de 0.25 L con volumen inicial de 190 mL (alcance de URS-BRX-001, `models.py`); perfil 36.5 → 34 °C en el día 7 con NISTCHO, CHO-K1 (URS-01/02); P/V de 19 y 30 W/m³ (URS-06); glucosa medida pre-feed en los días de alimentación (URS-07); sparge 0.5 mL/min / 190 mL = 0.00263 vvm (Bionova, Ref. 2, pp. 3-4; `models.py`). |
 | 3 | Optimización en lazo cerrado en tiempo real / ganancia de título (URS-07/08). |
 | 4 | Caracterización de la línea celular de referencia NISTCHO. |
 | 5 | Práctica de investigación de contaminación en biorreactores (justificación de CIP/SIP). |
@@ -164,5 +164,16 @@ cambios formal.
 | Secciones temáticas | 4 (A, B, C, D) |
 | Documentos que citan esta bibliografía | 01 (URS), 02 (CSA Risk Assessment), 03 (RTM) |
 | Política de modificación | El texto literal de las referencias está congelado; solo el comentario que lo rodea puede revisarse bajo control de cambios. |
+
+## Historial de versiones
+
+Historial de versiones del documento. Las versiones son las del software (`src/__init__.py`); ver `CHANGELOG.md`.
+
+| Versión | Fecha | Resumen |
+|---------|-------|---------|
+| 1.1.2 | 2026-11-08 | Documento en inglés vigente en la versión 1.1.2 del software (creado en 24464b3). |
+| 1.2.0 | 2026-11-10 | 98ffe46: evidencia por módulo. |
+| 1.3.0 | 2026-11-11 | 664efca: traducción al español (texto literal de las referencias sin cambios). |
+| 1.3.2 | 2026-11-12 | b0fa17d y Bloque 2: textos alineados con el código y la evidencia bibliográfica; versión del documento alineada con el software; historial añadido. |
 
 *Fin del documento BIB-BRX-001.*

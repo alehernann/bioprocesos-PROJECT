@@ -4,7 +4,7 @@
 |-------|-------|
 | **ID del documento** | RTM-BRX-001 |
 | **Título** | Requirements Traceability Matrix — Sistema de control del biorreactor CHO-K1 fed-batch |
-| **Versión** | 1.0 |
+| **Versión** | 1.3.2 |
 | **Traza desde** | `01_URS_Bioreactor_Control_System.md` (URS-01 … URS-15) |
 | **Fuente del riesgo** | `02_FDA_CSA_Risk_Assessment_2026.md` |
 | **Traza hacia** | Módulos `src/*.py` y pruebas OQ de `tests/test_csa_oq_validation.py` |
@@ -195,5 +195,17 @@ preservando el 100 % de trazabilidad bidireccional. Un cambio que añada un requ
 el mismo cambio controlado la asignación de módulo, la clasificación de riesgo y la prueba OQ
 correspondientes. Un cambio que elimine o fusione una prueba debe reconfirmar que ningún requisito
 queda sin evidencia.
+
+## Historial de versiones
+
+Historial de versiones del documento. Las versiones son las del software (`src/__init__.py`); ver `CHANGELOG.md`.
+
+| Versión | Fecha | Resumen |
+|---------|-------|---------|
+| 1.1.2 | 2026-11-08 | f34af71 y f2a64d1: trazabilidad de 13 pruebas OQ (en inglés). |
+| 1.2.0 | 2026-11-10 | 98ffe46: traza de `test_oq_01` y `test_oq_09b`. |
+| 1.3.0 | 2026-11-11 | 664efca: traducción al español. 6d8c509: trazas de `test_oq_03b`, `03c`, `04b` y `06b`. |
+| 1.3.1 | 2026-11-11 | fd01ad7: trazas de `test_oq_03d` y `03e`. e6857b3: valores medidos de DO actualizados. |
+| 1.3.2 | 2026-11-12 | b0fa17d y Bloque 2: textos alineados con el código y la evidencia bibliográfica; versión del documento alineada con el software; historial añadido. |
 
 *Fin del documento RTM-BRX-001.*

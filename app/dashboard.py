@@ -1294,7 +1294,9 @@ with tab4:
         "Control estadistico de procesos usando los datasets de torque de Gorsky "
         f"(Tablas 6-1 n={len(GORSKY_TABLE_6_1_TORQUE_N10)} y 6-2 "
         f"n={len(GORSKY_TABLE_6_2_TORQUE_N30)}). Unidades: Tabla 6-1 en kp, Tabla 6-2 en lb/in; "
-        f"LSL {SPC_LSL:g} lb/in y USL {SPC_USL:g} lb/in (Tabla 6-2)."
+        f"LSL {SPC_LSL:g} lb/in y USL {SPC_USL:g} lb/in (Tabla 6-2). La unidad lb/in esta "
+        "impresa asi en Gorsky, Tabla 6-2; dimensionalmente un torque se expresaria en lbf·in "
+        "(observacion del repo, no de la fuente)."
     )
 
     cap = compute_process_capability(GORSKY_TABLE_6_2_TORQUE_N30, lsl=SPC_LSL, usl=SPC_USL)
@@ -1708,7 +1710,8 @@ with tab5:
                     "warn",
                     "No se pudo ejecutar pytest en este servidor "
                     f"({rerun['error']}). Respaldo seguro: se mantiene como evidencia el log "
-                    f"comprometido de arriba, generado por la CI y por python -m pytest -v.",
+                    f"comprometido de arriba, generado localmente al ejecutar python -m pytest -v y "
+                    f"verificado de forma independiente en CI.",
                 )
             if rerun["committed_unchanged"]:
                 _banner("ok", f"{OQ_LOG_REL} sin cambios: SHA-256 {(rerun['committed_sha256'] or 'n/d')[:16]}...")
