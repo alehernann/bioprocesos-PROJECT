@@ -52,13 +52,13 @@ from src.thermal_vtb_mkt import (
 
 
 def test_oq_01_setpoints_and_ph_split_range_exclusivity():
-    """Validated set-points, pH split-range exclusivity and O2 transfer sufficiency.
+    """Default set-points, pH split-range exclusivity and O2 transfer sufficiency.
 
     THE SYSTEM supplies set-points; regulation inside the operational band is
     delegated to the local controllers, so no closed-loop temperature or DO
     trajectory (settling band) is simulated or asserted here.
     """
-    # URS-01 / URS-03 / URS-06: validated default set-points.
+    # URS-01 / URS-03 / URS-06: default set-points of ProcessDescription.
     cfg = ProcessDescription()
     assert cfg.temp_initial_C == pytest.approx(36.5, abs=1e-9)
     assert get_temperature_setpoint(0.0) == pytest.approx(36.5, abs=1e-9)
@@ -259,7 +259,13 @@ def test_oq_03e_bolus_clipped_alarm(monkeypatch):
                 assert max(res["volume_L"]) <= vessel + 1e-12
 
 def test_oq_04_safety_shear_and_cip_sip_interlocks():
-    """GxP safety interlocks: shear alarm, CIP block, CIP velocity, SIP sterility."""
+    """GxP safety indicators: shear alarm, CIP block, CIP velocity and SIP sterility (nominal, boundary, failure).
+
+    Nominal case plus the URS-11 / URS-12 boundary and failure cases: CIP velocity
+    below 1.52 m/s, SIP with F0 < 15 min, SIP with a temperature below 121.1 C, and
+    both SIP failures together. The function returns indicators only; it does not
+    abort or release anything.
+    """
     out = check_safety_interlocks(
         power_density_W_m3=50.0,
         sparge_vvm=0.20,
@@ -273,6 +279,54 @@ def test_oq_04_safety_shear_and_cip_sip_interlocks():
     assert out["cip_interlock_blocked"] is True
     assert out["cip_velocity_compliant"] is True
     assert out["sip_sterile_compliant"] is True
+
+    common = dict(
+        power_density_W_m3=30.0,
+        sparge_vvm=0.10,
+        batch_active=False,
+        cip_valve_requested=False,
+        dt_min=1.0,
+    )
+
+    # URS-11: CIP velocity boundary. 1.52 m/s complies; anything below does not.
+    for velocity, expected in ((1.52, True), (1.51, False), (1.0, False), (0.0, False)):
+        cip = check_safety_interlocks(
+            cip_pipe_velocity_m_s=velocity, sip_temps_C=[121.5] * 15, **common
+        )
+        assert cip["cip_velocity_compliant"] is expected, velocity
+
+    # URS-12: SIP boundary and failure cases.
+    # F0 boundary: 15 min at exactly 121.1 C gives F0 = 15.0 min and complies.
+    sip = check_safety_interlocks(
+        cip_pipe_velocity_m_s=1.52, sip_temps_C=[121.1] * 15, **common
+    )
+    assert sip["f0_minutes"] == pytest.approx(15.0, abs=1e-9)
+    assert sip["sip_sterile_compliant"] is True
+    # F0 < 15 min with every temperature at 121.1 C: 14 min gives F0 = 14.0.
+    sip = check_safety_interlocks(
+        cip_pipe_velocity_m_s=1.52, sip_temps_C=[121.1] * 14, **common
+    )
+    assert sip["f0_minutes"] < 15.0
+    assert sip["sip_sterile_compliant"] is False
+    # Temperature below 121.1 C with F0 >= 15 min: 20 min at 121.0 C gives
+    # F0 = 20 * 10**(-0.01) ~= 19.5 min, but the temperature criterion fails.
+    sip = check_safety_interlocks(
+        cip_pipe_velocity_m_s=1.52, sip_temps_C=[121.0] * 20, **common
+    )
+    assert sip["f0_minutes"] >= 15.0
+    assert sip["sip_sterile_compliant"] is False
+    # One sub-121.1 C reading inside an otherwise compliant cycle also fails.
+    sip = check_safety_interlocks(
+        cip_pipe_velocity_m_s=1.52, sip_temps_C=[121.5] * 14 + [121.0], **common
+    )
+    assert sip["f0_minutes"] >= 15.0
+    assert sip["sip_sterile_compliant"] is False
+    # Both failures: 10 min at 120.0 C (F0 ~= 7.8 min, temperature below 121.1 C).
+    sip = check_safety_interlocks(
+        cip_pipe_velocity_m_s=1.52, sip_temps_C=[120.0] * 10, **common
+    )
+    assert sip["f0_minutes"] < 15.0
+    assert sip["sip_sterile_compliant"] is False
 
 
 

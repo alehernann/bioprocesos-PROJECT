@@ -1,7 +1,10 @@
 """Headless smoke test for app/dashboard.py (Streamlit AppTest).
 
-Kept OUTSIDE tests/ on purpose: tests/conftest.py writes the FDA CSA OQ log for
-the 13 qualified tests, and this UI smoke test must not change that record.
+Kept OUTSIDE tests/ on purpose: tests/conftest.py writes the FDA CSA OQ log
+(docs/04) for the qualified OQ tests in tests/, and this UI smoke test must not
+change that record. The CI runs it as a separate step after tests/.
+
+13 tests here; together with the 20 OQ tests in tests/ the full run is 33 tests.
 
 Run with:  python -m pytest tests_app -v
 """
@@ -103,6 +106,28 @@ def test_shear_or_texts_and_live_lactate_acid_note(at):
         )["lactate_g_L"][-1]
         assert f"{lac:.3f} g/L" in note[0]
         assert f"{lac / lactate_mw * 1000.0:.2f} mmol/L" in note[0]
+
+
+def test_ph_deadband_slider_drives_split_range_panel(at):
+    """The "Banda muerta de pH" slider governs the split-range panel (limits and CO2 opening)."""
+    def ph_caption():
+        return [c.value for c in at.caption if "Set-point de pH" in c.value]
+
+    assert _by_label(at.slider, "Banda muerta de pH").value == pytest.approx(0.20)
+    assert "CO2 por encima de 7.20 y base por debajo de 6.80" in ph_caption()[0]
+
+    _run_strict(_by_label(at.slider, "Banda muerta de pH").set_value(0.10))
+    _clean(at)
+    captions = ph_caption()
+    assert len(captions) == 1
+    assert "CO2 por encima de 7.10 y base por debajo de 6.90" in captions[0]
+
+    # Proportional CO2 branch: 150 * (7.15 - 7.10) = 7.50 %, base pump idle.
+    _run_strict(_by_label(at.slider, "pH medido actual").set_value(7.15))
+    _clean(at)
+    assert _metric_values(at, "Valvula CO2 (%)") == ["7.50"]
+    assert _metric_values(at, "Bomba de base (%)") == ["0.00"]
+    assert len(at.exception) == 0
 
 
 def test_do_slider_drives_otr_and_oxygen_alarm(at):

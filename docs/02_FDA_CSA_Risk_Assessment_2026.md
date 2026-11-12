@@ -103,11 +103,12 @@ BPE, URS-11) y el indicador de letalidad de SIP (F0 ≥ 15 min a ≥ 121.1 °C, 
 indicadores y, cuando se les pasa un logger, registran los disparos en el Audit Trail; no abortan
 ni bloquean ciclos. Son la última línea de defensa contra el daño celular, la limpieza
 insuficiente y el producto no estéril. Una falla es catastrófica y a menudo silenciosa hasta que se
-manifiesta como contaminación. Es obligatorio el robust scripted testing (`test_oq_04`). Hoy
-`test_oq_04` cubre un solo caso nominal (cizalla alta, CIP bloqueado, velocidad de CIP = 1.52 m/s,
-SIP conforme); los casos de frontera y de modos de falla (velocidad < 1.52 m/s, F0 < 15 min,
-temperatura de SIP < 121.1 °C) están **pendientes** (Bloque 3). `test_oq_04b` cubre la frontera de
-la alarma de cizalla.
+manifiesta como contaminación. Es obligatorio el robust scripted testing (`test_oq_04`).
+`test_oq_04` cubre el caso nominal (cizalla alta, CIP bloqueado, velocidad de CIP = 1.52 m/s, SIP
+conforme) y los casos de frontera y de falla: velocidad de CIP de 1.52 m/s (cumple) frente a 1.51,
+1.0 y 0.0 m/s (no cumple); SIP con F0 = 15.0 min exactos a 121.1 °C (cumple); F0 < 15 min a
+121.1 °C; temperatura < 121.1 °C con F0 ≥ 15 min (incluida una sola lectura baja); y ambas fallas a
+la vez (no cumple). `test_oq_04b` cubre la frontera de la alarma de cizalla.
 
 **Cálculo de MKT.** La Mean Kinetic Temperature (URS-14) gobierna las decisiones de disposición de
 producto sensible a la temperatura. Un error de cálculo podría liberar material degradado o

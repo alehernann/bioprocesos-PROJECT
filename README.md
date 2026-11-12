@@ -103,7 +103,7 @@ Correr la suite de calificacion operacional (OQ) desde la raiz del repositorio (
 python -m pytest -v
 ```
 
-Correr la prueba de humo del tablero (Streamlit AppTest; no modifica el log OQ):
+Correr la prueba de humo del tablero (Streamlit AppTest, 13 pruebas; no modifica el log OQ). Con las 20 pruebas OQ de `tests/`, `python -m pytest tests/ tests_app/ -v` corre 33 pruebas:
 
 ```bash
 python -m pytest -v tests_app

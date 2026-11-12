@@ -38,6 +38,8 @@ from src.bioreactor_twin import (
     simulate_cho_fed_batch,
 )
 from src.amab_design_space import (
+    AMAB_REF_VS_M_S,
+    C_STAR_O2_MMOL_L,
     KLA_COEFF,
     KLA_EXP_PV,
     KLA_EXP_VS,
@@ -104,8 +106,6 @@ def _palette(night: bool) -> dict:
             "v300": "#047857",
             "limit": "#C4271A",
             "mean": "#047857",
-            "heat_no": "#C4271A",
-            "heat_yes": "#067647",
             "tip_bg": "#1A2421",
             "tip_fg": "#F7F4EE",
             "chip_ok": "#067647",
@@ -131,8 +131,6 @@ def _palette(night: bool) -> dict:
         "v300": "#3DDC97",
         "limit": "#FF5C4D",
         "mean": "#3DDC97",
-        "heat_no": "#FF5C4D",
-        "heat_yes": "#2FBF71",
         "tip_bg": "#F4F0E8",
         "tip_fg": "#101614",
         "chip_ok": "#067647",
@@ -524,11 +522,11 @@ with tab1:
                 "Banda muerta de pH",
                 min_value=0.01,
                 max_value=1.0,
-                value=0.20,
+                value=float(ProcessDescription().ph_deadband),
                 step=0.01,
-                help="Bounds ph_deadband (0, 1]. Minimo 0.01 para evitar ValidationError.",
+                help="Bounds ph_deadband (0, 1]. Minimo 0.01 para evitar ValidationError. Solo gobierna el controlador split-range; no tiene efecto cinetico en el gemelo.",
             )
-            _leyenda("A la derecha la banda es mas ancha y el controlador actua mas tarde. A la izquierda actua ante un desvio chico. Gobierna el controlador split-range del expansor inferior.")
+            _leyenda("A la derecha la banda es mas ancha y el controlador actua mas tarde. A la izquierda actua ante un desvio chico. Gobierna solo el controlador split-range del expansor inferior: el gemelo no lee el pH, asi que no cambia las curvas ni los KPI.")
 
     shared = dict(
         vessel_volume_L=vessel_volume_L,
@@ -743,12 +741,25 @@ with tab1:
             "pH medido actual",
             min_value=6.0,
             max_value=8.0,
-            value=7.0,
+            value=float(ProcessDescription().ph_setpoint),
             step=0.01,
         )
         _leyenda("A la derecha, mas basico, abre CO2. A la izquierda, mas acido, prende la base. Dentro de la banda muerta los dos quedan quietos.")
+        # Set-point and deadband are read from ProcessDescription (input schema);
+        # the deadband is the value of the "Banda muerta de pH" slider (passed
+        # explicitly, and also carried in `shared`). They drive only this
+        # split-range controller; simulate_cho_fed_batch does not read them, so they
+        # have no kinetic effect.
+        ph_cfg = ProcessDescription(**{**shared, "ph_deadband": ph_deadband})
         act = compute_split_range_ph_actuators(
-            current_ph, setpoint=7.0, deadband=ph_deadband, kp=150.0
+            current_ph, setpoint=ph_cfg.ph_setpoint, deadband=ph_cfg.ph_deadband, kp=150.0
+        )
+        st.caption(
+            f"Set-point de pH {ph_cfg.ph_setpoint:.2f} (ProcessDescription.ph_setpoint) y banda "
+            f"muerta {ph_cfg.ph_deadband:.2f}: activa CO2 por encima de "
+            f"{ph_cfg.ph_setpoint + ph_cfg.ph_deadband:.2f} y base por debajo de "
+            f"{ph_cfg.ph_setpoint - ph_cfg.ph_deadband:.2f}. Solo gobiernan este controlador; "
+            "no tienen efecto cinetico en el gemelo."
         )
         a1, a2, a3 = st.columns(3)
         a1.metric("Valvula CO2 (%)", f"{act['co2_valve_pct']:.2f}")
@@ -789,7 +800,9 @@ with tab1:
 # 15,000 L (Tabla 3.22: Vs 0.015 m/s, P/V 26 W/m3, kLa 20 h^-1). La banda de Vs
 # 0.005-0.017 m/s y el rango de escala 500-25,000 L son supuestos de modelado del
 # tablero (sin fuente); P/V 19-30 W/m3 viene de Bionova (Ref. 2).
-AMAB_REF_VS_M_S = 0.015
+# AMAB_REF_VS_M_S (0.015 m/s) and C_STAR_O2_MMOL_L are imported from
+# src/amab_design_space.py. src/ has no P/V constant for the 15,000 L point, so the
+# 26.0 W/m3 preset value is kept here.
 AMAB_REF_PV_W_M3 = 26.0
 VS_VALID_MIN, VS_VALID_MAX = 0.005, 0.017
 SCALE_VALID_MIN_L, SCALE_VALID_MAX_L = 500.0, 25000.0
@@ -957,7 +970,7 @@ with tab2:
             list(SCALE_PRESETS.keys()),
             key="scale_preset",
             on_change=_apply_scale_preset,
-            help="Los presets fijan Vs = 0.015 m/s y P/V = 26.0 W/m3 (referencia A-Mab 15,000 L) "
+            help=f"Los presets fijan Vs = {AMAB_REF_VS_M_S:g} m/s y P/V = {AMAB_REF_PV_W_M3:.1f} W/m3 (referencia A-Mab 15,000 L) "
                  "bajo un criterio de escalamiento a P/V y Vs constantes.",
         )
         preset_volume_L = SCALE_PRESETS[st.session_state.scale_preset]
@@ -966,7 +979,7 @@ with tab2:
             superficial_gas_vel_m_s = st.slider(
                 "Velocidad superficial de gas Vs (m/s)",
                 VS_VALID_MIN, VS_VALID_MAX, step=0.0005, format="%.4f", key="scale_vs",
-                help="Banda de prueba 0.005-0.017 m/s (supuesto de modelado). A-Mab Tabla 3.22: 0.015 m/s a 15,000 L.",
+                help=f"Banda de prueba 0.005-0.017 m/s (supuesto de modelado). A-Mab Tabla 3.22: {AMAB_REF_VS_M_S:g} m/s a 15,000 L.",
             )
         with e2:
             power_per_vol_W_m3 = st.slider(
@@ -986,7 +999,7 @@ with tab2:
                 help="ProcessDescription.do_setpoint_pct; bounds del modelo [10, 100] %.",
             )
             _leyenda(
-                "Fuerza impulsora = C* (0.210 mmol/L, supuesto de modelado) x (1 - DO/100); OTR = kLa x fuerza "
+                f"Fuerza impulsora = C* ({C_STAR_O2_MMOL_L:.3f} mmol/L, supuesto de modelado) x (1 - DO/100); OTR = kLa x fuerza "
                 "impulsora. Afecta tanto el margen OTR >= OUR de escalamiento como la cinetica "
                 "CHO (hipoxia/efecto Pasteur bajo 20% DO, banda supuesta y no calibrada, y limitacion "
                 "de transferencia si OTR < OUR)."
@@ -1005,7 +1018,7 @@ with tab2:
         sc2.metric(
             "OTR (mmol/L/h)",
             f"{scale['otr_mmol_L_h']:.2f}",
-            help=f"OTR = kLa * 0.210 * (1 - DO/100) mmol/L con DO = {do_setpoint_pct:g} % (C* = 0.210 mmol/L, supuesto de modelado).",
+            help=f"OTR = kLa * {C_STAR_O2_MMOL_L:.3f} * (1 - DO/100) mmol/L con DO = {do_setpoint_pct:g} % (C* = {C_STAR_O2_MMOL_L:.3f} mmol/L, supuesto de modelado).",
         )
         sc3.metric("OUR max (mmol/L/h)", f"{scale['our_max_mmol_L_h']:.2f}")
         _chip(

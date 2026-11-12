@@ -10,6 +10,41 @@ sigue la versión del software, y cada documento lleva al final su historial de 
 El repositorio no tiene tags de git; cada versión enlaza al commit correspondiente. Entre
 1.1.2 y 1.3.1 `__version__` no se actualizó y quedó en `1.1.2` hasta la versión 1.3.2.
 
+## [Unreleased]
+
+Sin cambios en la cinética ni en las constantes numéricas del modelo. Las métricas del gemelo
+no cambian (DO 30 %, 2.0 L: static 1.0537 g/L / 80.54 %, closed_loop 1.2189 g/L / 90.55 %).
+
+### Added
+- `test_oq_04`: casos de frontera y de falla de URS-11 y URS-12. Velocidad de CIP 1.52 m/s
+  cumple y 1.51 / 1.0 / 0.0 m/s no cumplen; SIP con F0 = 15.0 min exactos a 121.1 °C cumple;
+  F0 < 15 min, temperatura < 121.1 °C (también una sola lectura) y ambas fallas no cumplen.
+  La suite sigue en 20 pruebas OQ.
+- Tablero, panel de pH: texto con el set-point, la banda muerta y los umbrales de CO2 y base.
+- `tests_app`: prueba 13, `test_ph_deadband_slider_drives_split_range_panel` (AppTest): con
+  banda muerta 0.10 el texto muestra los límites 7.10 y 6.90, y con pH 7.15 la válvula de CO2
+  abre 7.50 %, sin excepciones. `tests_app/` pasa de 12 a 13 pruebas (33 en total con las
+  20 de `tests/`).
+
+### Changed
+- Tablero: `AMAB_REF_VS_M_S` y `C_STAR_O2_MMOL_L` se importan de `src/amab_design_space.py`
+  en lugar de duplicarse; el valor de P/V del preset (26.0 W/m³) sigue local porque `src/` no
+  lo define.
+- Tablero, panel de pH: el controlador split-range lee `ProcessDescription.ph_setpoint` y la
+  banda muerta del slider, pasada explícitamente (antes el set-point 7.0 estaba fijo en el
+  código). Los sliders de pH medido y de banda muerta arrancan en los valores por defecto de
+  `ProcessDescription`. Se documenta que el pH solo
+  gobierna ese controlador y no tiene efecto cinético en el gemelo.
+- docs/02 y RTM: los casos de frontera y de falla de `test_oq_04` ya no figuran como pendientes.
+- Docstrings y comentarios actualizados en `src/bioreactor_twin.py`, `src/__init__.py`,
+  `tests/test_csa_oq_validation.py` y `tests_app/test_dashboard_smoke.py` (ley cinética con
+  sigma_shear y acople del DO, indicadores en lugar de abortos, número de puntos según
+  `duration_days`, regla de glucosa pre-feed, set-points "por defecto" en lugar de "validados").
+
+### Removed
+- Tablero: claves de paleta sin uso `heat_no` y `heat_yes` (el mapa del Design Space usa su
+  escala binaria propia).
+
 ## [1.3.2] - 2026-11-12
 
 Sin cambios en ecuaciones, constantes ni lógica de `src/`. Las métricas del gemelo son

@@ -1,6 +1,7 @@
 """Core simulation engine for the GxP CHO-K1 fed-batch bioprocess digital twin.
 
-This package bundles the FASE 2 core-engine modules:
+This package bundles the core-engine modules (software version in ``__version__``;
+history in CHANGELOG.md):
 
 - ``models``            : pydantic v2 process-description schema.
 - ``bioreactor_twin``   : CHO-K1 fed-batch mechanistic digital twin and control/safety logic.

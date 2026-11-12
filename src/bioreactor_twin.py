@@ -7,7 +7,9 @@ This module provides:
 3. GxP safety interlocks: hydrodynamic-shear alarm (47.6 W/m3 = maximum local P/V
    demonstrated acceptable at 2 L, A-Mab Table 3.22, used as a conservative
    criterion, not a damage threshold; 0.15 vvm is a modeling assumption), CIP/SIP
-   interlocks and sterilization F0 integration. The 1.52 m/s
+   compliance indicators and sterilization F0 integration. The functions return
+   indicators and, when given an audit logger, record trips; they do not abort or
+   release anything. The 1.52 m/s
    (5 ft/s) CIP pipe velocity criterion follows ASME BPE-2014.
 4. A mechanistic fed-batch simulation of CHO-K1 culture (viable/dead cells,
    glucose, lactate, titer) with static and closed-loop feeding strategies. The
@@ -47,6 +49,9 @@ def compute_split_range_ph_actuators(
     opens proportionally; when it falls below ``setpoint - deadband`` the base pump
     engages proportionally; inside the deadband both actuators rest at 0.0. Outputs
     are proportional (gain ``kp``) and saturated at 100%.
+
+    This controller is independent of the kinetic model: ``simulate_cho_fed_batch``
+    does not read ``ProcessDescription.ph_setpoint`` or ``ph_deadband``.
     """
     if current_ph > setpoint + deadband:
         co2_valve_pct = min(100, kp * (current_ph - (setpoint + deadband)))
@@ -181,14 +186,14 @@ def check_safety_interlocks(
     }
 
 
-# Identity used for events the system records automatically. These events execute
-# the pre-approved, validated control strategy (URS-02 schedule, URS-07 feed rule,
-# URS-09..12 interlocks); human_approved=True records that pre-approval, which the
-# AuditTrailLogger Annex 22 guardrail requires for every record.
 # Initial working volume as a fraction of vessel_volume_L (30 % headroom for the
 # feed train). Module-level so validation can probe the capacity clamp.
 INITIAL_FILL_FRACTION = 0.70
 
+# Identity used for events the system records automatically. These events execute
+# the pre-approved control strategy (URS-02 schedule, URS-07 feed rule, URS-09..12
+# indicators); human_approved=True records that pre-approval, which the
+# AuditTrailLogger Annex 22 guardrail requires for every record.
 AUDIT_SYSTEM_USER = "system:bioreactor_twin"
 AUDIT_SYSTEM_ROLE = "AutomatedControl"
 
@@ -234,13 +239,15 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
 
     State vector: viable cell density Xv (1e6 cells/mL), dead cell density Xd,
     glucose G (g/L), lactate L (g/L), and titer (g/L). Integrated with an explicit
-    Euler scheme at dt = 0.1 d (141 points over 14 d).
+    Euler scheme at dt = 0.1 d (duration_days / dt + 1 points; 141 at the default
+    14 d). The pH set-point and deadband have no kinetic effect.
 
     UNIFIED KINETIC LAW (v1.2.0)
     ----------------------------
     Growth, death and productivity follow ONE law for both feeding strategies. They
-    depend only on the state (G, L, Xv), the temperature setpoint T and the shear
-    flag. Differences in titer and viability between strategies emerge only from
+    depend only on the state (G, L, Xv), the temperature setpoint T, the continuous
+    shear intensity sigma_shear and the DO coupling (f_do, DO_eff, supply ratio).
+    Differences in titer and viability between strategies emerge only from
     the feed trajectories and the resulting G(t) and L(t).
 
     Temperature dependence (T from the biphasic setpoint schedule): mu_max(T) and
@@ -354,7 +361,10 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
         2. Base bolus V_boost is requested; the post-bolus glucose would be
            G_actual = (G_pre_feed*V_actual + V_boost*G_BOOST_CONC)/(V_actual + V_boost).
         3. closed_loop only: if G_pre_feed < glucose_min_threshold_g_L or
-           G_actual < glucose_min_threshold_g_L (default 2.0), a top-up from the
+           G_actual < glucose_min_threshold_g_L (default 2.0; because
+           G_BOOST_CONC = 12 g/L is above the threshold, G_actual < threshold
+           implies G_pre_feed < threshold, so the rule is the pre-feed check of
+           URS-07), a top-up from the
            C_stock = 500 g/L stock is sized to restore G exactly to
            glucose_refill_target_g_L (default 5.0):
            V_gluc = (V + V_boost) * (G_target - G_actual) / (C_stock - G_target).
@@ -536,8 +546,8 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
 
         # Temperature-dependent kinetic parameters (same law for every mode).
         # Linear interpolation between the two anchors (modeling assumptions, not
-        # calibrated), clamped to the
-        # anchor range (no extrapolation outside 34.0-36.5 C).
+        # calibrated), clamped to the anchor range (no extrapolation outside
+        # 34.0-36.5 C).
         mu_max = float(np.interp(temp_C, T_ANCHORS_C, MU_MAX_ANCHORS))
         qp = float(np.interp(temp_C, T_ANCHORS_C, QP_ANCHORS))
 
@@ -574,7 +584,8 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
         if i == n_steps - 1:
             break
 
-        # Kinetics: one law for every mode; only the state (G, L, T, Xv, shear) acts.
+        # Kinetics: one law for every mode; only the state (G, L, T, Xv), shear and
+        # the DO coupling act.
         mu = (
             mu_max * (G / (G + K_S_G)) * (K_I_L / (L + K_I_L)) * (1 - Xv / X_MAX)
             * f_do_metabolic
