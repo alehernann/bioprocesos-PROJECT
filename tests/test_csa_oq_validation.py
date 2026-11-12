@@ -90,8 +90,8 @@ def test_oq_01_setpoints_and_ph_split_range_exclusivity():
         if base > 0.0:
             assert ph < lower
 
-    # URS-06: mass-transfer sufficiency OTR >= OUR at the corners of the A-Mab
-    # pilot/commercial window (Vs 0.005-0.017 m/s, P/V 19-30 W/m3), with the OUR
+    # URS-06: mass-transfer sufficiency OTR >= OUR at the test corners Vs
+    # 0.005-0.017 m/s (modeling assumption) x P/V 19-30 W/m3 (Bionova), with the OUR
     # basis of compute_scale_up_engineering (defaults: 15e6 cells/mL, qO2 1.0e-10
     # mmol/(cell*h)).
     for vs in (0.005, 0.017):
@@ -154,7 +154,8 @@ def test_oq_03_closed_loop_vs_static_titer_gain():
     # run receives only basal boluses, one per feed day, so its total feed volume
     # divided by the number of volume steps is the unscaled basal bolus. The
     # closed_loop basal train scales that bolus by the documented Ark adaptive
-    # factors (1.80 on day 8, 1.82 on day 10, 1.0 otherwise).
+    # factors (1.80 on day 8, 1.82 on day 10, 1.0 otherwise; Ark reports +80 % /
+    # +82 % versus the day-0 plan).
     static_steps = [
         b - a for a, b in zip(static["volume_L"], static["volume_L"][1:]) if b > a
     ]
@@ -321,13 +322,14 @@ def test_oq_05_ispe_amab_design_space_center_and_edges():
 
 
 def test_oq_05b_amab_scale_up_kla_pilot_commercial_range():
-    """A-Mab Table 3.22 (p.105): kLa stays within 8-22 h^-1 over the pilot/commercial Vs range.
+    """URS-06: kLa stays within the 8-22 h^-1 test band at the Vs x P/V test corners.
 
-    Per ISPE A-Mab Table 3.22 (p.105) the pilot/commercial range (500 L to
-    25,000 L, Vs = VVM * H / 60) is Vs = 0.005-0.017 m/s. With KLA_COEFF = 80.14
-    and P/V = 19-30 W/m3 the correlation gives kLa 11.10-21.84 h^-1, inside the
-    Table 3.22 envelope of 8-22 h^-1. Corners checked: Vs in {0.005, 0.017} m/s,
-    P/V in {19, 30} W/m3.
+    The law uses the A-Mab Eq. 4 form (p.101), anchored at the A-Mab 15,000 L point
+    (Table 3.22: Vs 0.015 m/s, P/V 26 W/m3, kLa 20 h^-1). Corners checked: Vs in
+    {0.005, 0.017} m/s (modeling assumption) and P/V in {19, 30} W/m3 (Bionova).
+    With KLA_COEFF = 80.14 the law gives kLa 11.10-21.84 h^-1. The 8-22 h^-1
+    acceptance band is a test choice; A-Mab Table 3.22 reports measured kLa of
+    8-20 h^-1.
     """
     for vs in (0.005, 0.017):
         for pv in (19.0, 30.0):

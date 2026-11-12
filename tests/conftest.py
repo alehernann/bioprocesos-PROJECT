@@ -153,7 +153,8 @@ def pytest_sessionfinish(session, exitstatus):
     overall = "ACCEPTABLE" if (failed == 0 and errored == 0) else "NOT ACCEPTABLE"
     lines.append(
         "In accordance with the FDA guidance *Computer Software Assurance for "
-        "Production and Quality System Software*, Section V.A.6, this automated OQ "
+        "Production and Quality Management System Software*, Section V.A.6, this "
+        "automated OQ "
         "execution constitutes objective evidence that the software performs as "
         "intended for its risk-based use. The scripted high-process-risk tests "
         "(`test_oq_*`) and the unscripted / error-guessing tests "

@@ -7,8 +7,13 @@ Development*, v2.1, CASSS/ISPE, Oct. 2009, pp. 90-92 and 100-106). The five proc
 factors (culture duration, pCO2, osmolality, pH, temperature) are normalized to their
 design-space centre so that the model intercepts correspond to the centre-point response.
 
-The scale-up correlation (kLa and OUR) follows the A-Mab oxygen-transfer treatment
-(A-Mab 2009, Fig. 3.11).
+The scale-up correlation uses the power-law form of A-Mab Eq. 4 (p.101),
+kLa = k * (P/V)^a * Vs^b, where k, a and b depend on the vessel configuration. A-Mab
+fitted it for the 15,000 L open-pipe sparger (Fig. 3.11, p.102). The coefficient
+used here (80.14) was recalibrated in this repository so the law passes through the
+A-Mab 15,000 L point (Table 3.22: Vs 0.015 m/s, P/V 26 W/m3, kLa 20 h^-1); it is not
+read from Fig. 3.11. A-Mab Table 3.22 reports measured kLa of 8-20 h^-1. Applying the
+law at 0.25 L or 2 L is an extrapolation outside the scales A-Mab fitted.
 """
 
 
@@ -170,18 +175,23 @@ def evaluate_amab_design_space(
 
 
 # --- Oxygen-transfer constants shared with the bioreactor twin (v1.3.1) ---
-# Leading coefficient recalibrated (SI units, no 1e4 factor) so that the A-Mab
-# reference point Vs = 0.015 m/s, P/V = 26.0 W/m3 yields kLa ~= 20.0 h^-1.
+# Leading coefficient recalibrated in this repository (SI units, no 1e4 factor) so
+# that the A-Mab 15,000 L point (Table 3.22: Vs = 0.015 m/s, P/V = 26.0 W/m3) yields
+# kLa ~= 20.0 h^-1. Form: A-Mab Eq. 4 (p.101); k, a, b are configuration-dependent.
 KLA_COEFF = 80.14
-KLA_EXP_VS = 0.481          # Van't Riet exponent on Vs (m/s)
-KLA_EXP_PV = 0.194          # Van't Riet exponent on P/V (W/m3)
-C_STAR_O2_MMOL_L = 0.210    # mmol/L dissolved O2 at air saturation
+KLA_EXP_VS = 0.481          # exponent on Vs (m/s), A-Mab Eq. 4 form
+KLA_EXP_PV = 0.194          # exponent on P/V (W/m3), A-Mab Eq. 4 form
+C_STAR_O2_MMOL_L = 0.210    # mmol/L O2 at air saturation; modeling assumption (not calibrated)
 Q_O2_MMOL_CELL_H = 1.0e-10  # mmol O2/(cell*h) specific oxygen uptake rate
 AMAB_REF_VS_M_S = 0.015     # m/s, A-Mab 15,000 L reference superficial gas velocity
 
 
 def compute_kla_h_inv(superficial_gas_vel_m_s: float, power_per_vol_W_m3: float) -> float:
-    """Unrounded kLa (1/h) = KLA_COEFF * Vs^0.481 * (P/V)^0.194 (A-Mab Fig. 3.11)."""
+    """Unrounded kLa (1/h) = KLA_COEFF * Vs^0.481 * (P/V)^0.194.
+
+    Power-law form of A-Mab Eq. 4 (p.101), anchored at the A-Mab 15,000 L point
+    (Table 3.22). Use at 0.25 L or 2 L is an extrapolation.
+    """
     return (
         KLA_COEFF
         * (superficial_gas_vel_m_s ** KLA_EXP_VS)
@@ -198,8 +208,8 @@ def compute_scale_up_engineering(
 ) -> dict:
     """Compute oxygen-transfer scale-up engineering parameters.
 
-    kLa correlation and maximum oxygen uptake rate (OUR) follow the A-Mab ISPE
-    2009 oxygen-transfer treatment (Fig. 3.11, Table 3.22). The
+    The kLa correlation uses the power-law form of A-Mab Eq. 4 (p.101), anchored at
+    the A-Mab 15,000 L point (Table 3.22). The
     ``qo2_mmol_cell_h`` argument specifies the per-cell specific oxygen uptake
     rate (mmol/(cell*h)) used to compute
     ``our_max_mmol_L_h = vcc_1e6_cells_mL * 1e9 * qo2_mmol_cell_h`` (yielding
@@ -210,20 +220,20 @@ def compute_scale_up_engineering(
     ``superficial_gas_vel_m_s`` is consumed directly in SI units (m/s); the
     previous implementation multiplied it by an implicit 1e4 factor (an unphysical
     cm/s-vs-m/s unit error) baked into the leading coefficient. That factor is
-    removed. The Van't Riet power-law form ``kLa = C * Vs^0.481 * (P/V)^0.194`` is
-    retained, with the leading coefficient C recalibrated to the ISPE A-Mab
-    reference point: at Vs = 0.015 m/s and P/V = 26.0 W/m3 (15,000 L reference,
-    A-Mab Fig. 3.11 / Table 3.22) the correlation returns ~20.0 h^-1. Across the
-    core operating window (P/V 19-30 W/m3 with practical aeration) the result is a
-    physically real single/low-double-digit kLa in h^-1 rather than the former
-    ~1e4-scaled artefact.
+    removed. The power-law form ``kLa = C * Vs^0.481 * (P/V)^0.194`` (A-Mab Eq. 4,
+    p.101; k, a, b configuration-dependent) is retained, with the leading
+    coefficient C recalibrated in this repository so that the A-Mab 15,000 L point
+    (Table 3.22: Vs = 0.015 m/s, P/V = 26.0 W/m3) returns ~20.0 h^-1. The value 80.14
+    is not read from Fig. 3.11.
 
-    PILOT/COMMERCIAL RANGE (A-Mab Table 3.22, p.105)
-    ------------------------------------------------
-    ``KLA_COEFF = 80.14`` is kept. Per ISPE A-Mab Table 3.22 (p.105) the
-    pilot/commercial range (500 L to 25,000 L, with Vs = VVM * H / 60) spans
-    Vs = 0.005-0.017 m/s. Over that range, with P/V = 19-30 W/m3, this
-    correlation gives kLa 11.10-21.84 h^-1, within Table 3.22's 8-22 h^-1 range.
+    TEST ENVELOPE (modeling assumption)
+    -----------------------------------
+    The OQ tests evaluate the law at the corners Vs = 0.005-0.017 m/s x
+    P/V = 19-30 W/m3, which gives kLa 11.10-21.84 h^-1. The P/V values 19 and
+    30 W/m3 come from Bionova (Ref. 2, pp.3-4); the Vs band is a modeling
+    assumption. A-Mab Table 3.22 reports measured kLa of 8-20 h^-1, so the upper
+    corner (21.84 h^-1) lies above the measured range. Using the law at 0.25 L or
+    2 L is an extrapolation.
 
     Returns ``kla_h_inv`` (volumetric mass-transfer coefficient, 1/h),
     ``our_max_mmol_L_h`` (maximum oxygen uptake rate, mmol/(L*h)),
@@ -232,14 +242,15 @@ def compute_scale_up_engineering(
     DISSOLVED-OXYGEN DRIVING FORCE (v1.3.0)
     ---------------------------------------
     ``do_percent`` is the DO set-point in % of air saturation (default 30.0). The
-    driving force is explicit: C* = 0.210 mmol/L (air saturation) and
+    driving force is explicit: C* = 0.210 mmol/L (air saturation; modeling
+    assumption, not calibrated) and
     driving_force = C* * max(0, 1 - do_percent/100), so OTR = kLa * driving_force.
     At 30 % DO this equals the former fixed term 0.21 - 0.063 = 0.147 mmol/L.
     """
     kla_h_inv = compute_kla_h_inv(superficial_gas_vel_m_s, power_per_vol_W_m3)
     our_max_mmol_L_h = vcc_1e6_cells_mL * 1.0e9 * qo2_mmol_cell_h
 
-    # OTR = kLa * (C* - C_L) with C_L = C* * DO/100 (A-Mab oxygen-transfer basis).
+    # OTR = kLa * (C* - C_L) with C_L = C* * DO/100 (standard two-film driving force).
     driving_force_mmol_L = C_STAR_O2_MMOL_L * max(0.0, 1.0 - (do_percent / 100.0))
     otr_mmol_L_h = kla_h_inv * driving_force_mmol_L
     oxygen_sufficient = bool(otr_mmol_L_h >= our_max_mmol_L_h)

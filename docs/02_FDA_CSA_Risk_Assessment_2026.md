@@ -5,7 +5,7 @@
 | **ID del documento** | CSA-RA-2026-001 |
 | **Título** | Evaluación de riesgo bajo FDA CSA para software de producción y del sistema de calidad |
 | **Versión** | 1.0 |
-| **Guía principal** | FDA *Computer Software Assurance for Production and Quality System Software*, CDRH/CBER/CDER, Feb 3, 2026 |
+| **Guía principal** | FDA *Computer Software Assurance for Production and Quality Management System Software*, CDRH/CBER/CDER, Feb 3, 2026 |
 | **Normas de soporte** | ISO 13485:2016, 21 CFR Part 820 (QSR), GAMP 5 (2nd ed.), 21 CFR Part 11, EudraLex Annex 11, Draft Annex 22 (AI) |
 | **Sistema evaluado** | Sistema de control del biorreactor CHO-K1 fed-batch (gemelo digital) |
 
@@ -96,12 +96,18 @@ Quality Attribute de especificación. Estas funcionalidades exigen scripts paso 
 previamente (`test_oq_01`, `test_oq_02`, `test_oq_03`), con resultados esperados definidos y
 evidencia objetiva conservada.
 
-**Interlocks de seguridad.** La alarma de cizalla hidrodinámica (P/V > 47.6 W/m³ OR sparge > 0.15 vvm, URS-09/10), el
-interlock de velocidad de CIP (≥ 1.52 m/s según ASME BPE, URS-11) y el interlock de letalidad de SIP
-(F0 ≥ 15 min a ≥ 121.1 °C, URS-12) son la última línea de defensa contra el daño celular, la limpieza
+**Interlocks de seguridad.** La alarma de cizalla hidrodinámica (P/V > 47.6 W/m³ OR sparge > 0.15 vvm, URS-09/10;
+47.6 W/m³ = P/V máximo demostrado aceptable a 2 L, A-Mab Tabla 3.22, criterio conservador, no umbral
+de daño; 0.15 vvm = supuesto de modelado), el indicador de velocidad de CIP (≥ 1.52 m/s según ASME
+BPE, URS-11) y el indicador de letalidad de SIP (F0 ≥ 15 min a ≥ 121.1 °C, URS-12) calculan los
+indicadores y, cuando se les pasa un logger, registran los disparos en el Audit Trail; no abortan
+ni bloquean ciclos. Son la última línea de defensa contra el daño celular, la limpieza
 insuficiente y el producto no estéril. Una falla es catastrófica y a menudo silenciosa hasta que se
-manifiesta como contaminación. Es obligatorio el robust scripted testing (`test_oq_04`) con casos de
-frontera y de modos de falla.
+manifiesta como contaminación. Es obligatorio el robust scripted testing (`test_oq_04`). Hoy
+`test_oq_04` cubre un solo caso nominal (cizalla alta, CIP bloqueado, velocidad de CIP = 1.52 m/s,
+SIP conforme); los casos de frontera y de modos de falla (velocidad < 1.52 m/s, F0 < 15 min,
+temperatura de SIP < 121.1 °C) están **pendientes** (Bloque 3). `test_oq_04b` cubre la frontera de
+la alarma de cizalla.
 
 **Cálculo de MKT.** La Mean Kinetic Temperature (URS-14) gobierna las decisiones de disposición de
 producto sensible a la temperatura. Un error de cálculo podría liberar material degradado o

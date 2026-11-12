@@ -4,8 +4,10 @@ This module provides:
 
 1. A split-range pH controller (CO2 valve vs. base pump) around a deadband.
 2. A biphasic temperature-shift setpoint schedule.
-3. GxP safety interlocks: hydrodynamic-shear alarm (A-Mab / Ma et al. 2002 shear
-   context), CIP/SIP interlocks and sterilization F0 integration. The 1.52 m/s
+3. GxP safety interlocks: hydrodynamic-shear alarm (47.6 W/m3 = maximum local P/V
+   demonstrated acceptable at 2 L, A-Mab Table 3.22, used as a conservative
+   criterion, not a damage threshold; 0.15 vvm is a modeling assumption), CIP/SIP
+   interlocks and sterilization F0 integration. The 1.52 m/s
    (5 ft/s) CIP pipe velocity criterion follows ASME BPE-2014.
 4. A mechanistic fed-batch simulation of CHO-K1 culture (viable/dead cells,
    glucose, lactate, titer) with static and closed-loop feeding strategies. The
@@ -68,10 +70,14 @@ def get_temperature_setpoint(
     temp_shift_C: float = 34.0,
     shift_day: float = 7.0,
 ) -> float:
-    """Biphasic temperature-shift schedule.
+    """Biphasic temperature-shift schedule (step change, no ramp).
 
     Returns the initial (growth-phase) temperature before ``shift_day`` and the
-    shifted (production-phase) temperature on or after it.
+    shifted (production-phase) temperature on or after it. The 36.5 -> 34.0 C
+    profile on day 7 follows Bionova (Ref. 2, NISTCHO, CHO-K1). The 36.5 C phase is
+    outside the A-Mab Design Space (34-36 C, Table 3.14) but inside the A-Mab DoE
+    range (34-37 C, Table 3.10); the Design Space is evaluated in the production
+    phase.
     """
     return temp_initial_C if day < shift_day else temp_shift_C
 
@@ -98,7 +104,11 @@ def check_safety_interlocks(
     Returns six boolean/float flags:
 
     - ``high_shear_alarm``: hydrodynamic-shear alarm (P/V > 47.6 W/m^3 OR
-      sparge > 0.15 vvm), per A-Mab / shear-sensitivity context. Either source of
+      sparge > 0.15 vvm). 47.6 W/m3 is the maximum local P/V demonstrated
+      acceptable at 2 L (A-Mab Table 3.22), applied at every scale as a
+      conservative criterion, not a damage threshold (cell damage occurs at P/V
+      orders of magnitude higher, A-Mab p.100 / Ma 2002). 0.15 vvm is a modeling
+      assumption with no literature source. Either source of
       shear (impeller or bubble/sparge) trips the alarm on its own (v1.3.0).
     - ``cip_interlock_blocked``: CIP valve requested while a batch is active.
     - ``cip_velocity_compliant``: CIP pipe velocity >= 1.52 m/s (ASME BPE-2014, 5 ft/s).
@@ -181,9 +191,11 @@ AUDIT_SYSTEM_USER = "system:bioreactor_twin"
 AUDIT_SYSTEM_ROLE = "AutomatedControl"
 
 
-# DO hypoxia response (v1.3.1 C0 fix). Monod in the effective DO normalised at the
-# 20 % lower bound of the DO operating band, so the factor is exactly 1.0 at and
-# above 20 % and continuous below it. K_DO_PCT is NOT CALIBRATED.
+# DO hypoxia response (v1.3.1 C0 fix). Monod in the effective DO normalised at
+# 20 % DO, so the factor is exactly 1.0 at and above 20 % and continuous below it.
+# The 20 % band is a modeling assumption (not calibrated); A-Mab ran production at
+# 30-70 % DO (Table 3.14) and used 20-70 % only in the N-1 seed (Table 3.7).
+# K_DO_PCT is NOT CALIBRATED.
 K_DO_PCT = 2.0               # % air saturation, Monod half-saturation for O2
 DO_HYPOXIA_NORM_PCT = 20.0   # % DO at which do_hypoxia_factor reaches 1.0
 
@@ -231,7 +243,7 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
 
     Temperature dependence (T from the biphasic setpoint schedule): mu_max(T) and
     qp(T) are linearly interpolated between the anchors 34.0 C and 36.5 C and
-    clamped to that range:
+    clamped to that range (anchor values are modeling assumptions, not calibrated):
         - mu_max: 0.12 1/d at 34.0 C, 0.58 1/d at 36.5 C;
         - qp:     0.0185 at 34.0 C, 0.0115 at 36.5 C [g/(1e9 cell*d)].
 
@@ -261,7 +273,9 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
         sigma_shear). It replaces the former step penalty (kd + 0.03 and fPV = 0.63
         only when P/V > 47.6 AND sparge > 0.15).
 
-    Dissolved oxygen (v1.3.1): kLa_eff = compute_kla_h_inv(AMAB_REF_VS_M_S, P/V);
+    Dissolved oxygen (v1.3.1): kLa_eff = compute_kla_h_inv(AMAB_REF_VS_M_S, P/V)
+        (law anchored at the A-Mab 15,000 L point; at 0.25 L or 2 L it is an
+        extrapolation; C* = 0.210 mmol/L is a modeling assumption);
         OTR_cap = kLa_eff * C* * max(0, 1 - DO/100)        [mmol/(L*h)]
         OUR     = Xv * 1e9 * Q_O2_MMOL_CELL_H              [mmol/(L*h)]
         ratio   = min(1, OTR_cap / OUR); DO_eff = DO * ratio
@@ -329,8 +343,8 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
 
         - V_boost = (0.042 + 0.0042) * V_0 in "static" mode; in "closed_loop" the
           same base is scaled by the Ark adaptive factor (1.80 on the day-8
-          crossing, 1.82 on the day-10 crossing, 1.0 otherwise), consistent with
-          the glucose front-loading pattern.
+          crossing, 1.82 on the day-10 crossing, 1.0 otherwise). Ark reports feed
+          +80 % / +82 % versus the day-0 plan ("by day eight ... up to 82%").
         - G_BOOST_CONC = 12.0 g/L: glucose content of the base feed media.
 
     FEED SEQUENCE on crossing days 2, 4, 6, 8, 10, 12 (v1.2.0):
@@ -459,9 +473,11 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
 
     # Power/volume productivity factor and high-shear penalty
     pv = config.power_density_W_m3
-    # Oxygen supply: kLa from the same Van't Riet law as compute_scale_up_engineering,
-    # at P/V of this run and the A-Mab reference Vs (the twin carries no vessel
-    # geometry, so Vs is held at the constant-Vs scale-up basis). The DO set-point is
+    # Oxygen supply: kLa from the same power law as compute_scale_up_engineering
+    # (A-Mab Eq. 4 form, anchored at the A-Mab 15,000 L point), at P/V of this run and
+    # the A-Mab reference Vs (the twin carries no vessel geometry, so Vs is held
+    # constant; A-Mab p.98 notes P/V and Vs need not be constant when scaling). At
+    # 0.25 L or 2 L this is an extrapolation. The DO set-point is
     # ProcessDescription.do_setpoint_pct.
     do_pct = float(config.do_setpoint_pct)
     kla_eff_h = compute_kla_h_inv(AMAB_REF_VS_M_S, pv)
@@ -517,7 +533,8 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
         prev_temp_C = temp_C
 
         # Temperature-dependent kinetic parameters (same law for every mode).
-        # Linear interpolation between the two calibrated anchors, clamped to the
+        # Linear interpolation between the two anchors (modeling assumptions, not
+        # calibrated), clamped to the
         # anchor range (no extrapolation outside 34.0-36.5 C).
         mu_max = float(np.interp(temp_C, T_ANCHORS_C, MU_MAX_ANCHORS))
         qp = float(np.interp(temp_C, T_ANCHORS_C, QP_ANCHORS))
@@ -616,7 +633,8 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
                 V_actual = V
 
                 # Step 2: requested base feed bolus. The Ark adaptive factor scales it
-                # in closed_loop on the day-8 / day-10 crossings.
+                # in closed_loop on the day-8 / day-10 crossings (+80 % / +82 % vs
+                # the day-0 plan, Ark).
                 if config.mode == "closed_loop":
                     if fd == 8.0:
                         adaptive_factor = 1.80

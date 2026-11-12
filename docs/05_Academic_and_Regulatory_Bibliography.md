@@ -14,8 +14,10 @@
 Esta bibliografía es la lista de referencias oficial y literal que respalda todo el paquete de
 validación. Las cuatro secciones temáticas (A–D) agrupan las veinte referencias por tema. Cada
 entrada se reproduce exactamente como se entregó, incluidos los símbolos de marca (™, ®), los guiones
-medios (–), los acentos y los DOI. Las citas en el texto de los documentos 01, 02 y 03 remiten a los
-números de abajo.
+medios (–), los acentos y los DOI. Los documentos 01, 02 y 03 citan las fuentes casi siempre por
+nombre (por ejemplo "A-Mab", "Bionova", "Ark", "ASME BPE-2014"); cuando citan por número (por
+ejemplo "Ref. 2" en el documento 01), el número remite a la lista de abajo. La tabla de
+correspondencia del final enlaza cada número con su uso.
 
 ---
 
@@ -83,8 +85,8 @@ referencia.
 
 | Ref # | Uso principal en el paquete |
 |-------|------------------------|
-| 1 | Proceso de referencia del A-Mab Design Space (URS-13, `amab_design_space.py`). |
-| 2 | Base de cultivo en micro-escala Stratyx™ para la escala de 0.25 L (URS-01). |
+| 1 | Proceso de referencia del A-Mab Design Space (URS-13, `amab_design_space.py`); forma de la ley de kLa, Ec. 4 y punto de 15,000 L de la Tabla 3.22 (URS-06); P/V máximo de 47.6 W/m³ demostrado aceptable a 2 L, Tabla 3.22 (URS-09/10). |
+| 2 | Base de cultivo en micro-escala Stratyx™ / Bionova: escala de 0.25 L con volumen inicial de 190 mL (alcance de URS-BRX-001, `models.py`); perfil 36.5 → 34 °C en el día 7 con NISTCHO, CHO-K1 (URS-01/02); P/V de 19 y 30 W/m³ (URS-06); glucosa medida pre-feed en los días de alimentación (URS-07); sparge de 0.00263 vvm derivado de 0.5 mL/min / 190 mL (`models.py`). |
 | 3 | Optimización en lazo cerrado en tiempo real / ganancia de título (URS-07/08). |
 | 4 | Caracterización de la línea celular de referencia NISTCHO. |
 | 5 | Práctica de investigación de contaminación en biorreactores (justificación de CIP/SIP). |
@@ -96,7 +98,7 @@ referencia.
 | 11 | Región operativa confiable bayesiana multivariada (URS-13). |
 | 12 | Intervalos de tolerancia estadísticos ISO 16269-6 (SPC). |
 | 13 | Índices de capacidad ASTM E2281 (Cpk). |
-| 14 | MKT y limitaciones de los buffers térmicos físicos fijos (URS-14, `thermal_vtb_mkt.py`). |
+| 14 | MKT, limitaciones de los buffers térmicos físicos fijos y virtual thermal buffer (VTB) (URS-14, `thermal_vtb_mkt.py`). |
 | 15 | Principios de gestión de Quality 4.0. |
 | 16 | Muestreo efectivo en sistemas de servicios (contexto Nyquist/SPC). |
 | 17 | Guía FDA CSA 2026 (base del documento 02). |

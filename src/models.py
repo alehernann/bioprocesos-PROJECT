@@ -6,10 +6,10 @@ run of the digital twin.
 
 The 0.25 L micro-scale default vessel volume follows the Stratyx(TM) / Bionova
 Scientific micro-scale cultivation basis (Kulkarni et al., Culture Biosciences &
-Bionova Scientific Whitepaper, 2026) and is consistent with the A-Mab reference
-process design space (CMC Biotech Working Group, *A-Mab: A Case Study in Bioprocess
-Development*, v2.1, CASSS/ISPE, Oct. 2009). Field bounds encode the validated
-operating ranges used throughout the GxP validation package (URS-01, URS-07/08).
+Bionova Scientific Whitepaper, 2026; 190 mL initial volume). It does not come from
+the A-Mab case study, which scaled from 2 L to 15,000 L. Field bounds are input
+validation limits of the digital twin (URS-01, URS-07/08), not validated process
+operating ranges.
 """
 
 from typing import Literal
@@ -20,17 +20,17 @@ from pydantic import BaseModel, Field
 class ProcessDescription(BaseModel):
     """Critical process parameters and setpoints for one CHO-K1 fed-batch run.
 
-    All field bounds reflect the validated operating ranges of the digital twin.
-    The micro-scale 0.25 L default is justified by the Stratyx(TM) / Bionova
-    Scientific 2026 whitepaper, and the design-space context derives from the
-    A-Mab ISPE 2009 case study.
+    Field bounds are input validation limits of the digital twin. The micro-scale
+    0.25 L default follows the Stratyx(TM) / Bionova Scientific 2026 whitepaper
+    (190 mL initial volume), not A-Mab.
     """
 
     vessel_volume_L: float = Field(default=0.25, gt=0.0, le=35000.0)
     power_density_W_m3: float = Field(default=30.0, ge=2.0, le=100.0)
     # Default 0.10 vvm is a pilot-scale sparge regime, not the micro-scale one: the
-    # Bionova Scientific / Stratyx(TM) micro-scale basis runs at about 0.00263 vvm.
-    # The high-shear alarm trips when P/V > 47.6 W/m3 OR sparge_vvm > 0.15.
+    # Bionova Scientific / Stratyx(TM) micro-scale basis runs at about 0.00263 vvm
+    # (derived from 0.5 mL/min / 190 mL). The high-shear alarm trips when
+    # P/V > 47.6 W/m3 OR sparge_vvm > 0.15 (0.15 vvm is a modeling assumption).
     sparge_vvm: float = Field(default=0.10, ge=0.0, le=1.0)
     temp_initial_C: float = Field(default=36.5, ge=30.0, le=40.0)
     temp_shift_C: float = Field(default=34.0, ge=30.0, le=40.0)

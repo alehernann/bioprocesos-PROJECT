@@ -483,7 +483,7 @@ with tab1:
                 max_value=100.0,
                 value=30.0,
                 step=0.5,
-                help="Ventana operativa recomendada 19-30 W/m3. Bounds [2, 100].",
+                help="Bionova usa 19 y 30 W/m3 (Ref. 2). 47.6 W/m3 es el P/V maximo demostrado aceptable a 2 L (A-Mab Tabla 3.22), criterio conservador, no umbral de dano. Bounds [2, 100].",
             )
             _leyenda("A la derecha, hasta 30 W/m3, el titulo sube un poco. Por encima de 47.6 W/m3 salta la alarma de cizalla aunque el sparge sea bajo (P/V > 47.6 O sparge > 0.15). Cada exceso sube kd y baja qp de forma continua: caen viabilidad y titulo.")
         with g2:
@@ -503,7 +503,7 @@ with tab1:
                 max_value=1.0,
                 value=0.10,
                 step=0.01,
-                help="Bounds sparge_vvm [0, 1].",
+                help="Bounds sparge_vvm [0, 1]. El umbral de 0.15 vvm es un supuesto de modelado (sin fuente).",
             )
             _leyenda("Hasta 0.15 vvm el sparge no agrega cizalla. Por encima de 0.15 salta la alarma aunque P/V sea bajo (P/V > 47.6 O sparge > 0.15), y el exceso sube kd y baja qp de forma continua: caen viabilidad y titulo. Si ambos se pasan, el efecto se combina.")
 
@@ -516,7 +516,7 @@ with tab1:
                 max_value=35000.0,
                 value=2.0,
                 step=0.25,
-                help="Bounds ProcessDescription: (0, 35000] L. El modelo arranca con V_0 = 70 % del nominal y nunca supera el volumen del recipiente.",
+                help="Bounds ProcessDescription: (0, 35000] L. El modelo arranca con V_0 = 70 % del nominal y nunca supera el volumen del recipiente. La ley de kLa del gemelo esta anclada en el punto de 15,000 L de A-Mab; en 0.25 L y 2 L es una extrapolacion.",
             )
             _leyenda("A la derecha hay mas litros: suben la masa de anticuerpo, el feed y V(t). Los g/L de las curvas no cambian.")
         with g5:
@@ -774,7 +774,8 @@ with tab1:
 
     st.caption(
         "Fuentes: Quint et al., Ark Biotech & Culture Biosciences 2026 (lazo cerrado); "
-        "Kulkarni et al., Culture Biosciences & Bionova Scientific 2026 (base 0.25 L Stratyx); "
+        "Kulkarni et al., Culture Biosciences & Bionova Scientific 2026 (base 0.25 L Stratyx, "
+        "perfil 36.5 -> 34 C en el dia 7 con NISTCHO, CHO-K1); "
         "ASME BPE-2014 (CIP). Valores calculados en vivo por src/bioreactor_twin.py. "
         "La ganancia de titulo es la que producen las ecuaciones (misma cinetica en ambos "
         "modos). El +43 % de Quint et al. es un dato de literatura, no un resultado de este modelo."
@@ -784,8 +785,10 @@ with tab1:
 # ---------------------------------------------------------------------------
 # TAB 2 - Espacio de Diseno Multivariado ISPE A-Mab y Escalamiento
 # ---------------------------------------------------------------------------
-# Constantes de referencia de entrada (no son KPI): punto de referencia A-Mab a
-# 15,000 L (Fig. 3.11 / Table 3.22) y rango validado de Vs (Table 3.22, p.105).
+# Constantes de referencia de entrada (no son KPI): punto de anclaje A-Mab a
+# 15,000 L (Tabla 3.22: Vs 0.015 m/s, P/V 26 W/m3, kLa 20 h^-1). La banda de Vs
+# 0.005-0.017 m/s y el rango de escala 500-25,000 L son supuestos de modelado del
+# tablero (sin fuente); P/V 19-30 W/m3 viene de Bionova (Ref. 2).
 AMAB_REF_VS_M_S = 0.015
 AMAB_REF_PV_W_M3 = 26.0
 VS_VALID_MIN, VS_VALID_MAX = 0.005, 0.017
@@ -944,7 +947,10 @@ with tab2:
         )
         st.caption(
             f"kLa = {KLA_COEFF:g} * Vs^{KLA_EXP_VS:g} * (P/V)^{KLA_EXP_PV:g}, con Vs en m/s y P/V en "
-            "W/m3 (compute_kla_h_inv en src/amab_design_space.py)."
+            "W/m3 (compute_kla_h_inv en src/amab_design_space.py). Forma de A-Mab Ec. 4 (p.101), "
+            "con k, a, b dependientes de la configuracion; anclada en el punto de 15,000 L de "
+            "A-Mab (Tabla 3.22, kLa medido 8-20 h^-1). El coeficiente se recalibro en este repo; "
+            "en 0.25 L y 2 L la ley es una extrapolacion."
         )
         st.selectbox(
             "Preset de escala",
@@ -960,12 +966,12 @@ with tab2:
             superficial_gas_vel_m_s = st.slider(
                 "Velocidad superficial de gas Vs (m/s)",
                 VS_VALID_MIN, VS_VALID_MAX, step=0.0005, format="%.4f", key="scale_vs",
-                help="Rango validado A-Mab Table 3.22 (p.105): 0.005-0.017 m/s.",
+                help="Banda de prueba 0.005-0.017 m/s (supuesto de modelado). A-Mab Tabla 3.22: 0.015 m/s a 15,000 L.",
             )
         with e2:
             power_per_vol_W_m3 = st.slider(
                 "Potencia por volumen P/V (W/m3)", 2.0, 100.0, step=0.5, key="scale_pv",
-                help="Ventana operativa A-Mab 19-30 W/m3.",
+                help="Bionova usa 19 y 30 W/m3 (Ref. 2). A-Mab Tabla 3.22: 26 W/m3 a 15,000 L.",
             )
         with e3:
             vcc = st.slider("VCC (1e6 cel/mL)", 1.0, 60.0, 15.0, 0.5)
@@ -980,9 +986,10 @@ with tab2:
                 help="ProcessDescription.do_setpoint_pct; bounds del modelo [10, 100] %.",
             )
             _leyenda(
-                "Fuerza impulsora = C* (0.210 mmol/L) x (1 - DO/100); OTR = kLa x fuerza "
+                "Fuerza impulsora = C* (0.210 mmol/L, supuesto de modelado) x (1 - DO/100); OTR = kLa x fuerza "
                 "impulsora. Afecta tanto el margen OTR >= OUR de escalamiento como la cinetica "
-                "CHO (hipoxia/efecto Pasteur bajo 20% DO y limitacion de transferencia si OTR < OUR)."
+                "CHO (hipoxia/efecto Pasteur bajo 20% DO, banda supuesta y no calibrada, y limitacion "
+                "de transferencia si OTR < OUR)."
             )
         # El setpoint pasa por el esquema validado (ProcessDescription) antes de usarse.
         do_setpoint_pct = ProcessDescription(do_setpoint_pct=do_slider_pct).do_setpoint_pct
@@ -998,7 +1005,7 @@ with tab2:
         sc2.metric(
             "OTR (mmol/L/h)",
             f"{scale['otr_mmol_L_h']:.2f}",
-            help=f"OTR = kLa * 0.210 * (1 - DO/100) mmol/L con DO = {do_setpoint_pct:g} % (fuerza impulsora explicita A-Mab).",
+            help=f"OTR = kLa * 0.210 * (1 - DO/100) mmol/L con DO = {do_setpoint_pct:g} % (C* = 0.210 mmol/L, supuesto de modelado).",
         )
         sc3.metric("OUR max (mmol/L/h)", f"{scale['our_max_mmol_L_h']:.2f}")
         _chip(
@@ -1022,24 +1029,24 @@ with tab2:
 
         v1, v2, v3 = st.columns(3)
         if preset_volume_L is None:
-            _chip(v1, "Escala de la correlacion", True, "Sin escala", "preset personalizado")
+            _chip(v1, "Escala del preset", True, "Sin escala", "preset personalizado")
         else:
             scale_ok = SCALE_VALID_MIN_L <= preset_volume_L <= SCALE_VALID_MAX_L
             _chip(
-                v1, "Escala de la correlacion", scale_ok,
-                "Validada" if scale_ok else "Fuera de rango",
-                f"{preset_volume_L:,.2f} L vs 500-25,000 L",
+                v1, "Escala del preset", scale_ok,
+                "Dentro" if scale_ok else "Fuera",
+                f"{preset_volume_L:,.2f} L vs 500-25,000 L (supuesto del tablero, sin fuente)",
             )
         vs_ok = VS_VALID_MIN <= superficial_gas_vel_m_s <= VS_VALID_MAX
-        _chip(v2, "Vs validado", vs_ok, "Dentro" if vs_ok else "Fuera", f"{superficial_gas_vel_m_s:.4f} m/s")
+        _chip(v2, "Vs en banda de prueba", vs_ok, "Dentro" if vs_ok else "Fuera", f"{superficial_gas_vel_m_s:.4f} m/s")
         pv_ok = PV_WINDOW_W_M3[0] <= power_per_vol_W_m3 <= PV_WINDOW_W_M3[1]
-        _chip(v3, "P/V ventana 19-30", pv_ok, "Dentro" if pv_ok else "Fuera", f"{power_per_vol_W_m3:.1f} W/m3")
+        _chip(v3, "P/V 19-30 (Bionova)", pv_ok, "Dentro" if pv_ok else "Fuera", f"{power_per_vol_W_m3:.1f} W/m3")
         if preset_volume_L is not None and preset_volume_L < SCALE_VALID_MIN_L:
             _banner(
                 "warn",
-                "0.25 L Stratyx esta fuera del rango de escala validado de la correlacion "
-                "(A-Mab Table 3.22: 500-25,000 L, Vs 0.005-0.017 m/s). El resultado es una "
-                "extrapolacion no validada; los sliders no se fuerzan.",
+                "0.25 L Stratyx: la ley de kLa esta anclada en el punto de 15,000 L de A-Mab "
+                "(Tabla 3.22). En 0.25 L el resultado es una extrapolacion; los sliders no se "
+                "fuerzan.",
             )
 
         vs_axis = np.linspace(VS_VALID_MIN, VS_VALID_MAX, 25)
@@ -1063,7 +1070,7 @@ with tab2:
                        name="Punto actual", marker=dict(color=P["ink"], size=11, symbol="x"))
         )
         fig_o.update_layout(
-            title="OTR vs Vs en el rango validado",
+            title="OTR vs Vs en la banda de prueba",
             xaxis_title="Velocidad superficial Vs (m/s)",
             yaxis_title="OTR / OUR (mmol/L/h)",
             height=320,
@@ -1072,8 +1079,9 @@ with tab2:
 
     st.caption(
         "Fuente: CMC Biotech Working Group, A-Mab Case Study v2.1, CASSS/ISPE 2009 "
-        "(pp. 90-92 y 100-106; Fig. 3.11 y Table 3.22). Los presets aplican P/V y Vs "
-        "constantes desde el punto de referencia de 15,000 L. Valores en vivo de "
+        "(pp. 90-92 y 100-106; Ec. 4 p.101, Fig. 3.11 p.102 y Tabla 3.22). Los presets aplican "
+        "P/V y Vs constantes desde el punto de 15,000 L, un supuesto del tablero (A-Mab p.98 "
+        "indica que no tienen por que mantenerse constantes al escalar). Valores en vivo de "
         "src/amab_design_space.py."
     )
 
