@@ -38,6 +38,9 @@ from src.bioreactor_twin import (
     simulate_cho_fed_batch,
 )
 from src.amab_design_space import (
+    KLA_COEFF,
+    KLA_EXP_PV,
+    KLA_EXP_VS,
     evaluate_amab_design_space,
     compute_scale_up_engineering,
 )
@@ -898,14 +901,15 @@ with tab2:
             z=z_grid,
             x=temp_axis,
             y=ph_axis,
-            colorscale=[[0.0, P["heat_no"]], [1.0, P["heat_yes"]]],
-            zmin=0.0,
-            zmax=1.0,
+            # design_space_holds is boolean: discrete two-colour scale, no gradient.
+            colorscale=[[0.0, "#ef553b"], [0.5, "#ef553b"], [0.5, "#00cc96"], [1.0, "#00cc96"]],
+            zmin=0,
+            zmax=1,
             hovertemplate="T %{x:.2f} C<br>pH %{y:.3f}<extra></extra>",
             colorbar=dict(
                 title="espacio",
-                tickvals=[0, 1],
-                ticktext=["No", "Si"],
+                tickvals=[0.25, 0.75],
+                ticktext=["No (Fallo CQA)", "Sí (Cumple)"],
                 tickfont=dict(color=P["ink"]),
             ),
         )
@@ -923,9 +927,9 @@ with tab2:
         height=420,
     )
     st.markdown(
-        f'<p class="bp-note"><span class="bp-swatch" style="background:{P["heat_no"]}"></span>'
+        f'<p class="bp-note"><span class="bp-swatch" style="background:#ef553b"></span>'
         "Rojo: design_space_holds es falso. "
-        f'<span class="bp-swatch" style="background:{P["heat_yes"]}"></span>'
+        f'<span class="bp-swatch" style="background:#00cc96"></span>'
         "Verde: es verdadero. La X marca el punto de los sliders.</p>",
         unsafe_allow_html=True,
     )
@@ -934,6 +938,14 @@ with tab2:
     with st.container(border=True):
         _band("Transferencia de oxigeno")
         st.subheader("Calculadora de kLa, OTR y OUR (escalamiento)")
+        # Same law as src/amab_design_space.compute_kla_h_inv, read from its constants.
+        st.latex(
+            rf"k_La\,[h^{{-1}}] = {KLA_COEFF:g}\cdot V_s^{{{KLA_EXP_VS:g}}}\cdot (P/V)^{{{KLA_EXP_PV:g}}}"
+        )
+        st.caption(
+            f"kLa = {KLA_COEFF:g} * Vs^{KLA_EXP_VS:g} * (P/V)^{KLA_EXP_PV:g}, con Vs en m/s y P/V en "
+            "W/m3 (compute_kla_h_inv en src/amab_design_space.py)."
+        )
         st.selectbox(
             "Preset de escala",
             list(SCALE_PRESETS.keys()),
