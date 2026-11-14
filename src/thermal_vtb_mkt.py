@@ -24,13 +24,14 @@ VTB_CALIBRATION_TABLE = {
     "50 mL": {"alpha": 0.083, "tau_s": 3444, "tau_min": 57.4},
     "120 mL": {"alpha": 0.042, "tau_s": 7007, "tau_min": 116.8},
     "600 mL": {"alpha": 0.037, "tau_s": 7904, "tau_min": 131.7},
-    # Bulk container: 300 L (not 300 mL). tau = 126600 s = 2110 min ~= 35 h.
-    "300 L (Bulk)": {"alpha": 0.002, "tau_s": 126600, "tau_min": 2110.0},
+    # Bulk container, labelled "300 mL (Bulk)" as printed in Rusnack (Pharm. Eng.
+    # 2026). tau = 126600 s = 2110 min ~= 35 h (values unchanged).
+    "300 mL (Bulk)": {"alpha": 0.002, "tau_s": 126600, "tau_min": 2110.0},
 }
 
-# Backward-compatible keys accepted by apply_vtb_filter. "300 mL (Bulk)" was a
-# mislabel of the 300 L bulk entry (tau ~= 35 h is a 300 L time constant).
-VTB_VOLUME_KEY_ALIASES = {"300 mL (Bulk)": "300 L (Bulk)"}
+# Backward-compatible keys accepted by apply_vtb_filter. v1.2.0 to v1.3.2 used the
+# label "300 L (Bulk)" for this entry; it is kept as an alias of "300 mL (Bulk)".
+VTB_VOLUME_KEY_ALIASES = {"300 L (Bulk)": "300 mL (Bulk)"}
 
 
 def calculate_mkt_celsius(
@@ -70,7 +71,7 @@ def apply_vtb_filter(
           constant for that sampling interval, alpha = 1 - exp(-dt / tau), with
           dt = 60 * sampling_interval_min s and tau = ``tau_s``.
 
-    ``volume_key`` also accepts the legacy alias "300 mL (Bulk)" for "300 L (Bulk)".
+    ``volume_key`` also accepts the legacy alias "300 L (Bulk)" for "300 mL (Bulk)".
     """
     key = VTB_VOLUME_KEY_ALIASES.get(volume_key, volume_key)
     entry = VTB_CALIBRATION_TABLE[key]

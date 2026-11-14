@@ -29,10 +29,9 @@ References
 import numpy as np
 
 from src.amab_design_space import (
-    AMAB_REF_VS_M_S,
     C_STAR_O2_MMOL_L,
     Q_O2_MMOL_CELL_H,
-    compute_kla_h_inv,
+    measured_kla_for_volume,
 )
 from src.models import ProcessDescription
 
@@ -282,9 +281,14 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
         sigma_shear). It replaces the former step penalty (kd + 0.03 and fPV = 0.63
         only when P/V > 47.6 AND sparge > 0.15).
 
-    Dissolved oxygen (v1.3.1): kLa_eff = compute_kla_h_inv(AMAB_REF_VS_M_S, P/V)
-        (law anchored at the A-Mab 15,000 L point; at 0.25 L or 2 L it is an
-        extrapolation; C* = 0.210 mmol/L is a modeling assumption);
+    Dissolved oxygen: kLa_eff = measured_kla_for_volume(vessel_volume_L), the measured
+        kLa of A-Mab Table 3.22 (p.105) for the column immediately below the vessel
+        volume (2 L 10, 500 L 8, 1,000 L 10, 5,000 L 10, 15,000 L 20, 25,000 L 20
+        h^-1; above 25,000 L, 20 is an extrapolation). Below 2 L (0.25 L Bionova,
+        190 mL) the 2 L standard scale-down value 10 h^-1 is a proxy (MODELING
+        ASSUMPTION). P/V no longer changes the O2 supply; it acts only through fPV
+        and the shear term. C* = 0.210 mmol/L (air only, no pure-O2 enrichment) and
+        qO2 = 1.0e-10 mmol/(cell*h) are modeling assumptions without a source;
         OTR_cap = kLa_eff * C* * max(0, 1 - DO/100)        [mmol/(L*h)]
         OUR     = Xv * 1e9 * Q_O2_MMOL_CELL_H              [mmol/(L*h)]
         ratio   = min(1, OTR_cap / OUR); DO_eff = DO * ratio
@@ -485,14 +489,12 @@ def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dic
 
     # Power/volume productivity factor and high-shear penalty
     pv = config.power_density_W_m3
-    # Oxygen supply: kLa from the same power law as compute_scale_up_engineering
-    # (A-Mab Eq. 4 form, anchored at the A-Mab 15,000 L point), at P/V of this run and
-    # the A-Mab reference Vs (the twin carries no vessel geometry, so Vs is held
-    # constant; A-Mab p.98 notes P/V and Vs need not be constant when scaling). At
-    # 0.25 L or 2 L this is an extrapolation. The DO set-point is
+    # Oxygen supply: measured kLa of A-Mab Table 3.22 for this vessel volume (column
+    # immediately below; < 2 L uses the 2 L value as a proxy, modeling assumption).
+    # P/V does not enter the O2 supply. The DO set-point is
     # ProcessDescription.do_setpoint_pct.
     do_pct = float(config.do_setpoint_pct)
-    kla_eff_h = compute_kla_h_inv(AMAB_REF_VS_M_S, pv)
+    kla_eff_h = measured_kla_for_volume(config.vessel_volume_L)
     otr_cap_mmol_L_h = kla_eff_h * C_STAR_O2_MMOL_L * max(0.0, 1.0 - do_pct / 100.0)
     # Continuous shear intensity from impeller power and sparge (0.0 below both).
     sigma_imp = max(0.0, (pv - 47.6) / 47.6)

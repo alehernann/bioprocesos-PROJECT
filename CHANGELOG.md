@@ -12,10 +12,18 @@ El repositorio no tiene tags de git; cada versión enlaza al commit correspondie
 
 ## [Unreleased]
 
-Sin cambios en la cinética ni en las constantes numéricas del modelo. Las métricas del gemelo
-no cambian (DO 30 %, 2.0 L: static 1.0537 g/L / 80.54 %, closed_loop 1.2189 g/L / 90.55 %).
+Bloque 3 no cambió la cinética. Bloque 4 cambia el kLa del gemelo (ver "Changed"): a DO 10 y
+30 % las métricas no cambian (DO 30 %, 2.0 L: static 1.0537 g/L / 80.54 %, closed_loop
+1.2189 g/L / 90.55 %); a DO 85 % sí cambian.
 
 ### Added
+- `AMAB_MEASURED_KLA_H_INV` y `measured_kla_for_volume` en `src/amab_design_space.py`: kLa
+  medido por escala de A-Mab Tabla 3.22 (p.105): 2 L 10 (modelo estándar scale-down;
+  caracterización 2 L 8–17), 500 L 8, 1,000 L 10, 5,000 L 10, 15,000 L 20, 25,000 L (Future)
+  20 h⁻¹. Argumento opcional `measured_kla_h_inv` en `compute_scale_up_engineering`; las
+  fórmulas de OUR, OTR y suficiencia no cambian.
+- Tablero, calculadora: tabla de kLa medido por escala y texto que muestra que en 15,000 L la
+  correlación y el valor medido coinciden en 20.00 h⁻¹.
 - `test_oq_04`: casos de frontera y de falla de URS-11 y URS-12. Velocidad de CIP 1.52 m/s
   cumple y 1.51 / 1.0 / 0.0 m/s no cumplen; SIP con F0 = 15.0 min exactos a 121.1 °C cumple;
   F0 < 15 min, temperatura < 121.1 °C (también una sola lectura) y ambas fallas no cumplen.
@@ -27,6 +35,34 @@ no cambian (DO 30 %, 2.0 L: static 1.0537 g/L / 80.54 %, closed_loop 1.2189 g/L 
   20 de `tests/`).
 
 ### Changed
+- Gemelo: kLa = kLa medido de la columna inmediatamente inferior al volumen (2 a < 500 L 10,
+  500 L 8, 1,000 L 10, 5,000 L 10, ≥ 15,000 L 20 h⁻¹; por encima de 25,000 L, 20 es una
+  extrapolación). Por debajo de 2 L (0.25 L de Bionova, 190 mL) se usa 10 h⁻¹ del modelo
+  estándar de 2 L como proxy (supuesto de modelado). Antes era la correlación a Vs 0.015 m/s y
+  el P/V de la corrida (20.56 h⁻¹ a P/V 30). P/V ya no afecta el suministro de O2; solo la
+  productividad (fPV) y la cizalla.
+- Métricas a DO 85 % (2 L): static 1.0469 → 0.5943 g/L, 80.55 → 74.38 %, 1.8719 → 1.0626 g;
+  closed_loop 1.0734 → 0.5765 g/L, 90.37 → 80.74 %, 2.0700 → 1.1030 g. Con kLa 10 h⁻¹ el
+  OTR cae a 0.315 mmol/L/h y f_do limita qp. closed_loop queda por debajo de static en g/L
+  porque su mayor volumen de alimentación (1.9133 frente a 1.7881 L finales) diluye la
+  concentración y su mayor densidad celular baja algo más el f_do medio (0.726 frente a
+  0.752); cosecha más masa (1.1030 frente a 1.0626 g). A DO 10 y 30 % no hay cambios.
+- Tablero, calculadora: los presets corresponden 1:1 con las columnas de la Tabla 3.22 (2 L,
+  500 L, 1,000 L, 5,000 L, 15,000 L, 25,000 L Future) y usan su kLa medido; la correlación
+  solo se usa en "Personalizado". Se quitaron los presets de 0.25 L y 2,000 L, el chip de
+  rango 500–25,000 L y el aviso de extrapolación en 0.25 L.
+- Tablero: la alarma de oxígeno insuficiente pasa de error rojo a aviso del modelo, que aclara
+  que el déficit viene de C* = 0.210 mmol/L (solo aire, sin O2 puro) y qO2 = 0.10 pmol/cél/h,
+  supuestos sin fuente, mientras A-Mab Tabla 3.23 (p.106) demostró 18–30e6 cél/mL en 2 L y
+  24e6 en 5,000 L. A VCC 15e6 y DO 30 % aparece en 2, 500, 1,000 y 5,000 L.
+- `test_oq_05b`: verifica los seis kLa medidos (8–20 h⁻¹), el ancla de la correlación
+  (20.0 h⁻¹ en 15,000 L), la búsqueda por columna y el kLa del gemelo a 0.25 L; ya no usa las
+  esquinas con banda 8–22 h⁻¹. `test_scale_presets_and_amab_mode` admite el aviso de oxígeno
+  solo en 2, 500, 1,000 y 5,000 L y comprueba el kLa de cada preset.
+- VTB: la clave `"300 L (Bulk)"` pasa a `"300 mL (Bulk)"`, como la rotula Rusnack; los valores
+  (alpha 0.002, tau 35 h) y la lógica térmica no cambian, y `"300 L (Bulk)"` queda como alias.
+- docs/02: 21 CFR Part 820 pasa de QSR a QMSR (vigente desde 2026-02-02; incorpora ISO
+  13485:2016 por referencia y retira el § 820.70), con cita de la guía FDA CSA, nota 3, p.2.
 - Tablero: `AMAB_REF_VS_M_S` y `C_STAR_O2_MMOL_L` se importan de `src/amab_design_space.py`
   en lugar de duplicarse; el valor de P/V del preset (26.0 W/m³) sigue local porque `src/` no
   lo define.

@@ -139,8 +139,14 @@ split-range.
 **30 %** de saturación de aire (`ProcessDescription.do_setpoint_pct`), y **SHALL** verificar que la
 velocidad de transferencia de oxígeno alcanza para la demanda del cultivo (**OTR ≥ OUR**) en las
 esquinas de prueba Vs 0.005–0.017 m/s × P/V 19–30 W/m³ (P/V 19 y 30 W/m³ de Bionova, Ref. 2; banda
-de Vs: supuesto de modelado). La ley de kLa usa la forma de A-Mab Ec. 4 (p.101) anclada al punto de
-15,000 L de A-Mab (Tabla 3.22: kLa medido 8–20 h⁻¹); en 0.25 L y 2 L es una extrapolación. El
+de Vs: supuesto de modelado) con la correlación de kLa (forma de A-Mab Ec. 4, p.101, anclada al
+punto de 15,000 L). El gemelo y los presets de escala usan el kLa medido de A-Mab Tabla 3.22 (p.105):
+2 L 10, 500 L 8, 1,000 L 10, 5,000 L 10, 15,000 L 20 y 25,000 L (Future) 20 h⁻¹, con la columna
+inmediatamente inferior al volumen del recipiente; por debajo de 2 L se usa 10 h⁻¹ del modelo
+estándar de 2 L como proxy (supuesto de modelado). En el gemelo, P/V ya no afecta el suministro de
+O2; solo actúa sobre la productividad y la cizalla. Cuando OTR < OUR, THE SYSTEM muestra un aviso
+del modelo: el déficit viene de C* = 0.210 mmol/L (solo aire) y qO2 = 0.10 pmol/cél/h, supuestos sin
+fuente, mientras A-Mab Tabla 3.23 (p.106) demostró operación a 18–30e6 cél/mL en 2 L. El
 set-point de DO es configurable (por defecto 30 %; `ProcessDescription.do_setpoint_pct`) y entra en
 la fuerza impulsora: OTR = kLa × C* × (1 − DO/100), con C* = 0.210 mmol/L (supuesto de modelado, no
 calibrado; a 30 % de DO, 0.147 mmol/L). A mayor set-point de DO, menor OTR disponible. El mismo
@@ -149,7 +155,7 @@ mu y qp, sube el rendimiento de lactato (efecto Pasteur) y se añade muerte por 
 20 % es un supuesto de modelado (no calibrado); A-Mab operó la producción a 30–70 % de DO (Tabla 3.14)
 y usó 20–70 % solo en el seed N-1 (Tabla 3.7, p.67). La regulación del DO medido se delega al
 controlador local; THE SYSTEM no simula ni califica un lazo PID de DO.
-- *Categoría GAMP:* 5 — *Riesgo de proceso:* High — *Módulos:* `models.py`, `amab_design_space.py` — *OQ:* `test_oq_01_setpoints_and_ph_split_range_exclusivity`, `test_oq_06b_do_setpoint_driving_force`
+- *Categoría GAMP:* 5 — *Riesgo de proceso:* High — *Módulos:* `models.py`, `amab_design_space.py`, `bioreactor_twin.py` — *OQ:* `test_oq_01_setpoints_and_ph_split_range_exclusivity`, `test_oq_05b_amab_scale_up_kla_pilot_commercial_range`, `test_oq_06b_do_setpoint_driving_force`
 
 ### 5.4 Alimentación adaptativa de glucosa
 

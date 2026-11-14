@@ -38,11 +38,14 @@ from src.bioreactor_twin import (
     simulate_cho_fed_batch,
 )
 from src.amab_design_space import (
+    AMAB_MEASURED_KLA_H_INV,
     AMAB_REF_VS_M_S,
     C_STAR_O2_MMOL_L,
     KLA_COEFF,
     KLA_EXP_PV,
     KLA_EXP_VS,
+    Q_O2_MMOL_CELL_H,
+    compute_kla_h_inv,
     evaluate_amab_design_space,
     compute_scale_up_engineering,
 )
@@ -514,7 +517,7 @@ with tab1:
                 max_value=35000.0,
                 value=2.0,
                 step=0.25,
-                help="Bounds ProcessDescription: (0, 35000] L. El modelo arranca con V_0 = 70 % del nominal y nunca supera el volumen del recipiente. La ley de kLa del gemelo esta anclada en el punto de 15,000 L de A-Mab; en 0.25 L y 2 L es una extrapolacion.",
+                help="Bounds ProcessDescription: (0, 35000] L. El modelo arranca con V_0 = 70 % del nominal y nunca supera el volumen del recipiente. kLa del gemelo: valor medido de A-Mab Tabla 3.22 de la columna inmediatamente inferior (2 L 10, 500 L 8, 1,000 L 10, 5,000 L 10, 15,000 L 20 h^-1); por debajo de 2 L usa 10 h^-1 del modelo estandar de 2 L como proxy (supuesto de modelado).",
             )
             _leyenda("A la derecha hay mas litros: suben la masa de anticuerpo, el feed y V(t). Los g/L de las curvas no cambian.")
         with g5:
@@ -798,22 +801,25 @@ with tab1:
 # ---------------------------------------------------------------------------
 # Constantes de referencia de entrada (no son KPI): punto de anclaje A-Mab a
 # 15,000 L (Tabla 3.22: Vs 0.015 m/s, P/V 26 W/m3, kLa 20 h^-1). La banda de Vs
-# 0.005-0.017 m/s y el rango de escala 500-25,000 L son supuestos de modelado del
-# tablero (sin fuente); P/V 19-30 W/m3 viene de Bionova (Ref. 2).
-# AMAB_REF_VS_M_S (0.015 m/s) and C_STAR_O2_MMOL_L are imported from
-# src/amab_design_space.py. src/ has no P/V constant for the 15,000 L point, so the
-# 26.0 W/m3 preset value is kept here.
+# 0.005-0.017 m/s es un supuesto de modelado del tablero (sin fuente); P/V 19-30 W/m3
+# viene de Bionova (Ref. 2). AMAB_REF_VS_M_S, C_STAR_O2_MMOL_L, Q_O2_MMOL_CELL_H y
+# AMAB_MEASURED_KLA_H_INV se importan de src/amab_design_space.py. src/ no define el
+# P/V del punto de 15,000 L, asi que el valor 26.0 W/m3 se mantiene aqui.
 AMAB_REF_PV_W_M3 = 26.0
 VS_VALID_MIN, VS_VALID_MAX = 0.005, 0.017
-SCALE_VALID_MIN_L, SCALE_VALID_MAX_L = 500.0, 25000.0
 PV_WINDOW_W_M3 = (19.0, 30.0)
+# Los presets corresponden 1:1 con las columnas de A-Mab Tabla 3.22 (p.105) y usan
+# su kLa medido; la correlacion solo se usa en "Personalizado".
 SCALE_PRESETS = {
     "Personalizado": None,
-    "0.25 L Stratyx (micro-escala)": 0.25,
+    "2 L (modelo estandar scale-down)": 2.0,
     "500 L piloto": 500.0,
-    "2,000 L clinico": 2000.0,
+    "1,000 L": 1000.0,
+    "5,000 L": 5000.0,
     "15,000 L comercial (referencia A-Mab)": 15000.0,
+    "25,000 L (Future)": 25000.0,
 }
+assert all(v is None or v in AMAB_MEASURED_KLA_H_INV for v in SCALE_PRESETS.values())
 
 st.session_state.setdefault("scale_preset", "15,000 L comercial (referencia A-Mab)")
 st.session_state.setdefault("scale_vs", AMAB_REF_VS_M_S)
@@ -821,7 +827,7 @@ st.session_state.setdefault("scale_pv", AMAB_REF_PV_W_M3)
 
 
 def _apply_scale_preset() -> None:
-    """Presets: escalamiento a P/V y Vs constantes desde la referencia A-Mab 15,000 L."""
+    """Presets: fijan Vs y P/V de referencia; el kLa del preset es el medido de la Tabla 3.22."""
     if SCALE_PRESETS[st.session_state.scale_preset] is not None:
         st.session_state.scale_vs = AMAB_REF_VS_M_S
         st.session_state.scale_pv = AMAB_REF_PV_W_M3
@@ -962,16 +968,17 @@ with tab2:
             f"kLa = {KLA_COEFF:g} * Vs^{KLA_EXP_VS:g} * (P/V)^{KLA_EXP_PV:g}, con Vs en m/s y P/V en "
             "W/m3 (compute_kla_h_inv en src/amab_design_space.py). Forma de A-Mab Ec. 4 (p.101), "
             "con k, a, b dependientes de la configuracion; anclada en el punto de 15,000 L de "
-            "A-Mab (Tabla 3.22, kLa medido 8-20 h^-1). El coeficiente se recalibro en este repo; "
-            "en 0.25 L y 2 L la ley es una extrapolacion."
+            "A-Mab (Tabla 3.22, kLa medido 8-20 h^-1). El coeficiente se recalibro en este repo. "
+            "La correlacion solo se usa en el preset Personalizado; los presets de escala usan el "
+            "kLa medido de la Tabla 3.22."
         )
         st.selectbox(
             "Preset de escala",
             list(SCALE_PRESETS.keys()),
             key="scale_preset",
             on_change=_apply_scale_preset,
-            help=f"Los presets fijan Vs = {AMAB_REF_VS_M_S:g} m/s y P/V = {AMAB_REF_PV_W_M3:.1f} W/m3 (referencia A-Mab 15,000 L) "
-                 "bajo un criterio de escalamiento a P/V y Vs constantes.",
+            help="Cada preset es una columna de A-Mab Tabla 3.22 (p.105) y usa su kLa medido; "
+                 "Vs y P/V no cambian ese kLa. Personalizado usa la correlacion con los sliders de Vs y P/V.",
         )
         preset_volume_L = SCALE_PRESETS[st.session_state.scale_preset]
         e1, e2, e3, e4 = st.columns(4)
@@ -1007,14 +1014,23 @@ with tab2:
         # El setpoint pasa por el esquema validado (ProcessDescription) antes de usarse.
         do_setpoint_pct = ProcessDescription(do_setpoint_pct=do_slider_pct).do_setpoint_pct
 
+        measured_kla = (
+            None if preset_volume_L is None else AMAB_MEASURED_KLA_H_INV[preset_volume_L]
+        )
         scale = compute_scale_up_engineering(
             superficial_gas_vel_m_s=superficial_gas_vel_m_s,
             power_per_vol_W_m3=power_per_vol_W_m3,
             vcc_1e6_cells_mL=vcc,
             do_percent=do_setpoint_pct,
+            measured_kla_h_inv=measured_kla,
         )
         sc1, sc2, sc3, sc4 = st.columns(4)
-        sc1.metric("kLa (1/h)", f"{scale['kla_h_inv']:.2f}")
+        sc1.metric(
+            "kLa (1/h)",
+            f"{scale['kla_h_inv']:.2f}",
+            help="Medido, A-Mab Tabla 3.22 (p.105)" if measured_kla is not None
+            else "Correlacion compute_kla_h_inv(Vs, P/V)",
+        )
         sc2.metric(
             "OTR (mmol/L/h)",
             f"{scale['otr_mmol_L_h']:.2f}",
@@ -1034,33 +1050,44 @@ with tab2:
                 f">= OUR {scale['our_max_mmol_L_h']:.2f} mmol/L/h."
             )
         else:
-            st.error(
-                f"URS-06 oxigeno insuficiente: con DO {do_setpoint_pct:g} %, OTR "
+            st.warning(
+                f"URS-06 aviso del modelo, oxigeno insuficiente: con DO {do_setpoint_pct:g} %, OTR "
                 f"{scale['otr_mmol_L_h']:.2f} < OUR {scale['our_max_mmol_L_h']:.2f} mmol/L/h. "
-                "Baja el setpoint de DO o sube kLa (Vs, P/V)."
+                f"El deficit frente a la demanda viene de C* = {C_STAR_O2_MMOL_L:.3f} mmol/L (solo "
+                f"aire, sin enriquecimiento con O2 puro) y qO2 = {Q_O2_MMOL_CELL_H * 1e9:.2f} "
+                "pmol/cel/h, supuestos sin fuente. A-Mab Tabla 3.23 (p.106) demostro operacion a "
+                "18-30e6 cel/mL en 2 L y 24e6 cel/mL en 5,000 L."
             )
 
         v1, v2, v3 = st.columns(3)
         if preset_volume_L is None:
-            _chip(v1, "Escala del preset", True, "Sin escala", "preset personalizado")
+            _chip(v1, "Fuente de kLa", True, "Correlacion", "preset personalizado")
         else:
-            scale_ok = SCALE_VALID_MIN_L <= preset_volume_L <= SCALE_VALID_MAX_L
             _chip(
-                v1, "Escala del preset", scale_ok,
-                "Dentro" if scale_ok else "Fuera",
-                f"{preset_volume_L:,.2f} L vs 500-25,000 L (supuesto del tablero, sin fuente)",
+                v1, "Fuente de kLa", True, "Medido",
+                f"A-Mab Tabla 3.22, {preset_volume_L:,.0f} L",
             )
         vs_ok = VS_VALID_MIN <= superficial_gas_vel_m_s <= VS_VALID_MAX
         _chip(v2, "Vs en banda de prueba", vs_ok, "Dentro" if vs_ok else "Fuera", f"{superficial_gas_vel_m_s:.4f} m/s")
         pv_ok = PV_WINDOW_W_M3[0] <= power_per_vol_W_m3 <= PV_WINDOW_W_M3[1]
         _chip(v3, "P/V 19-30 (Bionova)", pv_ok, "Dentro" if pv_ok else "Fuera", f"{power_per_vol_W_m3:.1f} W/m3")
-        if preset_volume_L is not None and preset_volume_L < SCALE_VALID_MIN_L:
-            _banner(
-                "warn",
-                "0.25 L Stratyx: la ley de kLa esta anclada en el punto de 15,000 L de A-Mab "
-                "(Tabla 3.22). En 0.25 L el resultado es una extrapolacion; los sliders no se "
-                "fuerzan.",
-            )
+        kla_corr_ref = compute_kla_h_inv(AMAB_REF_VS_M_S, AMAB_REF_PV_W_M3)
+        st.dataframe(
+            pd.DataFrame(
+                {
+                    "Escala (L)": [f"{v:,.0f}" + (" (Future)" if v == 25000.0 else "")
+                                   for v in AMAB_MEASURED_KLA_H_INV],
+                    "kLa medido (1/h)": [f"{k:.2f}" for k in AMAB_MEASURED_KLA_H_INV.values()],
+                }
+            ),
+            hide_index=True,
+        )
+        st.caption(
+            f"kLa medido por escala, A-Mab Tabla 3.22 (p.105); 2 L es el modelo estandar "
+            "scale-down (caracterizacion 2 L: 8-17 h^-1). En 15,000 L la correlacion "
+            f"(Vs {AMAB_REF_VS_M_S:g} m/s, P/V {AMAB_REF_PV_W_M3:.1f} W/m3) da {kla_corr_ref:.2f} h^-1 "
+            f"y el valor medido es {AMAB_MEASURED_KLA_H_INV[15000.0]:.2f} h^-1: coinciden."
+        )
 
         vs_axis = np.linspace(VS_VALID_MIN, VS_VALID_MAX, 25)
         otr_axis = [
@@ -1078,12 +1105,19 @@ with tab2:
             y=scale["our_max_mmol_L_h"], line=dict(color=P["limit"], dash="dash", width=2.6),
             annotation_text=f"OUR max {scale['our_max_mmol_L_h']:.2f}", annotation_position="top left",
         )
-        fig_o.add_trace(
-            go.Scatter(x=[superficial_gas_vel_m_s], y=[scale["otr_mmol_L_h"]], mode="markers",
-                       name="Punto actual", marker=dict(color=P["ink"], size=11, symbol="x"))
-        )
+        if measured_kla is None:
+            fig_o.add_trace(
+                go.Scatter(x=[superficial_gas_vel_m_s], y=[scale["otr_mmol_L_h"]], mode="markers",
+                           name="Punto actual", marker=dict(color=P["ink"], size=11, symbol="x"))
+            )
+        else:
+            fig_o.add_hline(
+                y=scale["otr_mmol_L_h"], line=dict(color=P["ink"], dash="dot", width=2.2),
+                annotation_text=f"OTR con kLa medido {scale['otr_mmol_L_h']:.2f}",
+                annotation_position="bottom right",
+            )
         fig_o.update_layout(
-            title="OTR vs Vs en la banda de prueba",
+            title="OTR de la correlacion vs Vs (banda de prueba) y OTR con kLa medido",
             xaxis_title="Velocidad superficial Vs (m/s)",
             yaxis_title="OTR / OUR (mmol/L/h)",
             height=320,
@@ -1092,10 +1126,9 @@ with tab2:
 
     st.caption(
         "Fuente: CMC Biotech Working Group, A-Mab Case Study v2.1, CASSS/ISPE 2009 "
-        "(pp. 90-92 y 100-106; Ec. 4 p.101, Fig. 3.11 p.102 y Tabla 3.22). Los presets aplican "
-        "P/V y Vs constantes desde el punto de 15,000 L, un supuesto del tablero (A-Mab p.98 "
-        "indica que no tienen por que mantenerse constantes al escalar). Valores en vivo de "
-        "src/amab_design_space.py."
+        "(pp. 90-92 y 100-106; Ec. 4 p.101, Fig. 3.11 p.102, Tablas 3.22 y 3.23). Los presets "
+        "usan el kLa medido de la Tabla 3.22 por escala; la correlacion solo se usa en "
+        "Personalizado. Valores en vivo de src/amab_design_space.py."
     )
 
 
@@ -1109,7 +1142,7 @@ with tab3:
     st.markdown(
         "Registro sintetico de aire de un refrigerador farmaceutico 2-8 C a 5 min, con "
         "ciclado de compresor y una excursion. Se compara el **aire crudo** contra viales "
-        "filtrados por el buffer termico virtual (VTB) de 1 mL, 20 mL y 300 L (bulk, tau ~35 h) "
+        "filtrados por el buffer termico virtual (VTB) de 1 mL, 20 mL y 300 mL (bulk, tau ~35 h; rotulo de Rusnack) "
         "(Rusnack, Pharm. Eng. 2026)."
     )
 
@@ -1128,7 +1161,7 @@ with tab3:
         with e4:
             compressor_amp_C = st.slider("Amplitud del compresor (C)", 0.2, 2.0, 1.0, 0.1)
         _leyenda(
-            "La excursion sube la MKT; el vial de 1 mL la sigue y el bulk de 300 L casi no. "
+            "La excursion sube la MKT; el vial de 1 mL la sigue y el bulk de 300 mL casi no. "
             "El compresor es la oscilacion rapida que debe resolver el monitor."
         )
 
@@ -1147,7 +1180,7 @@ with tab3:
     air_steady = baseline + compressor + noise
     air = (air_steady + excursion).tolist()
 
-    volume_keys = ["1 mL", "20 mL (Glycol Ref)", "300 L (Bulk)"]
+    volume_keys = ["1 mL", "20 mL (Glycol Ref)", "300 mL (Bulk)"]
     vtb_traces = {k: apply_vtb_filter(air, volume_key=k) for k in volume_keys}
 
     fig_t = go.Figure()
@@ -1155,7 +1188,7 @@ with tab3:
         go.Scatter(x=t_hours, y=air, mode="lines", name="Aire crudo (5 min)",
                    line=dict(color=P["air"], width=1.4))
     )
-    colors = {"1 mL": P["v1"], "20 mL (Glycol Ref)": P["v20"], "300 L (Bulk)": P["v300"]}
+    colors = {"1 mL": P["v1"], "20 mL (Glycol Ref)": P["v20"], "300 mL (Bulk)": P["v300"]}
     for k in volume_keys:
         fig_t.add_trace(
             go.Scatter(x=t_hours, y=vtb_traces[k], mode="lines", name=f"VTB {k}",

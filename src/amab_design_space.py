@@ -14,6 +14,10 @@ used here (80.14) was recalibrated in this repository so the law passes through 
 A-Mab 15,000 L point (Table 3.22: Vs 0.015 m/s, P/V 26 W/m3, kLa 20 h^-1); it is not
 read from Fig. 3.11. A-Mab Table 3.22 reports measured kLa of 8-20 h^-1. Applying the
 law at 0.25 L or 2 L is an extrapolation outside the scales A-Mab fitted.
+
+Measured kLa by scale (A-Mab Table 3.22, p.105) is in ``AMAB_MEASURED_KLA_H_INV``.
+The calculator presets and the bioreactor twin use these measured values
+(``measured_kla_for_volume``); the correlation is used only for custom Vs and P/V.
 """
 
 
@@ -185,6 +189,35 @@ C_STAR_O2_MMOL_L = 0.210    # mmol/L O2 at air saturation; modeling assumption (
 Q_O2_MMOL_CELL_H = 1.0e-10  # mmol O2/(cell*h) specific oxygen uptake rate
 AMAB_REF_VS_M_S = 0.015     # m/s, A-Mab 15,000 L reference superficial gas velocity
 
+# Measured kLa (1/h) per scale, A-Mab Table 3.22 (p.105). 2 L is the standard
+# scale-down model (10 h^-1; the 2 L characterisation spans 8-17 h^-1); 25,000 L is
+# the "(Future)" column. Keys are working volumes in L.
+AMAB_MEASURED_KLA_H_INV = {
+    2.0: 10.0,
+    500.0: 8.0,
+    1000.0: 10.0,
+    5000.0: 10.0,
+    15000.0: 20.0,
+    25000.0: 20.0,
+}
+# Below 2 L (e.g. the 0.25 L Bionova vessel, 190 mL initial volume) A-Mab has no
+# column; the 2 L standard scale-down value is used as a proxy. MODELING ASSUMPTION.
+SUB_2L_PROXY_KLA_H_INV = AMAB_MEASURED_KLA_H_INV[2.0]
+
+
+def measured_kla_for_volume(volume_L: float) -> float:
+    """Measured kLa (1/h) for a vessel volume, from A-Mab Table 3.22 (p.105).
+
+    Uses the column immediately below ``volume_L`` (no interpolation):
+    < 2 L -> 10 (2 L proxy, modeling assumption); 2 to < 500 L -> 10; 500 to
+    < 1,000 L -> 8; 1,000 to < 5,000 L -> 10; 5,000 to < 15,000 L -> 10;
+    >= 15,000 L -> 20. Above 25,000 L the 25,000 L value (20) is an extrapolation.
+    """
+    if volume_L < 2.0:
+        return SUB_2L_PROXY_KLA_H_INV
+    column = max(v for v in AMAB_MEASURED_KLA_H_INV if v <= volume_L)
+    return AMAB_MEASURED_KLA_H_INV[column]
+
 
 def compute_kla_h_inv(superficial_gas_vel_m_s: float, power_per_vol_W_m3: float) -> float:
     """Unrounded kLa (1/h) = KLA_COEFF * Vs^0.481 * (P/V)^0.194.
@@ -205,8 +238,14 @@ def compute_scale_up_engineering(
     vcc_1e6_cells_mL: float = 15.0,
     qo2_mmol_cell_h: float = Q_O2_MMOL_CELL_H,
     do_percent: float = 30.0,
+    measured_kla_h_inv: float | None = None,
 ) -> dict:
     """Compute oxygen-transfer scale-up engineering parameters.
+
+    ``measured_kla_h_inv`` (optional): when given, this measured kLa (for example
+    ``AMAB_MEASURED_KLA_H_INV[volume]``) replaces the correlation value; the OUR,
+    OTR and sufficiency formulas are unchanged. When None (default), kLa comes
+    from ``compute_kla_h_inv(Vs, P/V)`` as before.
 
     The kLa correlation uses the power-law form of A-Mab Eq. 4 (p.101), anchored at
     the A-Mab 15,000 L point (Table 3.22). The
@@ -228,12 +267,12 @@ def compute_scale_up_engineering(
 
     TEST ENVELOPE (modeling assumption)
     -----------------------------------
-    The OQ tests evaluate the law at the corners Vs = 0.005-0.017 m/s x
+    test_oq_01 evaluates the correlation at the corners Vs = 0.005-0.017 m/s x
     P/V = 19-30 W/m3, which gives kLa 11.10-21.84 h^-1. The P/V values 19 and
     30 W/m3 come from Bionova (Ref. 2, pp.3-4); the Vs band is a modeling
     assumption. A-Mab Table 3.22 reports measured kLa of 8-20 h^-1, so the upper
-    corner (21.84 h^-1) lies above the measured range. Using the law at 0.25 L or
-    2 L is an extrapolation.
+    corner (21.84 h^-1) lies above the measured range. The calculator presets and
+    the twin use the measured values (AMAB_MEASURED_KLA_H_INV) instead.
 
     Returns ``kla_h_inv`` (volumetric mass-transfer coefficient, 1/h),
     ``our_max_mmol_L_h`` (maximum oxygen uptake rate, mmol/(L*h)),
@@ -247,7 +286,10 @@ def compute_scale_up_engineering(
     driving_force = C* * max(0, 1 - do_percent/100), so OTR = kLa * driving_force.
     At 30 % DO this equals the former fixed term 0.21 - 0.063 = 0.147 mmol/L.
     """
-    kla_h_inv = compute_kla_h_inv(superficial_gas_vel_m_s, power_per_vol_W_m3)
+    if measured_kla_h_inv is None:
+        kla_h_inv = compute_kla_h_inv(superficial_gas_vel_m_s, power_per_vol_W_m3)
+    else:
+        kla_h_inv = float(measured_kla_h_inv)
     our_max_mmol_L_h = vcc_1e6_cells_mL * 1.0e9 * qo2_mmol_cell_h
 
     # OTR = kLa * (C* - C_L) with C_L = C* * DO/100 (standard two-film driving force).

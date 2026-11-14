@@ -85,7 +85,7 @@ referencia.
 
 | Ref # | Uso principal en el paquete |
 |-------|------------------------|
-| 1 | Proceso de referencia del A-Mab Design Space (URS-13, `amab_design_space.py`); forma de la ley de kLa, Ec. 4 y punto de 15,000 L de la Tabla 3.22 (URS-06); P/V máximo de 47.6 W/m³ demostrado aceptable a 2 L, Tabla 3.22 (URS-09/10). |
+| 1 | Proceso de referencia del A-Mab Design Space (URS-13, `amab_design_space.py`); forma de la ley de kLa, Ec. 4 y punto de 15,000 L de la Tabla 3.22, kLa medido por escala de la Tabla 3.22 y densidades celulares demostradas de la Tabla 3.23 (URS-06); P/V máximo de 47.6 W/m³ demostrado aceptable a 2 L, Tabla 3.22 (URS-09/10). |
 | 2 | Base de cultivo en micro-escala Stratyx™ / Bionova: escala de 0.25 L con volumen inicial de 190 mL (alcance de URS-BRX-001, `models.py`); perfil 36.5 → 34 °C en el día 7 con NISTCHO, CHO-K1 (URS-01/02); P/V de 19 y 30 W/m³ (URS-06); glucosa medida pre-feed en los días de alimentación (URS-07); sparge 0.5 mL/min / 190 mL = 0.00263 vvm (Bionova, Ref. 2, pp. 3-4; `models.py`). |
 | 3 | Optimización en lazo cerrado en tiempo real / ganancia de título (URS-07/08). |
 | 4 | Caracterización de la línea celular de referencia NISTCHO. |

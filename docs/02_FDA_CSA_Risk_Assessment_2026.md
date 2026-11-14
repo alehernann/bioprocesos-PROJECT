@@ -6,7 +6,7 @@
 | **Título** | Evaluación de riesgo bajo FDA CSA para software de producción y del sistema de calidad |
 | **Versión** | 1.3.2 |
 | **Guía principal** | FDA *Computer Software Assurance for Production and Quality Management System Software*, CDRH/CBER/CDER, Feb 3, 2026 |
-| **Normas de soporte** | ISO 13485:2016, 21 CFR Part 820 (QSR), GAMP 5 (2nd ed.), 21 CFR Part 11, EudraLex Annex 11, Draft Annex 22 (AI) |
+| **Normas de soporte** | ISO 13485:2016, 21 CFR Part 820 (QMSR, vigente desde 2026-02-02), GAMP 5 (2nd ed.), 21 CFR Part 11, EudraLex Annex 11, Draft Annex 22 (AI) |
 | **Sistema evaluado** | Sistema de control del biorreactor CHO-K1 fed-batch (gemelo digital) |
 
 ---
@@ -46,10 +46,12 @@ La cláusula 4.1.6 exige validar el software usado en el sistema de gestión de 
 **basado en riesgo**, proporcional al riesgo asociado a su uso. Esto coincide directamente con los
 pasos de uso previsto y determinación de riesgo de CSA.
 
-### 2.3 21 CFR Part 820 (Quality System Regulation)
-El § 820.70(i) exige que el software usado para automatizar la producción o el sistema de calidad se
-valide para su uso previsto según un protocolo establecido. CSA es la interpretación moderna de la
-FDA sobre cómo cumplir el § 820.70(i) de forma eficiente.
+### 2.3 21 CFR Part 820 (Quality Management System Regulation, QMSR)
+Desde el 2 de febrero de 2026, 21 CFR Part 820 es la Quality Management System Regulation (QMSR), que
+reemplaza a la Quality System Regulation (QSR). La QMSR incorpora ISO 13485:2016 por referencia y
+retira el § 820.70, incluido el antiguo § 820.70(i) sobre validación del software de producción y del
+sistema de calidad. El requisito equivalente es ahora la cláusula 4.1.6 de ISO 13485:2016 (sección
+2.2). Fuente: guía FDA CSA (Feb 2026), nota 3, p.2.
 
 ## 3. Metodología de determinación del riesgo CSA
 
@@ -191,7 +193,7 @@ código a la medida (GAMP Category 5), en línea con el principio least-burdenso
 
 ## 8. Conclusión
 
-Al aplicar FDA CSA (2026), ISO 13485 y 21 CFR Part 820, los set-points de control y la lógica de
+Al aplicar FDA CSA (2026), ISO 13485:2016 y 21 CFR Part 820 (QMSR), los set-points de control y la lógica de
 actuación, los interlocks de seguridad, el cálculo de MKT, las ecuaciones del Design Space, la
 capacidad SPC, el Audit Trail y la validación de entradas se clasifican como **High Process Risk** y
 se verifican con **Robust Scripted Testing**. Las gráficas y la UI se clasifican como **Not High

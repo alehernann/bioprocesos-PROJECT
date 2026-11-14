@@ -20,8 +20,10 @@ import pydantic
 import pytest
 
 from src.amab_design_space import (
+    AMAB_MEASURED_KLA_H_INV,
     compute_scale_up_engineering,
     evaluate_amab_design_space,
+    measured_kla_for_volume,
 )
 from src.audit_trail_part11 import AuditTrailLogger
 from src.bioreactor_twin import (
@@ -376,19 +378,35 @@ def test_oq_05_ispe_amab_design_space_center_and_edges():
 
 
 def test_oq_05b_amab_scale_up_kla_pilot_commercial_range():
-    """URS-06: kLa stays within the 8-22 h^-1 test band at the Vs x P/V test corners.
+    """URS-06: measured kLa per scale (A-Mab Table 3.22, p.105) and the correlation anchor.
 
-    The law uses the A-Mab Eq. 4 form (p.101), anchored at the A-Mab 15,000 L point
-    (Table 3.22: Vs 0.015 m/s, P/V 26 W/m3, kLa 20 h^-1). Corners checked: Vs in
-    {0.005, 0.017} m/s (modeling assumption) and P/V in {19, 30} W/m3 (Bionova).
-    With KLA_COEFF = 80.14 the law gives kLa 11.10-21.84 h^-1. The 8-22 h^-1
-    acceptance band is a test choice; A-Mab Table 3.22 reports measured kLa of
-    8-20 h^-1.
+    The six measured values (2 L 10, 500 L 8, 1,000 L 10, 5,000 L 10, 15,000 L 20,
+    25,000 L Future 20 h^-1) all lie in 8-20 h^-1 and, passed as
+    ``measured_kla_h_inv``, are used as-is by compute_scale_up_engineering. The
+    correlation (A-Mab Eq. 4 form) returns 20.0 h^-1 at its 15,000 L anchor
+    (Vs 0.015 m/s, P/V 26 W/m3). The twin lookup uses the column immediately
+    below the volume, with the 2 L value as a proxy below 2 L (modeling assumption).
     """
-    for vs in (0.005, 0.017):
-        for pv in (19.0, 30.0):
-            kla = compute_scale_up_engineering(vs, pv)["kla_h_inv"]
-            assert 8.0 <= kla <= 22.0, f"kLa {kla} out of range at Vs={vs}, P/V={pv}"
+    assert AMAB_MEASURED_KLA_H_INV == {
+        2.0: 10.0, 500.0: 8.0, 1000.0: 10.0, 5000.0: 10.0, 15000.0: 20.0, 25000.0: 20.0,
+    }
+    for volume, kla in AMAB_MEASURED_KLA_H_INV.items():
+        assert 8.0 <= kla <= 20.0, (volume, kla)
+        eng = compute_scale_up_engineering(0.015, 26.0, measured_kla_h_inv=kla)
+        assert eng["kla_h_inv"] == pytest.approx(kla, abs=1e-12), volume
+
+    # Correlation anchor at 15,000 L.
+    assert compute_scale_up_engineering(0.015, 26.0)["kla_h_inv"] == pytest.approx(20.0, abs=1e-9)
+
+    # Column-immediately-below lookup used by the twin (no interpolation).
+    for volume, expected in (
+        (0.19, 10.0), (0.25, 10.0), (2.0, 10.0), (300.0, 10.0), (500.0, 8.0),
+        (999.0, 8.0), (1000.0, 10.0), (2000.0, 10.0), (5000.0, 10.0),
+        (14999.0, 10.0), (15000.0, 20.0), (25000.0, 20.0), (35000.0, 20.0),
+    ):
+        assert measured_kla_for_volume(volume) == expected, volume
+    run = simulate_cho_fed_batch(ProcessDescription(vessel_volume_L=0.25))
+    assert run["kla_eff_h_inv"] == pytest.approx(10.0, abs=1e-12)
 
 
 def test_oq_06_mkt_and_vtb_damping():
@@ -418,9 +436,10 @@ def test_oq_06b_do_setpoint_driving_force():
     Scale-up: at the A-Mab 15,000 L reference (Vs = 0.015 m/s, P/V = 26 W/m3) the
     default 30 % DO gives kLa 20.0 and OTR 2.94; OTR scales with (1 - DO/100),
     decreases monotonically with DO, and OTR >= OUR fails at a high enough DO.
-    Twin (v1.3.1, directional only): at DO 30 the supply ratio and f_do are 1.0 at
-    every step; at DO 10 lactate (peak and final) rises and titer and viability
-    fall; at DO 85 the supply ratio drops below 1 and titer falls versus DO 30.
+    Twin (directional only; kLa 10 h^-1 measured/proxy at the default 0.25 L): at
+    DO 30 the supply ratio and f_do are 1.0 at every step; at DO 10 lactate (peak
+    and final) rises and titer and viability fall; at DO 85 the supply ratio drops
+    below 1 and titer falls versus DO 30.
     """
     ref = compute_scale_up_engineering(0.015, 26.0)
     assert ref["kla_h_inv"] == pytest.approx(20.0, abs=1e-9)

@@ -19,7 +19,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from src.models import ProcessDescription
-from src.amab_design_space import compute_scale_up_engineering
+from src.amab_design_space import AMAB_MEASURED_KLA_H_INV, compute_scale_up_engineering
 from src.bioreactor_twin import simulate_cho_fed_batch
 from src.spc_six_sigma import (
     GORSKY_TABLE_6_2_TORQUE_N30,
@@ -135,7 +135,7 @@ def test_do_slider_drives_otr_and_oxygen_alarm(at):
         return _metric_values(at, "OTR (mmol/L/h)")
 
     def alarms():
-        return [e.value for e in at.error if "oxigeno insuficiente" in e.value]
+        return [w.value for w in at.warning if "oxigeno insuficiente" in w.value]
 
     assert at.slider(key="do_setpoint_pct").value == 30.0
     otr_30 = otr_shown()
@@ -144,9 +144,10 @@ def test_do_slider_drives_otr_and_oxygen_alarm(at):
     assert any("URS-06 OK" in s.value for s in at.success)
 
     at.slider(key="do_setpoint_pct").set_value(85.0).run()
-    # The oxygen alarm is an intended st.error here, so check exceptions only.
+    # The oxygen alarm is an intended model warning (st.warning), never an error.
     assert not at.exception, [e.value for e in at.exception]
-    assert [e.value for e in at.error] == alarms()
+    assert not at.error, [e.value for e in at.error]
+    assert [w.value for w in at.warning] == alarms()
     expected = compute_scale_up_engineering(0.015, 26.0, do_percent=85.0)
     assert expected["oxygen_sufficient"] is False
     assert otr_shown() == [f"{expected['otr_mmol_L_h']:.2f}"]
@@ -257,9 +258,36 @@ def test_volume_slider_switches_to_kg(at):
 
 
 def test_scale_presets_and_amab_mode(at):
-    for preset in at.selectbox(key="scale_preset").options:
+    # Presets map 1:1 to the A-Mab Table 3.22 columns and show the measured kLa. At
+    # VCC 15e6 cells/mL and DO 30 the O2 model warning appears only at 2, 500, 1,000
+    # and 5,000 L (kLa 8-10 h^-1); never as an error.
+    presets = {
+        "Personalizado": None,
+        "2 L (modelo estandar scale-down)": 2.0,
+        "500 L piloto": 500.0,
+        "1,000 L": 1000.0,
+        "5,000 L": 5000.0,
+        "15,000 L comercial (referencia A-Mab)": 15000.0,
+        "25,000 L (Future)": 25000.0,
+    }
+    warn_volumes = {2.0, 500.0, 1000.0, 5000.0}
+    assert list(at.selectbox(key="scale_preset").options) == list(presets)
+    for preset, volume in presets.items():
         at.selectbox(key="scale_preset").set_value(preset).run()
-        _clean(at)
+        assert not at.exception, [e.value for e in at.exception]
+        assert not at.error, [e.value for e in at.error]
+        shown = [w.value for w in at.warning]
+        if volume in warn_volumes:
+            assert len(shown) == 1 and "oxigeno insuficiente" in shown[0], (preset, shown)
+            assert "Tabla 3.23" in shown[0]
+        else:
+            assert shown == [], (preset, shown)
+        if volume is not None:
+            kla = AMAB_MEASURED_KLA_H_INV[volume]
+            assert _metric_values(at, "kLa (1/h)") == [f"{kla:.2f}"], preset
+    assert any("coinciden" in c.value and "20.00 h^-1" in c.value for c in at.caption)
+    at.selectbox(key="scale_preset").set_value("15,000 L comercial (referencia A-Mab)").run()
+    _clean(at)
     for option in at.radio(key="amab_mode").options:
         at.radio(key="amab_mode").set_value(option).run()
         _clean(at)
