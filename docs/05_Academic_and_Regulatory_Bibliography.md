@@ -174,6 +174,6 @@ Historial de versiones del documento. Las versiones son las del software (`src/_
 | 1.1.2 | 2026-11-08 | Documento en inglés vigente en la versión 1.1.2 del software (creado en 24464b3). |
 | 1.2.0 | 2026-11-10 | 98ffe46: evidencia por módulo. |
 | 1.3.0 | 2026-11-11 | 664efca: traducción al español (texto literal de las referencias sin cambios). |
-| 1.3.2 | 2026-11-12 | b0fa17d y Bloque 2: textos alineados con el código y la evidencia bibliográfica; versión del documento alineada con el software; historial añadido. |
+| 1.3.2 | 2026-11-14 | b0fa17d y 99116f9 (Bloques 1 y 2): textos alineados con el código y la evidencia bibliográfica; versión del documento alineada con el software; historial añadido. cb5a484 (Bloque 3): sin cambios en este documento. 9c9ab7d (Bloque 4): Ref. 1 con el kLa medido de la Tabla 3.22 y las densidades celulares de la Tabla 3.23. |
 
 *Fin del documento BIB-BRX-001.*

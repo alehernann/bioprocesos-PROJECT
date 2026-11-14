@@ -207,6 +207,6 @@ Historial de versiones del documento. Las versiones son las del software (`src/_
 | 1.2.0 | 2026-11-10 | 98ffe46: traza de `test_oq_01` y `test_oq_09b`. |
 | 1.3.0 | 2026-11-11 | 664efca: traducción al español. 6d8c509: trazas de `test_oq_03b`, `03c`, `04b` y `06b`. |
 | 1.3.1 | 2026-11-11 | fd01ad7: trazas de `test_oq_03d` y `03e`. e6857b3: valores medidos de DO actualizados. |
-| 1.3.2 | 2026-11-12 | b0fa17d y Bloque 2: textos alineados con el código y la evidencia bibliográfica; versión del documento alineada con el software; historial añadido. |
+| 1.3.2 | 2026-11-14 | b0fa17d y 99116f9 (Bloques 1 y 2): textos alineados con el código y la evidencia bibliográfica; versión del documento alineada con el software; historial añadido. cb5a484 (Bloque 3): casos negativos y de frontera de `test_oq_04` (ya no pendientes). 9c9ab7d (Bloque 4): kLa medido por escala (URS-06, `test_oq_05b`) y valores de DO 85 %. |
 
 *Fin del documento RTM-BRX-001.*

@@ -279,6 +279,6 @@ Historial de versiones del documento. Las versiones son las del software (`src/_
 | 1.2.0 | 2026-11-10 | 98ffe46: URS-01 y URS-06 delegan la regulación al controlador local; URS-09 con compuerta AND. |
 | 1.3.0 | 2026-11-11 | 664efca: traducción al español. 6d8c509: URS-09 con compuerta OR; URS-06 con fuerza impulsora del DO configurable. |
 | 1.3.1 | 2026-11-11 | fd01ad7: URS-06 describe el acople del DO con la cinética del gemelo. |
-| 1.3.2 | 2026-11-12 | b0fa17d y Bloque 2: textos alineados con el código y la evidencia bibliográfica; versión del documento alineada con el software; historial añadido. |
+| 1.3.2 | 2026-11-14 | b0fa17d y 99116f9 (Bloques 1 y 2): textos alineados con el código y la evidencia bibliográfica; versión del documento alineada con el software; historial añadido. cb5a484 (Bloque 3): sin cambios en este documento. 9c9ab7d (Bloque 4): URS-06 con el kLa medido por escala de A-Mab Tabla 3.22 y el proxy de 2 L por debajo de 2 L. |
 
 *Fin del documento URS-BRX-001.*

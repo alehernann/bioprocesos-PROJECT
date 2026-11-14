@@ -211,6 +211,6 @@ Historial de versiones del documento. Las versiones son las del software (`src/_
 | 1.2.0 | 2026-11-10 | 98ffe46: sincronización con la cinética unificada y el Audit Trail de Part 11. |
 | 1.3.0 | 2026-11-11 | 664efca: traducción al español. 6d8c509: compuerta OR de cizalla y pruebas nuevas. |
 | 1.3.1 | 2026-11-11 | fd01ad7: lista de pruebas OQ actualizada (20 pruebas). |
-| 1.3.2 | 2026-11-12 | b0fa17d y Bloque 2: textos alineados con el código y la evidencia bibliográfica; versión del documento alineada con el software; historial añadido. |
+| 1.3.2 | 2026-11-14 | b0fa17d y 99116f9 (Bloques 1 y 2): textos alineados con el código y la evidencia bibliográfica; versión del documento alineada con el software; historial añadido. cb5a484 (Bloque 3): casos negativos y de frontera de `test_oq_04` (ya no pendientes). 9c9ab7d (Bloque 4): 21 CFR Part 820 de QSR a QMSR. |
 
 *Fin del documento CSA-RA-2026-001.*

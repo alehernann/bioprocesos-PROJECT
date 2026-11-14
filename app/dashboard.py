@@ -834,7 +834,7 @@ def _apply_scale_preset() -> None:
 
 
 with tab2:
-    st.header("Espacio de Diseno Multivariado ISPE A-Mab y Escalamiento (0.25 L a 15,000 L)")
+    st.header("Espacio de Diseno Multivariado ISPE A-Mab y Escalamiento (2 L a 25,000 L (Future))")
     st.markdown(
         "Evaluador en tiempo real de las 4 inecuaciones de respuesta N-glicano "
         "(z1..z4). El espacio de diseno se sostiene (`design_space_holds`) cuando "

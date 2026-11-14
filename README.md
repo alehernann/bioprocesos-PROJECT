@@ -139,16 +139,16 @@ Los resultados del gemelo digital (14 d, parametros por defecto, v1.3.1) son **v
 - **Ganancia emergente closed_loop vs static:** titulo **+15.68 %** y masa cosechada **+24.80 %** en ambas escalas. Las concentraciones son identicas entre 0.25 L y 2.0 L; la masa escala exactamente con el volumen (factor 8). Con los valores por defecto ningun bolo se recorta (`bolus_clipped_alarm` = False).
 - **Lactato:** sube hasta el cambio de temperatura del dia 7 y despues se reconsume en ambos modos; en lazo cerrado la glucosa mantenida sostiene el termino anaplerotico y el lactato final queda por debajo del de la receta estatica.
 
-**Respuesta al setpoint de DO (2.0 L; los mismos valores por litro a 0.25 L):**
+**Respuesta al setpoint de DO (2.0 L, kLa 10 h^-1; los mismos valores por litro a 0.25 L, con la masa cosechada multiplicada por 0.125):**
 
-| DO (%) | Modo | Titulo final (g/L) | Viabilidad final (%) | pico / final L (g/L) | VCD pico | min ratio OTR/OUR | min f_do |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 10 | static | 0.7687 | 69.23 | 1.4638 / 1.0526 | 5.4616 | 1.0000 | 0.9167 |
-| 10 | closed_loop | 0.8089 | 77.71 | 1.5135 / 0.9198 | 5.6681 | 1.0000 | 0.9167 |
-| 30 | static | 1.0537 | 80.54 | 1.2151 / 0.8793 | 6.8310 | 1.0000 | 1.0000 |
-| 30 | closed_loop | 1.2189 | 90.55 | 1.3425 / 0.5842 | 8.1709 | 1.0000 | 1.0000 |
-| 85 | static | 1.0469 | 80.55 | 1.2144 / 0.8783 | 6.8227 | 0.9494 | 0.9494 |
-| 85 | closed_loop | 1.0734 | 90.37 | 1.3364 / 0.5905 | 7.8121 | 0.8292 | 0.8292 |
+| DO (%) | Modo | Titulo final (g/L) | Viabilidad final (%) | Masa cosechada (g) | pico / final L (g/L) | VCD pico | min ratio OTR/OUR | min f_do |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 10 | static | 0.7687 | 69.23 | 1.3745 | 1.4638 / 1.0526 | 5.4616 | 1.0000 | 0.9167 |
+| 10 | closed_loop | 0.8089 | 77.71 | 1.5469 | 1.5135 / 0.9198 | 5.6681 | 1.0000 | 0.9167 |
+| 30 | static | 1.0537 | 80.54 | 1.8841 | 1.2151 / 0.8793 | 6.8310 | 1.0000 | 1.0000 |
+| 30 | closed_loop | 1.2189 | 90.55 | 2.3514 | 1.3425 / 0.5842 | 8.1709 | 1.0000 | 1.0000 |
+| 85 | static | 0.5943 | 74.38 | 1.0626 | 1.1052 / 0.7413 | 5.6283 | 0.5597 | 0.5597 |
+| 85 | closed_loop | 0.5765 | 80.74 | 1.1030 | 1.1495 / 0.5936 | 5.7831 | 0.5447 | 0.5447 |
 
 - A DO 10 % la hipoxia (efecto Pasteur) sube el lactato y baja titulo y viabilidad; a DO 85 % la fuerza impulsora no alcanza y OTR < OUR en la fase de alta densidad.
 - **Setpoint de DO (slider del tablero, 10-90 %, por defecto 30 %):** pasa por `ProcessDescription.do_setpoint_pct` a las dos corridas del gemelo y a `compute_scale_up_engineering(do_percent=...)`. Fuerza impulsora = C* (0.210 mmol/L, supuesto de modelado) x (1 - DO/100) y OTR = kLa x fuerza impulsora. El panel de escalamiento recalcula OTR >= OUR (URS-06) y avisa si no se cumple; con la referencia A-Mab (kLa 20.0, VCC 15e6 cel/mL, OUR 1.50 mmol/L/h) eso ocurre por encima de ~64.3 % de DO. El aviso es del modelo (no un error): el deficit viene de C* = 0.210 mmol/L (solo aire, sin enriquecimiento con O2 puro) y qO2 = 0.10 pmol/cel/h, supuestos sin fuente, mientras A-Mab Tabla 3.23 (p.106) demostro operacion a 18-30e6 cel/mL en 2 L y 24e6 cel/mL en 5,000 L.
