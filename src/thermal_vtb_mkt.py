@@ -26,6 +26,13 @@ VTB_CALIBRATION_TABLE = {
     "600 mL": {"alpha": 0.037, "tau_s": 7904, "tau_min": 131.7},
     # Bulk container, labelled "300 mL (Bulk)" as printed in Rusnack (Pharm. Eng.
     # 2026). tau = 126600 s = 2110 min ~= 35 h (values unchanged).
+    # PHYSICAL ANOMALY OF THE LABEL (v1.4.0 documentary note, no value or logic
+    # change): this entry has tau ~= 35.2 h (126600 s) while "600 mL" has
+    # tau ~= 2.2 h (7904 s). A first-order thermal time constant grows with the
+    # volume-to-surface ratio, so a 300 mL container cannot be ~16x slower than a
+    # 600 mL one with comparable packaging. The tau is consistent with a much
+    # larger (bulk, ~300 L) or heavily insulated container. The label is kept as
+    # printed in the source; read this entry as "bulk container", not as 300 mL.
     "300 mL (Bulk)": {"alpha": 0.002, "tau_s": 126600, "tau_min": 2110.0},
 }
 
