@@ -443,9 +443,10 @@ PARAMETER_BOUNDS = {
     "kd_nh3": (0.0, 0.2),
     "qp_36_5": (0.0, 0.05),
     "qp_34_0": (0.0, 0.05),
-    # Extended screening only (fixed in the shipped calibration):
+    # Extended screening and the K_I,L -> m_G swap experiment only (fixed in the
+    # shipped calibration). m_G bounds: CHO physiological range (v1.4.0 audit).
     "y_x_glucose": (0.5, 6.0),
-    "m_glucose": (0.0, 0.5),
+    "m_glucose": (0.03, 0.25),
     "y_lac_glucose": (0.0, 1.0),
     "kd_basal": (0.0, 0.1),
     "k_lysis": (0.0, 3.0),

@@ -262,6 +262,89 @@ def run_parameter_calibration(
     }
 
 
+# ---------------------------------------------------------------------------
+# Identifiability-guided swap experiment (v1.4.0 audit, "Ajuste 2").
+# ---------------------------------------------------------------------------
+# Scenario A is the shipped calibration (K_I_L free, m_G fixed at 0.05). Scenario B
+# fixes K_I_L at 10.0 g/L, the midpoint of the CHO literature range 5-15 g/L (no
+# lactate excitation above 1.5 g/L in Bionova), and frees m_G in [0.03, 0.25]. B is
+# adopted only if (1) cond(J) improves, (2) every R2/RMSE (in-sample 30 W/m3 and
+# out-of-sample 19 W/m3) is maintained or improved, within the tolerances below,
+# and (3) no B parameter is AT_BOUND or NEAR_BOUND.
+SWAP_K_I_L_FIXED_G_L = 10.0
+SWAP_SCENARIO_B_FREE = (
+    "mu_max_36_5", "mu_max_34_0", "g_boost_conc", "x_max", "q_lac_max",
+    "q_nh3", "kd_nh3", "qp_36_5", "qp_34_0", "m_glucose",
+)
+SWAP_R2_MAINTAIN_TOL = 0.005        # an R2 may drop by at most this much
+SWAP_RMSE_MAINTAIN_REL_TOL = 0.01   # an RMSE or point error may grow by at most 1 %
+
+
+def _scenario_summary(cal: dict, ds: dict) -> dict:
+    ident = compute_jacobian_identifiability(cal["opt_result"], cal["param_names"])
+    kin = cal["calibrated_kinetics"]
+    s30 = simulate_bionova_condition("stratyx_30_W_m3", kin, ds)
+    s19 = simulate_bionova_condition("stratyx_19_W_m3", kin, ds)
+    g_pre = {float(ev["day"]): float(ev["pre"]["G"]) for ev in s30["feed_events"]}
+    return {
+        "param_names": cal["param_names"],
+        "parameter_table": cal["parameter_table"],
+        "cost": cal["cost"],
+        "ssr_weighted": cal["ssr_weighted"],
+        "identifiability": ident,
+        "metrics30": compute_validation_metrics(s30, ds, "stratyx_30_W_m3"),
+        "metrics19": compute_validation_metrics(s19, ds, "stratyx_19_W_m3"),
+        "g_pre_feed_by_feed_day": g_pre,
+        "g_pre_feed_min": min(g_pre.values()),
+        "glucose_topup_days": [float(ev["day"]) for ev in s30["feed_events"] if ev["v_gluc_L"] > 0.0],
+        "params_at_or_near_bound": [r["parameter"] for r in cal["parameter_table"] if r["status"] != "interior"],
+        "calibrated_kinetics": kin,
+    }
+
+
+def compare_k_i_l_m_g_swap(dataset: dict | None = None) -> dict:
+    """Controlled recalibration: scenario A (shipped) vs B (K_I_L = 10 fixed, m_G free).
+
+    Both keep 10 free parameters and the same data, objective and solver. Returns
+    both scenario summaries, the per-metric comparison and the three adoption
+    criteria; ``adopt_scenario_b`` is True only when all three hold.
+    """
+    ds = dataset or load_bionova_reference_dataset()
+    a = _scenario_summary(run_parameter_calibration(CALIBRATED_PARAMETER_NAMES, dataset=ds), ds)
+    b = _scenario_summary(run_parameter_calibration(
+        SWAP_SCENARIO_B_FREE, dataset=ds,
+        base_kinetics=replace(CALIBRATED_KINETICS, k_i_lactate=SWAP_K_I_L_FIXED_G_L),
+    ), ds)
+    rows = []
+    for cond in ("metrics30", "metrics19"):
+        for key, va in a[cond]["variables"].items():
+            vb = b[cond]["variables"][key]
+            r2_ok = va["R2"] is None or vb["R2"] >= va["R2"] - SWAP_R2_MAINTAIN_TOL
+            rmse_ok = vb["RMSE"] <= va["RMSE"] * (1.0 + SWAP_RMSE_MAINTAIN_REL_TOL)
+            rows.append({"condition": a[cond]["condition"], "variable": key,
+                         "R2_A": va["R2"], "R2_B": vb["R2"], "RMSE_A": va["RMSE"], "RMSE_B": vb["RMSE"],
+                         "maintained_or_improved": bool(r2_ok and rmse_ok)})
+        for key, pa in a[cond]["points"].items():
+            pb = b[cond]["points"][key]
+            ok = abs(pb["abs_error"]) <= abs(pa["abs_error"]) * (1.0 + SWAP_RMSE_MAINTAIN_REL_TOL)
+            rows.append({"condition": a[cond]["condition"], "variable": key,
+                         "R2_A": None, "R2_B": None, "RMSE_A": abs(pa["abs_error"]), "RMSE_B": abs(pb["abs_error"]),
+                         "maintained_or_improved": bool(ok)})
+    criteria = {
+        "cond_improves": bool(b["identifiability"]["condition_number"] < a["identifiability"]["condition_number"]),
+        "metrics_maintained_or_improved": all(r["maintained_or_improved"] for r in rows),
+        "no_parameter_at_or_near_bound": not b["params_at_or_near_bound"],
+    }
+    return {
+        "scenario_a": a,
+        "scenario_b": b,
+        "metric_comparison": rows,
+        "metrics_worsened": [(r["condition"], r["variable"]) for r in rows if not r["maintained_or_improved"]],
+        "criteria": criteria,
+        "adopt_scenario_b": all(criteria.values()),
+    }
+
+
 def calibration_cost(kinetics: CHOKineticParameters = CALIBRATED_KINETICS, dataset: dict | None = None) -> float:
     """0.5 * sum of squared weighted residuals (least_squares cost) for ``kinetics``."""
     ds = dataset or load_bionova_reference_dataset()

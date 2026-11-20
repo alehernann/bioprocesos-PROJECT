@@ -419,6 +419,21 @@ def test_oq_03g_bionova_validation_fit_and_oos():
     for key, point in m19["points"].items():
         assert point["within_2sigma"], (key, point["abs_error"])
 
+    # Identifiability-guided swap (audit Ajuste 2): K_I_L fixed at 10 g/L, m_G free in
+    # [0.03, 0.25]. The documented outcome is evaluated, not forced: B improves cond(J)
+    # and triggers the < 2 g/L rule on day 12, but pushes mu_max(34) onto its upper
+    # bound and worsens the lactate fit, so the adoption rule keeps scenario A.
+    swap = mv.compare_k_i_l_m_g_swap(dataset=ds)
+    a, b = swap["scenario_a"], swap["scenario_b"]
+    assert b["identifiability"]["condition_number"] < a["identifiability"]["condition_number"]
+    assert "m_glucose" in b["identifiability"]["identifiable"]
+    assert b["params_at_or_near_bound"] == ["mu_max_34_0"]
+    assert a["g_pre_feed_min"] >= 2.0 and a["glucose_topup_days"] == []
+    assert b["g_pre_feed_min"] < 2.0 and b["glucose_topup_days"] == [12.0]
+    assert ("stratyx_30_W_m3", "lactate_g_L") in swap["metrics_worsened"]
+    assert swap["adopt_scenario_b"] is False
+    assert a["cost"] == pytest.approx(cal["cost"], rel=1e-9)
+
 
 def test_oq_03h_slider_domain_physical_stability():
     """Every corner of the Streamlit slider domain integrates to a finite, physical result in < 0.25 s.
