@@ -18,6 +18,11 @@ law at 0.25 L or 2 L is an extrapolation outside the scales A-Mab fitted.
 Measured kLa by scale (A-Mab Table 3.22, p.105) is in ``AMAB_MEASURED_KLA_H_INV``.
 The calculator presets and the bioreactor twin use these measured values
 (``measured_kla_for_volume``); the correlation is used only for custom Vs and P/V.
+
+v1.4.0 adds the inlet-gas O2 mole fraction (``Y_O2_AIR``, ``C_STAR_PURE_O2_MMOL_L``
+and the ``o2_mole_fraction`` argument of ``compute_scale_up_engineering``) so that
+pure-O2 enrichment of the sparge gas can be represented. The default is air, and
+``evaluate_amab_design_space`` is unchanged.
 """
 
 
@@ -188,6 +193,12 @@ KLA_EXP_PV = 0.194          # exponent on P/V (W/m3), A-Mab Eq. 4 form
 C_STAR_O2_MMOL_L = 0.210    # mmol/L O2 at air saturation; modeling assumption (not calibrated)
 Q_O2_MMOL_CELL_H = 1.0e-10  # mmol O2/(cell*h) specific oxygen uptake rate
 AMAB_REF_VS_M_S = 0.015     # m/s, A-Mab 15,000 L reference superficial gas velocity
+# O2 mole fraction of air and the liquid saturation reached with pure O2 in the inlet
+# gas (Henry's law: C* is proportional to the O2 partial pressure, so
+# C*(y) = C*_air * y / 0.2095). Pure-O2 enrichment of the sparge gas is how A-Mab
+# (Fig. 3.12) and Stratyx hold DO at high cell density (v1.4.0).
+Y_O2_AIR = 0.2095                                   # mol O2 / mol dry air
+C_STAR_PURE_O2_MMOL_L = C_STAR_O2_MMOL_L / Y_O2_AIR  # ~1.0024 mmol/L at y_O2 = 1.0
 
 # Measured kLa (1/h) per scale, A-Mab Table 3.22 (p.105). 2 L is the standard
 # scale-down model (10 h^-1; the 2 L characterisation spans 8-17 h^-1); 25,000 L is
@@ -239,6 +250,7 @@ def compute_scale_up_engineering(
     qo2_mmol_cell_h: float = Q_O2_MMOL_CELL_H,
     do_percent: float = 30.0,
     measured_kla_h_inv: float | None = None,
+    o2_mole_fraction: float = Y_O2_AIR,
 ) -> dict:
     """Compute oxygen-transfer scale-up engineering parameters.
 
@@ -285,15 +297,34 @@ def compute_scale_up_engineering(
     assumption, not calibrated) and
     driving_force = C* * max(0, 1 - do_percent/100), so OTR = kLa * driving_force.
     At 30 % DO this equals the former fixed term 0.21 - 0.063 = 0.147 mmol/L.
+
+    INLET-GAS O2 MOLE FRACTION (v1.4.0)
+    -----------------------------------
+    ``o2_mole_fraction`` (y_O2) is the O2 mole fraction of the sparged gas. The
+    gas-side saturation follows Henry's law, C*_gas = C*_air * y_O2 / 0.2095, and
+
+        OTR = kLa * max(0, C*_gas - C*_air * do_percent / 100),
+
+    evaluated as kLa * C*_air * max(0, y_O2/0.2095 - do_percent/100). The default
+    y_O2 = Y_O2_AIR = 0.2095 (air) makes y_O2/0.2095 exactly 1.0, so every
+    air-only result (test_oq_01, test_oq_05b, test_oq_06b) is bit-for-bit
+    unchanged. y_O2 = 1.0 (pure O2) raises C*_gas to C_STAR_PURE_O2_MMOL_L
+    (~1.0024 mmol/L), the enrichment A-Mab used at high density (Fig. 3.12).
     """
+    if not (0.0 < o2_mole_fraction <= 1.0):
+        raise ValueError("o2_mole_fraction must be in (0, 1].")
     if measured_kla_h_inv is None:
         kla_h_inv = compute_kla_h_inv(superficial_gas_vel_m_s, power_per_vol_W_m3)
     else:
         kla_h_inv = float(measured_kla_h_inv)
     our_max_mmol_L_h = vcc_1e6_cells_mL * 1.0e9 * qo2_mmol_cell_h
 
-    # OTR = kLa * (C* - C_L) with C_L = C* * DO/100 (standard two-film driving force).
-    driving_force_mmol_L = C_STAR_O2_MMOL_L * max(0.0, 1.0 - (do_percent / 100.0))
+    # OTR = kLa * (C*_gas - C_L) with C_L = C*_air * DO/100 (two-film driving force)
+    # and C*_gas = C*_air * y_O2 / 0.2095 (Henry's law).
+    gas_saturation_ratio = o2_mole_fraction / Y_O2_AIR
+    driving_force_mmol_L = C_STAR_O2_MMOL_L * max(
+        0.0, gas_saturation_ratio - (do_percent / 100.0)
+    )
     otr_mmol_L_h = kla_h_inv * driving_force_mmol_L
     oxygen_sufficient = bool(otr_mmol_L_h >= our_max_mmol_L_h)
 
@@ -302,4 +333,6 @@ def compute_scale_up_engineering(
         "our_max_mmol_L_h": round(our_max_mmol_L_h, 2),
         "otr_mmol_L_h": round(otr_mmol_L_h, 2),
         "oxygen_sufficient": oxygen_sufficient,
+        "o2_mole_fraction": float(o2_mole_fraction),
+        "c_star_gas_mmol_L": round(C_STAR_O2_MMOL_L * gas_saturation_ratio, 4),
     }

@@ -11,26 +11,34 @@ This module provides:
    indicators and, when given an audit logger, record trips; they do not abort or
    release anything. The 1.52 m/s
    (5 ft/s) CIP pipe velocity criterion follows ASME BPE-2014.
-4. A mechanistic fed-batch simulation of CHO-K1 culture (viable/dead cells,
-   glucose, lactate, titer) with static and closed-loop feeding strategies. The
-   closed-loop adaptive feed follows the Ark Biotech & Culture Biosciences technical
-   bulletin (Quint et al., 2026), which reports a +43% titer gain (literature
-   value); this model is not calibrated to that value, and its emergent gain is
-   reported in simulate_cho_fed_batch (MEASURED VALUES). The micro-scale basis follows the Stratyx(TM) /
-   Bionova Scientific 2026 whitepaper.
+4. A mechanistic fed-batch simulation of CHO-K1 culture (v1.4.0): six biological
+   states (viable cells Xv, dead cells Xd, glucose G, lactate L, ammonium NH3,
+   titer P) plus the liquid volume V, integrated piecewise with
+   ``scipy.integrate.solve_ivp`` (RK45, rtol 1e-6, atol 1e-9, automatic Radau
+   fallback) between the discrete events (feed boluses and temperature shift).
+   Ten kinetic parameters are calibrated against the Bionova Stratyx NISTCHO
+   30 W/m3 run (``src/model_validation.py``) and fixed here as documented
+   constants. The closed-loop adaptive feed follows the Ark Biotech & Culture
+   Biosciences technical bulletin (Quint et al., 2026), which reports a +43 %
+   titer gain (literature value); this model is not calibrated to that value.
 
 References
 ----------
 - CMC Biotech Working Group, *A-Mab: A Case Study in Bioprocess Development*, v2.1, CASSS/ISPE, Oct. 2009.
+- R. Kulkarni et al., "STRATYX Delivers Superior Viable Cell Density ...", Culture Biosciences & Bionova Scientific Whitepaper, 2026.
 - Y. Quint et al., "Real-Time Closed-Loop Optimization Delivers 43% Titer Improvement...", Ark Biotech & Culture Biosciences Technical Bulletin, 2026.
 - ASME BPE-2014, *Bioprocessing Equipment: An International Standard*.
 """
 
+from dataclasses import dataclass, fields
+
 import numpy as np
+from scipy.integrate import solve_ivp
 
 from src.amab_design_space import (
     C_STAR_O2_MMOL_L,
     Q_O2_MMOL_CELL_H,
+    Y_O2_AIR,
     measured_kla_for_volume,
 )
 from src.models import ProcessDescription
@@ -185,8 +193,9 @@ def check_safety_interlocks(
     }
 
 
-# Initial working volume as a fraction of vessel_volume_L (30 % headroom for the
-# feed train). Module-level so validation can probe the capacity clamp.
+# Default initial working volume as a fraction of vessel_volume_L (30 % headroom for
+# the feed train). Same value as ProcessDescription.initial_fill_fraction's default;
+# the dashboard passes it explicitly. The twin reads config.initial_fill_fraction.
 INITIAL_FILL_FRACTION = 0.70
 
 # Identity used for events the system records automatically. These events execute
@@ -197,22 +206,283 @@ AUDIT_SYSTEM_USER = "system:bioreactor_twin"
 AUDIT_SYSTEM_ROLE = "AutomatedControl"
 
 
-# DO hypoxia response (v1.3.1 C0 fix). Monod in the effective DO normalised at
-# 20 % DO, so the factor is exactly 1.0 at and above 20 % and continuous below it.
-# The 20 % band is a modeling assumption (not calibrated); A-Mab ran production at
-# 30-70 % DO (Table 3.14) and used 20-70 % only in the N-1 seed (Table 3.7).
-# K_DO_PCT is NOT CALIBRATED.
-K_DO_PCT = 2.0               # % air saturation, Monod half-saturation for O2
-DO_HYPOXIA_NORM_PCT = 20.0   # % DO at which do_hypoxia_factor reaches 1.0
+# ---------------------------------------------------------------------------
+# Dissolved oxygen (v1.4.0): real liquid-phase DO from a quasi-steady O2 balance.
+# ---------------------------------------------------------------------------
+# The biological response depends ONLY on the real liquid DO (DO_real), never on the
+# set-point or on controller saturation. Monod in DO_real normalised at 15 % so the
+# factor is exactly 1.0 for DO_real >= 15 % and C0-continuous below it. The 15 % /
+# 10 % onsets and K_DO_PCT are modeling assumptions (NOT CALIBRATED; Bionova and A-Mab
+# ran at 30 % or more, so no hypoxia data exist in the project bibliography).
+K_DO_PCT = 1.5               # % air saturation, Monod half-saturation for O2
+DO_HYPOXIA_NORM_PCT = 15.0   # % DO_real at which do_hypoxia_factor reaches 1.0
+DO_DEATH_ONSET_PCT = 10.0    # % DO_real below which hypoxic death starts
 
 
-def do_hypoxia_factor(do_eff_pct: float) -> float:
-    """min(1, (DO/(DO + K_DO_PCT)) / (20/(20 + K_DO_PCT))): 1.0 for DO >= 20 %, C0-continuous."""
-    return min(
+def do_hypoxia_factor(do_real_pct: float) -> float:
+    """C0-continuous hypoxia factor on growth, productivity and lactate uptake.
+
+    f_do = min(1, [DO/(DO + K_DO_PCT)] / [15/(15 + K_DO_PCT)]) with DO = DO_real (%
+    air saturation). It is exactly 1.0 for DO_real >= 15 % and falls continuously
+    to 0 as DO_real -> 0 (f_do(10) = 0.957, f_do(5) = 0.846, f_do(1) = 0.440).
+    """
+    if do_real_pct >= DO_HYPOXIA_NORM_PCT:
+        return 1.0
+    do = max(0.0, float(do_real_pct))
+    return (do / (do + K_DO_PCT)) / (
+        DO_HYPOXIA_NORM_PCT / (DO_HYPOXIA_NORM_PCT + K_DO_PCT)
+    )
+
+
+def compute_dissolved_oxygen_state(
+    xv_1e6_cells_mL,
+    do_setpoint_pct: float,
+    kla_h_inv: float,
+    o2_enrichment_enabled: bool = True,
+    max_o2_mole_fraction: float = 1.0,
+    qo2_mmol_cell_h: float = Q_O2_MMOL_CELL_H,
+) -> dict:
+    """Quasi-steady liquid O2 balance under a DO controller with O2 enrichment.
+
+    O2 transfer (time constant 1/kLa ~ 6 min) is fast against the cell kinetics
+    (days), so the liquid concentration is algebraic in Xv:
+
+        OUR          = Xv * 1e9 * qO2                           [mmol/(L*h)]
+        y_O2,max     = max_o2_mole_fraction if enrichment else 0.2095
+        C*_max       = C*_air * y_O2,max / 0.2095               (Henry's law)
+        C_sp         = C*_air * DO_sp / 100
+        C_L,actual   = min(C_sp, max(0, C*_max - OUR / kLa))
+        DO_real      = 100 * C_L,actual / C*_air                [% air saturation]
+        required y_O2 = 0.2095 * (C_sp + OUR / kLa) / C*_air
+
+    The controller holds DO_sp while the blender can raise y_O2; when even y_O2,max
+    is not enough it saturates (``do_controller_saturated``) and DO_real falls
+    below the set-point. Saturation alone is not hypoxia: the biological factors
+    use DO_real only (``do_hypoxia_factor``; Pasteur deficit below 15 %, death
+    deficit below 10 %). ``oxygen_supply_ratio`` = min(1, kLa*(C*_max - C_sp)/OUR)
+    is the fraction of the demand that can be met while holding the set-point.
+
+    Accepts a scalar or an array of Xv; returns floats or arrays accordingly.
+    """
+    xv = np.maximum(np.asarray(xv_1e6_cells_mL, dtype=float), 0.0)
+    y_max = float(max_o2_mole_fraction) if o2_enrichment_enabled else Y_O2_AIR
+    c_star_max = C_STAR_O2_MMOL_L * y_max / Y_O2_AIR
+    c_sp = C_STAR_O2_MMOL_L * float(do_setpoint_pct) / 100.0
+    our = xv * 1.0e9 * qo2_mmol_cell_h
+    o2_gradient = our / float(kla_h_inv)
+    c_l = np.minimum(c_sp, np.maximum(0.0, c_star_max - o2_gradient))
+    do_real = 100.0 * c_l / C_STAR_O2_MMOL_L
+    saturated = c_l < c_sp - 1e-9
+    required_y = Y_O2_AIR * (c_sp + o2_gradient) / C_STAR_O2_MMOL_L
+    capacity = float(kla_h_inv) * max(0.0, c_star_max - c_sp)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = np.where(our > 0.0, np.minimum(1.0, capacity / np.where(our > 0.0, our, 1.0)), 1.0)
+    f_do = np.where(
+        do_real >= DO_HYPOXIA_NORM_PCT,
         1.0,
-        (do_eff_pct / (do_eff_pct + K_DO_PCT))
+        (do_real / (do_real + K_DO_PCT))
         / (DO_HYPOXIA_NORM_PCT / (DO_HYPOXIA_NORM_PCT + K_DO_PCT)),
     )
+    pasteur = np.maximum(0.0, (DO_HYPOXIA_NORM_PCT - do_real) / DO_HYPOXIA_NORM_PCT)
+    death = np.maximum(0.0, (DO_DEATH_ONSET_PCT - do_real) / DO_DEATH_ONSET_PCT)
+    out = {
+        "our_mmol_L_h": our,
+        "y_o2_max": y_max,
+        "c_star_max_mmol_L": c_star_max,
+        "c_setpoint_mmol_L": c_sp,
+        "c_l_actual_mmol_L": c_l,
+        "do_real_pct": do_real,
+        "do_controller_saturated": saturated,
+        "required_y_o2": required_y,
+        "oxygen_supply_ratio": ratio,
+        "f_do": f_do,
+        "pasteur_deficit": pasteur,
+        "hypoxic_death_deficit": death,
+    }
+    if np.ndim(xv_1e6_cells_mL) == 0:
+        out = {
+            k: (bool(v) if k == "do_controller_saturated" else float(v))
+            for k, v in out.items()
+        }
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Hydrodynamic stress inside the ODEs (v1.4.0, decoupled from the URS-09 alarm).
+# ---------------------------------------------------------------------------
+# check_safety_interlocks keeps the conservative alarm (P/V > 47.6 W/m3 OR sparge >
+# 0.15 vvm). The kinetic penalty is a separate, physically scaled term:
+# - Sparge (bubble rupture at the gas-liquid interface, Ark DT#1): onset 0.15 vvm
+#   (modeling assumption), sigma_sparge = max(0, (sparge - 0.15)/0.15).
+# - Impeller: A-Mab runs healthy cultures at up to 60 W/m3 local P/V (Table 3.22,
+#   per the v1.4.0 review) and mechanical damage needs P/V orders of magnitude
+#   above 47.6 W/m3 (A-Mab p.100 / Ma 2002). The onset is set one order of
+#   magnitude above the alarm, 476 W/m3, still below that damage range. It lies
+#   outside the schema domain (P/V <= 100 W/m3), so inside the qualified domain
+#   P/V has NO kinetic effect.
+SPARGE_STRESS_ONSET_VVM = 0.15
+IMPELLER_DAMAGE_ONSET_W_M3 = 476.0
+
+
+def compute_hydrodynamic_stress(power_density_W_m3: float, sparge_vvm: float) -> dict:
+    """Continuous shear intensity used by the kinetics (0.0 inside normal operation).
+
+    sigma_imp = max(0, (P/V - 476)/476), sigma_sparge = max(0, (sparge - 0.15)/0.15)
+    and sigma_total = sigma_imp + sigma_sparge + sigma_imp * sigma_sparge. kd gains
+    kd_shear * sigma_total and qp is divided by (1 + alpha_shear_qp * sigma_total).
+    """
+    sigma_imp = max(0.0, (float(power_density_W_m3) - IMPELLER_DAMAGE_ONSET_W_M3) / IMPELLER_DAMAGE_ONSET_W_M3)
+    sigma_sparge = max(0.0, (float(sparge_vvm) - SPARGE_STRESS_ONSET_VVM) / SPARGE_STRESS_ONSET_VVM)
+    return {
+        "sigma_impeller": sigma_imp,
+        "sigma_sparge": sigma_sparge,
+        "sigma_total": sigma_imp + sigma_sparge + sigma_imp * sigma_sparge,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Kinetic parameters (one law for every feeding mode).
+# ---------------------------------------------------------------------------
+# Units: Xv, Xd in 1e6 cells/mL (= 1e9 cells/L); specific rates per 1e9 cells, so
+# q [g/(1e9 cell*d)] * Xv [1e9 cell/L] = g/(L*d) with no extra factor.
+#
+# CALIBRATED (10 free parameters, scipy.optimize.least_squares "trf" against the
+# Bionova Stratyx 30 W/m3 daily pre-feed data; src/model_validation.py,
+# run_parameter_calibration). Values are the optimiser output; the bounds and
+# AT_BOUND flags are in PARAMETER_BOUNDS and docs/03.
+MU_MAX_36_5_PER_D = 0.832867   # 1/d, bounds [0.65, 0.95]
+MU_MAX_34_0_PER_D = 0.322098   # 1/d, bounds [0.10, 0.35]
+K_I_L = 5.01088                # g/L lactate inhibition on growth, bounds [5, 15] (near lower bound)
+G_BOOST_CONC = 76.4406         # g/L glucose in the Cell Boost 7a/7b feed, bounds [55, 85]
+X_MAX_1E6_ML = 42.6493         # 1e6 cells/mL logistic carrying capacity
+Q_LAC_MAX = 0.285600           # g/(1e9 cell*d) maximum lactate uptake
+Q_NH3 = 0.0582430              # mmol/(1e9 cell*d) ammonium production
+KD_NH3 = 0.0177939             # 1/d per mM of NH3 above NH3_DEATH_ONSET_MM
+QP_36_5 = 0.0150130            # g/(1e9 cell*d) specific productivity at 36.5 C
+QP_34_0 = 0.00888312           # g/(1e9 cell*d) specific productivity at 34.0 C
+# WHY qp(36.5 C) > qp(34.0 C) (empirical, v1.4.0 audit). Bionova Fig. 4 shows production
+# slowing late in the run: titer gained per IVCD is 0.0118 (days 0-8), 0.0108 (8-10),
+# 0.0084 (10-12) and 0.0028 g/(1e9 cell*d) (12-14) (digitized, no dilution correction).
+# In NISTCHO the 34 C phase moderated growth and NH3 and sustained viability; it did
+# not raise the instantaneous qp. With one run and one shift day, the temperature
+# anchors are the only term that can absorb that late slowdown, so the temperature
+# effect on qp is confounded with culture age and unmodeled nutrient depletion. A
+# shift-day sweep is therefore an extrapolation: with these anchors a later shift
+# always gives more titer, which no Bionova run has tested.
+
+# FIXED MODELING ASSUMPTIONS (NOT CALIBRATED). Either not identifiable from the
+# Bionova data (normoxic, glucose > 1 g/L, no shear or sparge excursions) or fixed
+# at round values in the CHO-typical range to keep the calibration at 10 free
+# parameters; see docs/03 (identifiability) for the data each one would need.
+K_S_G = 0.5                  # g/L glucose half-saturation (growth and maintenance)
+K_I_NH3 = 20.0               # mM ammonium inhibition constant on growth
+NH3_DEATH_ONSET_MM = 5.0     # mM, lower end of the ~5-8 mM physiological window
+Y_X_G = 3.0                  # (1e6 cells/mL) per (g/L) glucose = 3.0e9 cells/g
+M_G = 0.05                   # g/(1e9 cell*d) maintenance glucose uptake
+Y_L_G = 0.80                 # g lactate / g growth-associated glucose (stoich. max 1.0)
+K_L = 0.30                   # g/L half-saturation of lactate uptake
+KD_BASAL = 0.03              # 1/d basal death rate
+K_LYSIS = 1.0                # 1/d first-order lysis of dead cells
+KD_STARVE = 0.5              # 1/d extra death at full glucose exhaustion
+K_STARVE_G_L = 0.1           # g/L, Hill (n = 2) onset of starvation death
+KD_HYPOXIA = 0.1             # 1/d extra death at DO_real = 0
+PASTEUR_FRACTION = 0.8       # max fraction of maintenance glucose fermented at DO_real = 0
+KD_SHEAR = 0.03              # 1/d extra death per unit of sigma_total
+ALPHA_SHEAR_QP = 1.0         # qp / (1 + ALPHA_SHEAR_QP * sigma_total)
+
+T_ANCHORS_C = (34.0, 36.5)   # mu_max(T) and qp(T) are linear between the anchors
+
+
+@dataclass(frozen=True)
+class CHOKineticParameters:
+    """Complete parameter set of the v1.4.0 CHO kinetic law (immutable).
+
+    The defaults are the module constants above. ``src/model_validation.py``
+    builds modified copies (``dataclasses.replace``) during calibration; the
+    dashboard always uses ``CALIBRATED_KINETICS``.
+    """
+
+    mu_max_36_5: float = MU_MAX_36_5_PER_D
+    mu_max_34_0: float = MU_MAX_34_0_PER_D
+    k_i_lactate: float = K_I_L
+    g_boost_conc: float = G_BOOST_CONC
+    x_max: float = X_MAX_1E6_ML
+    q_lac_max: float = Q_LAC_MAX
+    q_nh3: float = Q_NH3
+    kd_nh3: float = KD_NH3
+    qp_36_5: float = QP_36_5
+    qp_34_0: float = QP_34_0
+    k_s_glucose: float = K_S_G
+    k_i_nh3: float = K_I_NH3
+    nh3_death_onset: float = NH3_DEATH_ONSET_MM
+    y_x_glucose: float = Y_X_G
+    m_glucose: float = M_G
+    y_lac_glucose: float = Y_L_G
+    k_lac_uptake: float = K_L
+    kd_basal: float = KD_BASAL
+    k_lysis: float = K_LYSIS
+    kd_starvation: float = KD_STARVE
+    k_starvation: float = K_STARVE_G_L
+    kd_hypoxia: float = KD_HYPOXIA
+    pasteur_fraction: float = PASTEUR_FRACTION
+    kd_shear: float = KD_SHEAR
+    alpha_shear_qp: float = ALPHA_SHEAR_QP
+
+    def as_dict(self) -> dict:
+        return {f.name: getattr(self, f.name) for f in fields(self)}
+
+
+CALIBRATED_KINETICS = CHOKineticParameters()
+
+# Free parameters of run_parameter_calibration and their bounds. The first four
+# bounds are the literature bounds of the v1.4.0 specification; the others are
+# physical sign/magnitude limits.
+CALIBRATED_PARAMETER_NAMES = (
+    "mu_max_36_5", "mu_max_34_0", "k_i_lactate", "g_boost_conc", "x_max",
+    "q_lac_max", "q_nh3", "kd_nh3", "qp_36_5", "qp_34_0",
+)
+PARAMETER_BOUNDS = {
+    "mu_max_36_5": (0.65, 0.95),
+    "mu_max_34_0": (0.10, 0.35),
+    "k_i_lactate": (5.0, 15.0),
+    "g_boost_conc": (55.0, 85.0),
+    "x_max": (20.0, 60.0),
+    "q_lac_max": (0.0, 1.0),
+    "q_nh3": (0.0, 0.3),
+    "kd_nh3": (0.0, 0.2),
+    "qp_36_5": (0.0, 0.05),
+    "qp_34_0": (0.0, 0.05),
+    # Extended screening and the K_I,L -> m_G swap experiment only (fixed in the
+    # shipped calibration). m_G bounds: CHO physiological range (v1.4.0 audit).
+    "y_x_glucose": (0.5, 6.0),
+    "m_glucose": (0.03, 0.25),
+    "y_lac_glucose": (0.0, 1.0),
+    "kd_basal": (0.0, 0.1),
+    "k_lysis": (0.0, 3.0),
+    "k_i_nh3": (2.0, 60.0),
+}
+
+# ---------------------------------------------------------------------------
+# Fed-batch protocol constants (Bionova, Ref. 2, pp. 3-4; Ark, Ref. 3).
+# ---------------------------------------------------------------------------
+FEED_DAYS = (2.0, 4.0, 6.0, 8.0, 10.0, 12.0)
+BOOST_FRACTION_OF_V0 = 0.042 + 0.0042     # 4.2 % Cell Boost 7a + 0.42 % 7b of V0
+ARK_ADAPTIVE_FACTORS = {8.0: 1.80, 10.0: 1.82}  # closed_loop only ("up to 82%")
+C_STOCK_GLUCOSE_G_L = 500.0               # concentrated glucose stock for top-ups
+# Initial state: Xv0 = 0.7e6 cells/mL (Bionova inoculum), viability 99.0 %
+# (Xd0 = 0.007), G0 = 6.0 g/L, L0 = 0.10 g/L, NH3_0 = 0.5 mM, P0 = 0.
+INITIAL_STATE = (0.7, 0.007, 6.0, 0.10, 0.5, 0.0)
+STATE_NAMES = ("Xv", "Xd", "G", "L", "NH3", "Titer")
+
+GRID_DT_DAYS = 0.1                 # reporting grid of the time series
+SOLVER_RTOL = 1e-6
+SOLVER_ATOL = 1e-9
+MAX_RHS_EVALS_PER_SEGMENT = 6000   # RK45 budget before switching to Radau
+_EPS = 1e-9
+
+
+class _SolverBudgetExceeded(RuntimeError):
+    """RK45 used more RHS evaluations than MAX_RHS_EVALS_PER_SEGMENT (stiffness)."""
 
 
 def _audit_event(audit_logger, parameter_name, old_value, new_value, reason) -> None:
@@ -228,549 +498,454 @@ def _audit_event(audit_logger, parameter_name, old_value, new_value, reason) -> 
     )
 
 
-def simulate_cho_fed_batch(config: ProcessDescription, audit_logger=None) -> dict:
-    """Simulate a CHO-K1 fed-batch culture under static or closed-loop feeding.
+def _interp_temperature(temp_C: float, at_34: float, at_36_5: float) -> float:
+    """Linear in T between the 34.0 and 36.5 C anchors, clamped (no extrapolation)."""
+    return float(np.interp(temp_C, T_ANCHORS_C, (at_34, at_36_5)))
+
+
+def _build_rhs(kp: CHOKineticParameters, temp_C: float, do_setpoint_pct: float,
+               kla_h_inv: float, y_o2_max: float, sigma_shear: float):
+    """Right-hand side of the 6-state ODE at constant temperature (one segment).
+
+    Every state is read through max(0, .) (soft positivity for trial RK stages) and
+    every consumption rate carries a Monod factor, so it vanishes as C -> 0+.
+    """
+    mu_max = _interp_temperature(temp_C, kp.mu_max_34_0, kp.mu_max_36_5)
+    qp = _interp_temperature(temp_C, kp.qp_34_0, kp.qp_36_5)
+    mu_ref = kp.mu_max_36_5
+    inv_mu_ref = 1.0 / mu_ref if mu_ref > 0.0 else 0.0
+    k_s = kp.k_s_glucose
+    k_il = kp.k_i_lactate
+    k_in = kp.k_i_nh3
+    inv_xmax = 1.0 / kp.x_max
+    n_crit = kp.nh3_death_onset
+    kd0 = kp.kd_basal + kp.kd_shear * sigma_shear
+    kd_st = kp.kd_starvation
+    k_st2 = kp.k_starvation * kp.k_starvation
+    kd_n = kp.kd_nh3
+    kd_hyp = kp.kd_hypoxia
+    k_lys = kp.k_lysis
+    inv_yxg = 1.0 / kp.y_x_glucose
+    m_g = kp.m_glucose
+    y_lg = kp.y_lac_glucose
+    pasteur = kp.pasteur_fraction
+    q_lmax = kp.q_lac_max
+    k_l = kp.k_lac_uptake
+    q_n = kp.q_nh3
+    qp_eff = qp / (1.0 + kp.alpha_shear_qp * sigma_shear)
+    # Oxygen balance constants (see compute_dissolved_oxygen_state).
+    c_max = C_STAR_O2_MMOL_L * y_o2_max / Y_O2_AIR
+    c_sp = C_STAR_O2_MMOL_L * do_setpoint_pct / 100.0
+    o2_per_xv = 1.0e9 * Q_O2_MMOL_CELL_H / kla_h_inv   # mmol/L per (1e6 cells/mL)
+    do_per_c = 100.0 / C_STAR_O2_MMOL_L
+    inv_norm = (DO_HYPOXIA_NORM_PCT + K_DO_PCT) / DO_HYPOXIA_NORM_PCT
+
+    def rhs(t, y):
+        xv = y[0] if y[0] > 0.0 else 0.0
+        xd = y[1] if y[1] > 0.0 else 0.0
+        g = y[2] if y[2] > 0.0 else 0.0
+        lac = y[3] if y[3] > 0.0 else 0.0
+        nh3 = y[4] if y[4] > 0.0 else 0.0
+        c_l = c_max - xv * o2_per_xv
+        if c_l > c_sp:
+            c_l = c_sp
+        elif c_l < 0.0:
+            c_l = 0.0
+        do_real = c_l * do_per_c
+        if do_real >= DO_HYPOXIA_NORM_PCT:
+            f_do = 1.0
+            h_pasteur = 0.0
+            h_death = 0.0
+        else:
+            f_do = do_real / (do_real + K_DO_PCT) * inv_norm
+            h_pasteur = (DO_HYPOXIA_NORM_PCT - do_real) / DO_HYPOXIA_NORM_PCT
+            h_death = (DO_DEATH_ONSET_PCT - do_real) / DO_DEATH_ONSET_PCT if do_real < DO_DEATH_ONSET_PCT else 0.0
+        f_g = g / (k_s + g)
+        logistic = 1.0 - xv * inv_xmax
+        if logistic < 0.0:
+            logistic = 0.0
+        mu = mu_max * f_g * (k_il / (k_il + lac)) * (k_in / (k_in + nh3)) * logistic * f_do
+        nh3_excess = nh3 - n_crit
+        if nh3_excess < 0.0:
+            nh3_excess = 0.0
+        kd = kd0 + kd_st * k_st2 / (k_st2 + g * g) + kd_n * nh3_excess + kd_hyp * h_death
+        growth_glc = mu * inv_yxg
+        maint_glc = m_g * f_g
+        phi = mu * inv_mu_ref
+        if phi > 1.0:
+            phi = 1.0
+        q_lac_prod = y_lg * growth_glc + pasteur * h_pasteur * maint_glc
+        q_lac_cons = q_lmax * (1.0 - phi) * (lac / (k_l + lac)) * f_do
+        return [
+            (mu - kd) * xv,
+            kd * xv - k_lys * xd,
+            -(growth_glc + maint_glc) * xv,
+            (q_lac_prod - q_lac_cons) * xv,
+            q_n * xv,
+            qp_eff * f_do * xv,
+        ]
+
+    return rhs
+
+
+def _euler_segment(rhs, t_a, t_b, y0, t_out, dt):
+    """Explicit Euler with positivity clipping (the v1.3.2 integrator, verification only)."""
+    y = np.array(y0, dtype=float)
+    t = t_a
+    out = []
+    for tk in t_out:
+        while t < tk - 1e-12:
+            h = min(dt, tk - t)
+            y = np.maximum(0.0, y + h * np.asarray(rhs(t, y), dtype=float))
+            t += h
+        t = tk
+        out.append(y.copy())
+    return np.array(out).T
+
+
+def _integrate_segment(rhs, t_a, t_b, y0, t_out, method, rtol, atol, euler_dt):
+    """Integrate one event-free segment; RK45 falls back to Radau on failure/stiffness."""
+    if method == "Euler":
+        return _euler_segment(rhs, t_a, t_b, y0, t_out, euler_dt), {
+            "method": "Euler", "nfev": 0, "fallback": False, "reason": ""}
+    calls = [0]
+
+    def counted(t, y):
+        calls[0] += 1
+        if calls[0] > MAX_RHS_EVALS_PER_SEGMENT:
+            raise _SolverBudgetExceeded
+        return rhs(t, y)
+
+    reason = ""
+    try:
+        sol = solve_ivp(counted, (t_a, t_b), y0, method=method, rtol=rtol, atol=atol, t_eval=t_out)
+        if sol.success:
+            return sol.y, {"method": method, "nfev": int(sol.nfev), "fallback": False, "reason": ""}
+        reason = str(sol.message)
+    except _SolverBudgetExceeded:
+        reason = f"more than {MAX_RHS_EVALS_PER_SEGMENT} RHS evaluations (stiff)"
+    if method == "Radau":
+        raise RuntimeError(f"Radau failed on [{t_a}, {t_b}] d: {reason}")
+    sol = solve_ivp(rhs, (t_a, t_b), y0, method="Radau", rtol=rtol, atol=atol, t_eval=t_out)
+    if not sol.success:
+        raise RuntimeError(f"RK45 and Radau failed on [{t_a}, {t_b}] d: {sol.message}")
+    return sol.y, {"method": "Radau", "nfev": int(sol.nfev), "fallback": True, "reason": reason}
+
+
+def _state_dict(state, volume_L: float) -> dict:
+    xv, xd, g, lac, nh3, titer = (float(v) for v in state)
+    total = xv + xd
+    return {
+        "Xv": xv, "Xd": xd, "G": g, "L": lac, "NH3": nh3, "Titer": titer, "V": float(volume_L),
+        "viability_pct": 100.0 * xv / total if total > 0.0 else 0.0,
+    }
+
+
+def simulate_cho_fed_batch(
+    config: ProcessDescription,
+    audit_logger=None,
+    *,
+    kinetics: CHOKineticParameters | None = None,
+    method: str = "RK45",
+    rtol: float = SOLVER_RTOL,
+    atol: float = SOLVER_ATOL,
+    euler_dt: float = GRID_DT_DAYS,
+) -> dict:
+    """Simulate a CHO-K1 fed-batch culture (v1.4.0 six-state mechanistic model).
 
     When ``audit_logger`` (an ``AuditTrailLogger``) is given, the run appends the
     automatic temperature set-point shift (URS-02) and every glucose top-up with
     V_gluc > 0 (URS-07) to the audit trail. Logging only reads the state; the
     returned results are identical with and without a logger.
 
-    State vector: viable cell density Xv (1e6 cells/mL), dead cell density Xd,
-    glucose G (g/L), lactate L (g/L), and titer (g/L). Integrated with an explicit
-    Euler scheme at dt = 0.1 d (duration_days / dt + 1 points; 141 at the default
-    14 d). The pH set-point and deadband have no kinetic effect.
+    STATES: Xv, Xd (1e6 cells/mL), G (g/L), L (g/L), NH3 (mmol/L), P = titer (g/L)
+    and the liquid volume V (L), which only changes at feed events.
 
-    UNIFIED KINETIC LAW (v1.2.0)
-    ----------------------------
-    Growth, death and productivity follow ONE law for both feeding strategies. They
-    depend only on the state (G, L, Xv), the temperature setpoint T, the continuous
-    shear intensity sigma_shear and the DO coupling (f_do, DO_eff, supply ratio).
-    Differences in titer and viability between strategies emerge only from
-    the feed trajectories and the resulting G(t) and L(t).
+    ONE KINETIC LAW for every mode. ``config.mode`` is read only in the feed-dosing
+    block; it never enters mu, kd, qp, q_G, q_L or q_NH3. T is the set-point
+    schedule (36.5 -> 34.0 C at temp_shift_day); mu_max(T) and qp(T) are linear
+    between the 34.0 and 36.5 C anchors and clamped.
 
-    Temperature dependence (T from the biphasic setpoint schedule): mu_max(T) and
-    qp(T) are linearly interpolated between the anchors 34.0 C and 36.5 C and
-    clamped to that range (anchor values are modeling assumptions, not calibrated):
-        - mu_max: 0.12 1/d at 34.0 C, 0.58 1/d at 36.5 C;
-        - qp:     0.0185 at 34.0 C, 0.0115 at 36.5 C [g/(1e9 cell*d)].
+        mu    = mu_max(T) * G/(K_S_G+G) * K_I_L/(K_I_L+L) * K_I_NH3/(K_I_NH3+NH3)
+                * max(0, 1 - Xv/X_MAX) * f_do(DO_real)
+        kd    = KD_BASAL + KD_STARVE * K_st^2/(K_st^2+G^2) + KD_NH3 * max(0, NH3-NH3_crit)
+                + KD_HYPOXIA * max(0, (10 - DO_real)/10) + KD_SHEAR * sigma_total
+        dXv/dt = (mu - kd) * Xv
+        dXd/dt = kd * Xv - K_LYSIS * Xd
+        q_G    = mu/Y_X_G + M_G * G/(K_S_G+G);                   dG/dt = -q_G * Xv
+        q_Lp   = Y_L_G * mu/Y_X_G + PASTEUR * h_P(DO_real) * M_G * G/(K_S_G+G)
+        q_Lc   = Q_LAC_MAX * (1 - mu/mu_max(36.5)) * L/(K_L+L) * f_do(DO_real)
+        dL/dt  = (q_Lp - q_Lc) * Xv
+        dNH3/dt = Q_NH3 * Xv
+        dP/dt  = qp(T) * f_do(DO_real) / (1 + ALPHA_SHEAR_QP * sigma_total) * Xv
 
-    Growth:
-        mu = mu_max(T) * G/(G+K_S_G) * K_I_L/(L+K_I_L) * (1 - Xv/X_MAX)
-        with K_S_G = 0.5 g/L, K_I_L = 2.5 g/L, X_MAX = 26.0 (1e6 cells/mL).
-        dXv/dt = (mu - kd)*Xv ; dXd/dt = kd*Xv
+    Lactate switch: production follows the growth-associated glycolytic flux
+    (overflow, Y_L_G of mu/Y_X_G) and uptake is repressed in proportion to the
+    fraction of maximal growth mu/mu_max(36.5). While cells grow fast lactate
+    accumulates; when mu falls (density limitation, NH3, T shift) uptake is
+    de-repressed and lactate is reconsumed. The switch is set by the state
+    (Xv, G, L, NH3) through mu, not by the calendar or the T step.
 
-    Cell death:
-        kd = KD_BASE + KD_STARVE*K_S_G/(K_S_G+G) + KD_LAC*max(0, L - L_TOX)
-             + KD_SHEAR*sigma_shear
-        KD_BASE = 0.008 1/d, KD_STARVE = 0.02 1/d (reached as G -> 0),
-        KD_LAC = 0.02 1/d per g/L, L_TOX = 1.0 g/L, KD_SHEAR = 0.03 1/d.
-        KD_STARVE replaces the old static-only late-culture step (0.018 + 0.0095
-        vs the 0.008 closed-loop basal, a difference of about 0.02 1/d). Death is
-        now driven by glucose exhaustion instead of by calendar time or by mode.
-        These death constants are model assumptions and still need fitting to
-        experimental viability data.
+    DISSOLVED OXYGEN: ``compute_dissolved_oxygen_state`` (quasi-steady balance with
+    O2 enrichment up to ``max_o2_mole_fraction``). kLa is the measured A-Mab Table
+    3.22 value of the column immediately below the vessel volume (<2 L: the 2 L
+    value as proxy). f_do, the Pasteur deficit h_P = max(0, (15 - DO_real)/15)
+    and the death deficit depend only on DO_real.
 
-    Hydrodynamic shear (v1.3.0, continuous in P/V and sparge):
-        sigma_imp    = max(0, (P/V - 47.6) / 47.6)
-        sigma_sparge = max(0, (sparge - 0.15) / 0.15)
-        sigma_shear  = sigma_imp + sigma_sparge + sigma_imp * sigma_sparge
-        sigma_shear is exactly 0.0 at or below both thresholds (nominal P/V 30,
-        sparge 0.10) and grows when either source exceeds its threshold. It adds
-        KD_SHEAR * sigma_shear to kd and divides qp by (1 + ALPHA_SHEAR_QP *
-        sigma_shear). It replaces the former step penalty (kd + 0.03 and fPV = 0.63
-        only when P/V > 47.6 AND sparge > 0.15).
+    HYDRODYNAMIC STRESS: ``compute_hydrodynamic_stress`` (sparge above 0.15 vvm;
+    impeller only above 476 W/m3, outside the schema domain). The 47.6 W/m3
+    alarm of check_safety_interlocks is independent of the kinetics.
 
-    Dissolved oxygen: kLa_eff = measured_kla_for_volume(vessel_volume_L), the measured
-        kLa of A-Mab Table 3.22 (p.105) for the column immediately below the vessel
-        volume (2 L 10, 500 L 8, 1,000 L 10, 5,000 L 10, 15,000 L 20, 25,000 L 20
-        h^-1; above 25,000 L, 20 is an extrapolation). Below 2 L (0.25 L Bionova,
-        190 mL) the 2 L standard scale-down value 10 h^-1 is a proxy (MODELING
-        ASSUMPTION). P/V no longer changes the O2 supply; it acts only through fPV
-        and the shear term. C* = 0.210 mmol/L (air only, no pure-O2 enrichment) and
-        qO2 = 1.0e-10 mmol/(cell*h) are modeling assumptions without a source;
-        OTR_cap = kLa_eff * C* * max(0, 1 - DO/100)        [mmol/(L*h)]
-        OUR     = Xv * 1e9 * Q_O2_MMOL_CELL_H              [mmol/(L*h)]
-        ratio   = min(1, OTR_cap / OUR); DO_eff = DO * ratio
-        Always applied, C0-continuous (no branch):
-        f_do = min(1, (DO_eff/(DO_eff+2))/(20/22)) * ratio (exactly 1 at DO_eff >= 20
-        with ratio = 1); Y_L/G *= 1 + 0.8 * max(0, (20 - DO_eff)/20); kd +=
-        KD_HYPOXIA * (max(0, (15 - DO_eff)/15) + max(0, (0.85 - ratio)/0.85)),
-        exactly 0 at both thresholds. f_do multiplies mu and qp. The DO set-point is ProcessDescription.do_setpoint_pct.
+    NUMERICS: [0, duration] is split at every feed day (< duration) and at
+    temp_shift_day; each segment is integrated with solve_ivp RK45 (rtol 1e-6,
+    atol 1e-9). If RK45 fails or exceeds MAX_RHS_EVALS_PER_SEGMENT the segment is
+    re-integrated with Radau. ``method="Radau"`` or ``method="Euler"`` (explicit,
+    step ``euler_dt``) are available for verification (check_numerical_convergence).
 
-    Titer:
-        dTiter/dt = qp(T) * f_do * f_shear_qp * fPV * Xv * TITER_UNIT_CONV,
-        f_shear_qp = 1 / (1 + ALPHA_SHEAR_QP * sigma_shear) (fPV applied once).
+    FEEDS (days 2, 4, 6, 8, 10, 12 that are < duration; none at harvest):
+        static:      v_basal = 0.0462 * V0; pre-feed glucose rule only if
+                     config.glucose_feedback_in_static (the Bionova protocol);
+        closed_loop: v_basal = 0.0462 * V0 * {1.80 day 8, 1.82 day 10, else 1}
+                     plus the pre-feed glucose rule.
+    Glucose rule (URS-07), armed when mode == "closed_loop" or
+    glucose_feedback_in_static: if G_pre < glucose_min_threshold_g_L (or the
+    post-bolus G is), a 500 g/L stock top-up brings G exactly to
+    glucose_refill_target_g_L after the bolus. Both volumes are scaled together if they exceed the free
+    vessel volume (``bolus_clipped_alarm``), so V(t) <= vessel_volume_L. Every
+    bolus is an exact mass balance: C_new = C * V_old / V_new for Xv, Xd, L, NH3
+    and P (the feed contains none of them) and
+    G_new = (G * V_old + v_basal * G_BOOST_CONC + v_gluc * 500) / V_new.
 
-    Power/volume factor ``fPV``: 1.08 for P/V >= 30 W/m^3, 1.00 for P/V <= 19,
-    linear interpolation between 19 and 30. Shear damage is no longer folded into
-    fPV; it acts only through sigma_shear.
+    OUTPUTS: time series on a 0.1 d grid (the value at a feed day is the
+    post-bolus state), ``daily_pre_feed`` (state exactly before the bolus at each
+    integer day 0..duration, the timing of the Bionova sampling), DO diagnostics,
+    feed events, solver diagnostics and summary metrics.
 
-    GLUCOSE UPTAKE (specific, g/(1e9 cell*d)):
-        q_G(G, T) = mu(G, T, ...)/Y_X_G + M_G*G/(G + K_G_UPTAKE)
-        The growth term carries the Monod factor G/(G+0.5) and mu_max(T) through mu;
-        the maintenance term has its own Monod factor (K_G_UPTAKE = 0.5 g/L), so the
-        uptake falls smoothly to zero as glucose is exhausted. Volumetric uptake is
-        q_G * Xv.
-
-    LACTATE DYNAMICS (v1.3.1, mechanistic and continuous; no G window, no time
-    switch, identical for both feeding strategies; T is the instantaneous T(t)):
-        q_L,prod(G, T)    = Y_L_G(T) * q_G(G, T)
-        Y_L_G(T)          = linear in T between 0.03 g/g at 34.0 C and 0.18 g/g at
-                            36.5 C, clamped to that range
-        q_L,cons(G, L, T) = q_L,cons,max(T) * L/(L + K_L) * K_I_G/(K_I_G + G)
-                            * (f_basal + (1 - f_basal) * G/(G + K_anap))
-        q_L,cons,max(T)   = linear in T between 0.045 at 34.0 C and 0.008 at 36.5 C
-                            [g/(1e9 cell*d)]
-        dL/dt             = (q_L,prod - q_L,cons) * Xv
-    K_L = 0.35 g/L, K_I_G = 4.5 g/L, f_basal = 0.05, K_anap = 0.60 g/L. The
-    Crabtree factor represses uptake when glucose is abundant; the anaplerotic
-    factor keeps uptake low when glucose is exhausted (5 % basal at G = 0); the
-    Monod factor L/(L + K_L) drives q_L,cons to 0 as L -> 0, so
-    L stays >= 0 by formulation (max(0, .) is only a numerical safety net). Every
-    feed bolus dilutes lactate exactly: L_new = L * V_old / V_new.
-
-    Substrate / lactate yield constants (biomass and glycolysis bookkeeping):
-        - Y_X_G    = 1.80 (1e6 cells/mL) biomass yield per g/L glucose consumed;
-        - M_G      = 0.175 g/L per (1e6 cells/mL * d) maintenance glucose draw;
-        - K_G_UPTAKE = 0.5 g/L Monod half-saturation of the maintenance draw;
-        - Y_L_G anchors: 0.18 g/g at 36.5 C, 0.03 g/g at 34.0 C;
-        - q_L,cons,max anchors: 0.008 at 36.5 C, 0.045 at 34.0 C g/(1e9 cell*d);
-          K_L = 0.35 g/L, K_I_G = 4.5 g/L, f_basal = 0.05, K_anap = 0.60 g/L
-          (all uncalibrated, see constants);
-        - TITER_UNIT_CONV = 1.0: qp in g/(1e9 cell*d) times Xv in 1e6 cells/mL gives
-          g/(L*d); the 1e-9 and 1e9 factors cancel exactly.
-
-    VARIABLE-VOLUME FED-BATCH BALANCE (liquid volume V as a state variable)
-    -----------------------------------------------------------------------
-    Liquid volume V (L) is tracked dynamically from V_0 = INITIAL_FILL_FRACTION *
-    vessel_volume_L = 0.70 * vessel_volume_L (v1.3.0), leaving 30 % headroom for
-    the fed-batch bolus train. At every feed event the requested base bolus and
-    glucose top-up are scaled together by
-    scale_factor = min(1, (vessel_volume_L - V) / (v_basal + v_gluc)), so
-    V(t) <= vessel_volume_L always. Each event is recorded in ``feed_events``; if
-    any bolus is cut, ``bolus_clipped_alarm`` is True (with ``n_bolus_clipped`` and
-    ``clipped_volume_L``).
-    At each feed-event crossing of days 2, 4, 6, 8, 10, 12 a feed volume is added
-    and all concentrations are diluted by the ratio V_actual / V_new:
-
-        - V_boost = (0.042 + 0.0042) * V_0 in "static" mode; in "closed_loop" the
-          same base is scaled by the Ark adaptive factor (1.80 on the day-8
-          crossing, 1.82 on the day-10 crossing, 1.0 otherwise). Ark reports feed
-          +80 % / +82 % versus the day-0 plan ("by day eight ... up to 82%").
-        - G_BOOST_CONC = 12.0 g/L: glucose content of the base feed media.
-
-    FEED SEQUENCE on crossing days 2, 4, 6, 8, 10, 12 (v1.2.0):
-        1. The Euler step is integrated first; its result is G_pre_feed.
-        2. Base bolus V_boost is requested; the post-bolus glucose would be
-           G_actual = (G_pre_feed*V_actual + V_boost*G_BOOST_CONC)/(V_actual + V_boost).
-        3. closed_loop only: if G_pre_feed < glucose_min_threshold_g_L or
-           G_actual < glucose_min_threshold_g_L (default 2.0; because
-           G_BOOST_CONC = 12 g/L is above the threshold, G_actual < threshold
-           implies G_pre_feed < threshold, so the rule is the pre-feed check of
-           URS-07), a top-up from the
-           C_stock = 500 g/L stock is sized to restore G exactly to
-           glucose_refill_target_g_L (default 5.0):
-           V_gluc = (V + V_boost) * (G_target - G_actual) / (C_stock - G_target).
-           In static mode V_gluc = 0.0.
-        4. Capacity clamp: both volumes are scaled together if they exceed the
-           headspace vessel_volume_L - V.
-        5. One exact dilution with the injected volumes:
-           C_new = C * V_old / V_new for Xv, Xd, L and Titer, and
-           G_new = (G_pre_feed*V_old + v_basal*G_BOOST_CONC + v_gluc*C_stock)/V_new.
-           Without the clamp this equals steps 2 and 3 applied in sequence.
-
-    ``config.mode`` is read ONLY in the feed-dosing block (adaptive bolus factor and
-    glucose top-up). Reported titers, viabilities and the closed-loop titer gain are
-    the real outputs of these equations and are not forced to hit any target band.
-
-    MEASURED VALUES (v1.3.1, defaults, DO 30 %, 14 d; titer, viability and lactate
-    are per unit volume and identical at 0.25 L and 2.0 L):
-        - static:      titer 1.0537 g/L, viability 80.54 %, L peak 1.2151 g/L
-                       (day 7.0), L final 0.8793 g/L, peak VCD 6.8310;
-        - closed_loop: titer 1.2189 g/L, viability 90.55 %, L peak 1.3425 g/L
-                       (day 7.0), L final 0.5842 g/L, peak VCD 8.1709;
-        - emergent titer gain +15.68 %, harvested-mass gain +24.80 %.
-        These are outputs of uncalibrated lactate, DO and shear parameters, not
-        predictions.
-
-    Returns the time series (``time_days``, ``vcd``, ``viability_pct``,
-    ``glucose_g_L``, ``lactate_g_L``, ``titer_g_L``, ``temp_C``, ``volume_L``) and
-    the summary metrics ``final_titer_g_L``, ``final_viability_pct``, ``peak_vcd``,
-    ``harvested_mass_g`` (= final_titer_g_L * final_volume_L) and
-    ``total_feed_volume_L`` (= final_volume_L - V_0).
+    MEASURED VALUES (v1.4.0, calibrated constants, DO 30 %, O2 enrichment on, 0.70
+    fill; concentrations are identical at 0.25 L and 2.0 L):
+        - static, 14 d:      titer 1.9915 g/L, viability 88.22 %, peak VCD 23.96,
+                             NH3 11.68 mM, lactate peak 1.341 g/L on day 5.0;
+        - closed_loop, 14 d: titer 1.9243 g/L, viability 88.98 %, peak VCD 23.68,
+                             NH3 11.32 mM; titer -3.37 % (dilution by the Ark
+                             boluses), harvested mass +2.29 %, viability +0.76 pp;
+        - 21 d (no feed after day 12): static 2.4946 g/L / 34.41 %, closed_loop
+          2.7265 g/L / 39.86 % (NH3 14.98 / 16.58 mM).
+        With the default 2 -> 5 g/L rule no top-up fires: the calibrated Cell
+        Boost glucose keeps pre-feed G >= 2 g/L on every feed day. These are model
+        outputs, not targets.
     """
-    # --- Documented substrate / lactate yield constants (v1.2.0) ---
-    Y_X_G = 1.80            # (1e6 cells/mL) biomass yield per g/L glucose consumed
-    M_G = 0.175             # g/L per (1e6 cells/mL * d) maintenance glucose draw
-    # Monod half-saturation for the maintenance glucose draw. Same value as the
-    # glucose Ks already used in the growth term mu, so both uptake terms saturate
-    # consistently and vanish smoothly as G -> 0.
-    K_G_UPTAKE = 0.5        # g/L
-    # --- Mechanistic lactate kinetics (v1.3.1) ---
-    # Units: specific rates are g/(1e9 cell*d). Xv is in 1e6 cells/mL = 1e9 cells/L,
-    # so q [g/(1e9 cell*d)] * Xv [1e9 cell/L] = g/(L*d) with no extra factor
-    # (same convention as qp and TITER_UNIT_CONV).
-    # Lactate yield on glucose Y_L/G(T), interpolated continuously with the
-    # instantaneous T(t) between the two temperature anchors. NOT CALIBRATED.
-    Y_LG_SHIFT = 0.03       # g/g at 34.0 C (production phase)
-    # 0.18 instead of the nominal 0.22: with 0.22 the lactate peak is 1.45-1.58 g/L,
-    # above the 1.0-1.35 g/L day-6/7 band; 0.18 is the largest value tried
-    # (0.22, 0.20, 0.18, ...) that puts both modes' peaks inside it.
-    Y_LG_GROWTH = 0.18      # g/g at 36.5 C (growth phase)
-    Y_L_G_ANCHORS = (Y_LG_SHIFT, Y_LG_GROWTH)  # ordered like T_ANCHORS_C (34.0, 36.5)
-    # Maximum specific lactate consumption q_L,cons,max(T), continuous in T: low in
-    # the growth phase, active after the shift. 0.008 / 0.045 g/(1e9 cell*d)
-    # (= 0.089 / 0.50 pmol/cell/d with MW 90.08 g/mol). NOT CALIBRATED.
-    Q_L_CONS_MAX_GROWTH = 0.008   # at 36.5 C
-    Q_L_CONS_MAX_SHIFT = 0.045    # at 34.0 C
-    Q_L_CONS_MAX_ANCHORS = (Q_L_CONS_MAX_SHIFT, Q_L_CONS_MAX_GROWTH)
-    K_L = 0.35              # g/L Monod half-saturation of lactate uptake (NOT CALIBRATED)
-    # Crabtree repression of lactate uptake by glucose, K_I_G/(K_I_G + G). NOT CALIBRATED.
-    K_I_G = 4.5             # g/L
-    # Anaplerotic modulation f_basal + (1 - f_basal) * G/(G + K_ANAP): lactate is
-    # oxidised mainly when some glucose-derived carbon feeds the TCA cycle; a 5 %
-    # basal uptake remains at G = 0. NOT CALIBRATED.
-    F_BASAL = 0.05          # dimensionless
-    K_ANAP = 0.60           # g/L
-    # --- Dissolved-oxygen coupling (v1.3.1) ---
-    # Growth and productivity are throttled by do_hypoxia_factor(DO_eff) times the
-    # supply ratio; lactate yield rises below 20 % (Pasteur effect) and severe
-    # hypoxia adds death. All NOT CALIBRATED.
-    DO_LOW_PCT = DO_HYPOXIA_NORM_PCT  # % below which the Pasteur yield rise starts
-    DO_HYPOXIA_PCT = 15.0   # % severe-hypoxia onset (effective DO)
-    RATIO_HYPOXIA = 0.85    # supply ratio below which severe hypoxia starts
-    Y_LG_HYPOXIA_GAIN = 0.8  # max relative rise of Y_L/G as DO_eff -> 0
-    KD_HYPOXIA = 0.05       # 1/d extra death at full hypoxic deficit (NOT CALIBRATED)
-    TITER_UNIT_CONV = 1.0   # g/(1e9 cell*d) * (1e6 cells/mL) -> g/(L*d); factors cancel
+    kp = CALIBRATED_KINETICS if kinetics is None else kinetics
+    if method not in ("RK45", "Radau", "Euler"):
+        raise ValueError("method must be 'RK45', 'Radau' or 'Euler'.")
 
-    # --- Unified kinetic law (v1.2.0): identical for every feeding mode ---
-    # Temperature anchors: values previously used for the growth (36.5 C) and
-    # production (34.0 C) phases, now read as functions of T.
-    T_ANCHORS_C = (34.0, 36.5)
-    MU_MAX_ANCHORS = (0.12, 0.58)       # 1/d
-    QP_ANCHORS = (0.0185, 0.0115)       # g/(1e9 cell*d); higher qp at lower T
-    K_S_G = 0.5             # g/L glucose half-saturation (growth and starvation)
-    K_I_L = 2.5             # g/L lactate inhibition constant on growth
-    X_MAX = 26.0            # 1e6 cells/mL logistic carrying capacity
-    KD_BASE = 0.008         # 1/d basal death rate
-    KD_STARVE = 0.02        # 1/d extra death at full glucose starvation (G -> 0)
-    KD_LAC = 0.02           # 1/d per g/L lactate above L_TOX
-    L_TOX = 1.0             # g/L lactate toxicity onset
-    KD_SHEAR = 0.03         # 1/d extra death per unit of sigma_shear
-    # Shear penalty on qp: qp / (1 + ALPHA_SHEAR_QP * sigma_shear). NOT CALIBRATED:
-    # 1.0 is a neutral first-order assumption (qp halves at sigma_shear = 1). It
-    # must be fitted to productivity-vs-shear data and must not be tuned to hit a
-    # target titer.
-    ALPHA_SHEAR_QP = 1.0
-
-    # --- Variable-volume fed-batch balance constants ---
-    C_STOCK = 500.0         # g/L concentrated glucose stock (closed_loop top-up)
-    G_TARGET = float(config.glucose_refill_target_g_L)  # g/L glucose target for the closed_loop top-up
-    G_MIN = float(config.glucose_min_threshold_g_L)     # g/L top-up trigger
-    G_BOOST_CONC = 12.0     # g/L glucose in the base feed media
-
-    dt = 0.1
     duration = float(config.duration_days)
-    n_steps = int(round(duration / dt)) + 1
-    time_days = [round(i * dt, 10) for i in range(n_steps)]
+    n_grid = int(round(duration / GRID_DT_DAYS)) + 1
+    time_days = [round(i * GRID_DT_DAYS, 10) for i in range(n_grid)]
+    grid = np.asarray(time_days)
 
-    # Initial state
-    Xv = 0.7    # 1e6 cells/mL
-    Xd = 0.02
-    G = 6.0     # g/L
-    L = 0.1     # g/L
-    Titer = 0.0
+    vessel = float(config.vessel_volume_L)
+    V0 = float(config.initial_fill_fraction) * vessel
+    V = V0
+    kla_eff_h = measured_kla_for_volume(vessel)
+    y_o2_max = float(config.max_o2_mole_fraction) if config.o2_enrichment_enabled else Y_O2_AIR
+    stress = compute_hydrodynamic_stress(config.power_density_W_m3, config.sparge_vvm)
+    sigma = stress["sigma_total"]
+    G_MIN = float(config.glucose_min_threshold_g_L)
+    G_TARGET = float(config.glucose_refill_target_g_L)
+    shift = float(config.temp_shift_day)
 
-    # Liquid-volume state: initial working volume = INITIAL_FILL_FRACTION of the
-    # vessel; V(t) is clamped to vessel_volume_L at every feed event.
-    V_0 = INITIAL_FILL_FRACTION * config.vessel_volume_L
-    V = V_0
+    feed_days = [d for d in FEED_DAYS if d < duration - _EPS]
+    boundaries = sorted(set(feed_days + ([shift] if _EPS < shift < duration - _EPS else []) + [duration]))
 
-    # Power/volume productivity factor and high-shear penalty
-    pv = config.power_density_W_m3
-    # Oxygen supply: measured kLa of A-Mab Table 3.22 for this vessel volume (column
-    # immediately below; < 2 L uses the 2 L value as a proxy, modeling assumption).
-    # P/V does not enter the O2 supply. The DO set-point is
-    # ProcessDescription.do_setpoint_pct.
-    do_pct = float(config.do_setpoint_pct)
-    kla_eff_h = measured_kla_for_volume(config.vessel_volume_L)
-    otr_cap_mmol_L_h = kla_eff_h * C_STAR_O2_MMOL_L * max(0.0, 1.0 - do_pct / 100.0)
-    # Continuous shear intensity from impeller power and sparge (0.0 below both).
-    sigma_imp = max(0.0, (pv - 47.6) / 47.6)
-    sigma_sparge = max(0.0, (config.sparge_vvm - 0.15) / 0.15)
-    sigma_shear = sigma_imp + sigma_sparge + (sigma_imp * sigma_sparge)
-    f_shear_qp = 1.0 / (1.0 + ALPHA_SHEAR_QP * sigma_shear)
-
-    if pv >= 30.0:
-        fPV = 1.08
-    elif pv <= 19.0:
-        fPV = 1.00
-    else:
-        fPV = 1.00 + (1.08 - 1.00) * (pv - 19.0) / (30.0 - 19.0)
-
-    feed_days = [2.0, 4.0, 6.0, 8.0, 10.0, 12.0]
-    fed_done = {d: False for d in feed_days}
-    feed_events = []  # per-bolus volume and mass-balance record
+    state = np.array(INITIAL_STATE, dtype=float)
+    out = np.empty((6, n_grid))
+    out[:, 0] = state
+    vol = np.empty(n_grid)
+    vol[0] = V0
+    daily_pre_feed = {0: _state_dict(state, V0)}
+    feed_events = []
+    segments = []
     n_bolus_clipped = 0
     clipped_volume_L = 0.0
 
-    vcd_series = []
-    viability_series = []
-    glucose_series = []
-    lactate_series = []
-    titer_series = []
-    temp_series = []
-    volume_series = []
-    o2_ratio_series = []
-    do_eff_series = []
-    f_do_series = []
-
-    peak_vcd = Xv
-
-    for i in range(n_steps):
-        t = time_days[i]
-
-        temp_C = get_temperature_setpoint(
-            t,
-            temp_initial_C=config.temp_initial_C,
-            temp_shift_C=config.temp_shift_C,
+    # Temperature series from the set-point schedule. The URS-02 audit event is
+    # logged at the first grid time with the new set-point, in chronological order
+    # with the URS-07 top-ups (a top-up on the same day is logged first, as in v1.3.x).
+    temp_series = [
+        get_temperature_setpoint(
+            t, temp_initial_C=config.temp_initial_C, temp_shift_C=config.temp_shift_C,
             shift_day=config.temp_shift_day,
         )
-        if audit_logger is not None and i > 0 and temp_C != prev_temp_C:
-            _audit_event(
-                audit_logger,
-                "temperature_setpoint_C", f"{prev_temp_C:.1f}", f"{temp_C:.1f}",
-                f"URS-02 automated temperature shift at culture day {t:.1f} "
-                f"(pre-approved biphasic schedule)",
-            )
-        prev_temp_C = temp_C
+        for t in time_days
+    ]
+    shift_index = next((i for i in range(1, n_grid) if temp_series[i] != temp_series[i - 1]), None)
+    shift_logged = audit_logger is None or shift_index is None
 
-        # Temperature-dependent kinetic parameters (same law for every mode).
-        # Linear interpolation between the two anchors (modeling assumptions, not
-        # calibrated), clamped to the anchor range (no extrapolation outside
-        # 34.0-36.5 C).
-        mu_max = float(np.interp(temp_C, T_ANCHORS_C, MU_MAX_ANCHORS))
-        qp = float(np.interp(temp_C, T_ANCHORS_C, QP_ANCHORS))
-
-        # Oxygen balance (mmol/(L*h) on both sides): OTR = kLa [1/h] * C* [mmol/L];
-        # OUR = Xv [1e6 cell/mL] * 1e9 [cell/L per 1e6 cell/mL] * qO2 [mmol/(cell*h)].
-        our_demand_mmol_L_h = (Xv * 1.0e9) * Q_O2_MMOL_CELL_H
-        oxygen_supply_ratio = min(1.0, otr_cap_mmol_L_h / max(1e-9, our_demand_mmol_L_h))
-        do_eff_pct = do_pct * oxygen_supply_ratio
-        # C0-continuous DO response, always applied (no branch): each term is
-        # exactly 1 (or 0 for the death ramp) at and above its threshold.
-        f_do_metabolic = do_hypoxia_factor(do_eff_pct) * oxygen_supply_ratio
-        y_lg_do_factor = 1.0 + Y_LG_HYPOXIA_GAIN * max(0.0, (DO_LOW_PCT - do_eff_pct) / DO_LOW_PCT)
-        hypoxic_deficit = (
-            max(0.0, (DO_HYPOXIA_PCT - do_eff_pct) / DO_HYPOXIA_PCT)
-            + max(0.0, (RATIO_HYPOXIA - oxygen_supply_ratio) / RATIO_HYPOXIA)
+    def _log_shift():
+        _audit_event(
+            audit_logger,
+            "temperature_setpoint_C", f"{temp_series[shift_index - 1]:.1f}", f"{temp_series[shift_index]:.1f}",
+            f"URS-02 automated temperature shift at culture day {time_days[shift_index]:.1f} "
+            f"(pre-approved biphasic schedule)",
         )
 
-        # Record current state
-        o2_ratio_series.append(oxygen_supply_ratio)
-        do_eff_series.append(do_eff_pct)
-        f_do_series.append(f_do_metabolic)
-        total_cells = Xv + Xd
-        viability_pct = 100.0 * Xv / total_cells if total_cells > 0 else 0.0
-        vcd_series.append(Xv)
-        viability_series.append(viability_pct)
-        glucose_series.append(G)
-        lactate_series.append(L)
-        titer_series.append(Titer)
-        temp_series.append(temp_C)
-        volume_series.append(V)
-        if Xv > peak_vcd:
-            peak_vcd = Xv
+    t_a = 0.0
+    for t_b in boundaries:
+        if not shift_logged and time_days[shift_index] < t_b - _EPS:
+            _log_shift()
+            shift_logged = True
+        temp_C = float(config.temp_initial_C) if t_a < shift - _EPS else float(config.temp_shift_C)
+        rhs = _build_rhs(kp, temp_C, float(config.do_setpoint_pct), kla_eff_h, y_o2_max, sigma)
+        idx = np.nonzero((grid > t_a + _EPS) & (grid <= t_b + _EPS))[0]
+        t_out = list(grid[idx])
+        end_on_grid = bool(t_out) and abs(t_out[-1] - t_b) < _EPS
+        if not end_on_grid:
+            t_out.append(t_b)
+        y_seg, info = _integrate_segment(rhs, t_a, t_b, state, t_out, method, rtol, atol, euler_dt)
+        y_seg = np.maximum(y_seg, 0.0)
+        info.update({"t_start": t_a, "t_end": t_b, "temp_C": temp_C})
+        segments.append(info)
+        n_on_grid = len(idx)
+        out[:, idx] = y_seg[:, :n_on_grid]
+        vol[idx] = V
+        state = y_seg[:, -1].copy()
+        for k in idx:
+            day = time_days[k]
+            if abs(day - round(day)) < _EPS:
+                daily_pre_feed[int(round(day))] = _state_dict(out[:, k], V)
 
-        if i == n_steps - 1:
-            break
-
-        # Kinetics: one law for every mode; only the state (G, L, T, Xv), shear and
-        # the DO coupling act.
-        mu = (
-            mu_max * (G / (G + K_S_G)) * (K_I_L / (L + K_I_L)) * (1 - Xv / X_MAX)
-            * f_do_metabolic
-        )
-
-        # Cell-death rate: basal + glucose starvation (inverse Monod, -> KD_STARVE
-        # as G -> 0) + lactate toxicity above L_TOX + continuous shear term.
-        kd = (
-            KD_BASE
-            + KD_STARVE * K_S_G / (K_S_G + G)
-            + KD_LAC * max(0.0, L - L_TOX)
-            + KD_SHEAR * sigma_shear
-            + KD_HYPOXIA * hypoxic_deficit
-        )
-
-        dXv = (mu - kd) * Xv
-        dXd = kd * Xv
-
-        # Specific glucose uptake q_G(G, T): growth-associated (Monod and mu_max(T)
-        # already inside mu) plus maintenance with its own Monod saturation.
-        q_G = mu / Y_X_G + M_G * (G / (G + K_G_UPTAKE))
-        glucose_uptake = q_G * Xv
-        # Numerical guard only: one Euler step cannot remove more glucose than exists.
-        glucose_uptake = min(glucose_uptake, G / dt) if dt > 0 else glucose_uptake
-        dG = -glucose_uptake
-
-        # Mechanistic lactate balance (no G window, no time switch):
-        # production follows glucose uptake with a T-dependent yield; consumption
-        # is Monod in L, repressed by glucose (Crabtree) plus a basal anaplerotic term.
-        y_l_g = float(np.interp(temp_C, T_ANCHORS_C, Y_L_G_ANCHORS)) * y_lg_do_factor
-        lactate_prod = y_l_g * glucose_uptake                     # g/(L*d)
-        q_l_cons_max = float(np.interp(temp_C, T_ANCHORS_C, Q_L_CONS_MAX_ANCHORS))
-        q_L_cons = (
-            q_l_cons_max
-            * (L / (L + K_L))
-            * (K_I_G / (K_I_G + G))
-            * (F_BASAL + (1.0 - F_BASAL) * G / (G + K_ANAP))
-        )
-        dL = lactate_prod - q_L_cons * Xv
-
-        # fPV and the shear factor are applied exactly once, identically in every mode.
-        dTiter = qp * f_do_metabolic * f_shear_qp * fPV * Xv * TITER_UNIT_CONV
-
-        # Euler update
-        Xv = max(0.0, Xv + dXv * dt)
-        Xd = max(0.0, Xd + dXd * dt)
-        G = max(0.0, G + dG * dt)
-        L = max(0.0, L + dL * dt)  # safety net; Monod in L keeps L >= 0
-        Titer = max(0.0, Titer + dTiter * dt)
-
-        # Feeding at the crossing of each feed day -- variable-volume balance.
-        t_next = time_days[i + 1]
-        for fd in feed_days:
-            if (not fed_done[fd]) and (t < fd <= t_next + 1e-9):
-                # Step 1: the Euler step above has already been integrated; this is
-                # the glucose the culture actually reached before the feed.
-                G_pre_feed = G
-                V_actual = V
-
-                # Step 2: requested base feed bolus. The Ark adaptive factor scales it
-                # in closed_loop on the day-8 / day-10 crossings (+80 % / +82 % vs
-                # the day-0 plan, Ark).
-                if config.mode == "closed_loop":
-                    if fd == 8.0:
-                        adaptive_factor = 1.80
-                    elif fd == 10.0:
-                        adaptive_factor = 1.82
-                    else:
-                        adaptive_factor = 1.0
-                else:
-                    adaptive_factor = 1.0
-                v_basal_req_L = (0.042 + 0.0042) * V_0 * adaptive_factor
-
-                # Step 3: requested closed_loop glucose top-up from the C_STOCK stock,
-                # sized (before the capacity clamp) to bring G exactly to G_TARGET
-                # after the base bolus:
-                #   G_actual = (G_pre_feed*V + v_basal*G_BOOST_CONC) / (V + v_basal)
-                #   (G_actual*(V + v_basal) + v_gluc*C_STOCK) / (V + v_basal + v_gluc) = G_TARGET
-                G_actual = (
-                    G_pre_feed * V_actual + v_basal_req_L * G_BOOST_CONC
-                ) / (V_actual + v_basal_req_L)
-                v_gluc_req_L = 0.0
-                if config.mode == "closed_loop" and (
-                    G_pre_feed < G_MIN or G_actual < G_MIN
-                ):
-                    v_gluc_req_L = max(
-                        0.0,
-                        (V_actual + v_basal_req_L) * (G_TARGET - G_actual)
-                        / (C_STOCK - G_TARGET),
-                    )
-
-                # Step 4: vessel-capacity clamp. Both volumes are scaled together so
-                # V(t) never exceeds vessel_volume_L.
-                available_headspace_L = max(0.0, config.vessel_volume_L - V_actual)
-                total_requested_bolo_L = v_basal_req_L + v_gluc_req_L
-                scale_factor = 1.0
-                if total_requested_bolo_L > available_headspace_L:
-                    scale_factor = (
-                        available_headspace_L / total_requested_bolo_L
-                        if total_requested_bolo_L > 0 else 0.0
-                    )
-                v_basal_L = v_basal_req_L * scale_factor
-                v_gluc_L = v_gluc_req_L * scale_factor
-                if scale_factor < 1.0:
-                    n_bolus_clipped += 1
-                    clipped_volume_L += total_requested_bolo_L - (v_basal_L + v_gluc_L)
-
-                # Step 5: exact mass balance over the volume actually injected.
-                # Every concentration is diluted as C * V_old / V_new; glucose adds
-                # the mass contained in the injected basal medium and stock.
-                V_new = V_actual + v_basal_L + v_gluc_L
-                if V_new > V_actual:
-                    dilution = V_actual / V_new
-                    pre = {"Xv": Xv, "Xd": Xd, "G": G_pre_feed, "L": L, "Titer": Titer}
-                    Xv *= dilution
-                    Xd *= dilution
-                    L *= dilution
-                    Titer *= dilution
-                    G = (
-                        G_pre_feed * V_actual
-                        + v_basal_L * G_BOOST_CONC
-                        + v_gluc_L * C_STOCK
-                    ) / V_new
-                    V = V_new
-                else:
-                    pre = {"Xv": Xv, "Xd": Xd, "G": G_pre_feed, "L": L, "Titer": Titer}
-
-                feed_events.append(
-                    {
-                        "day": fd,
-                        "step_index_after": i + 1,
-                        "V_old_L": V_actual,
-                        "V_new_L": V,
-                        "v_basal_requested_L": v_basal_req_L,
-                        "v_gluc_requested_L": v_gluc_req_L,
-                        "scale_factor": scale_factor,
-                        "v_basal_L": v_basal_L,
-                        "v_gluc_L": v_gluc_L,
-                        "glucose_added_g": v_basal_L * G_BOOST_CONC + v_gluc_L * C_STOCK,
-                        "pre": pre,
-                    }
+        if t_b in feed_days:
+            fd = t_b
+            G_pre = float(state[2])
+            V_old = V
+            factor = ARK_ADAPTIVE_FACTORS.get(fd, 1.0) if config.mode == "closed_loop" else 1.0
+            v_basal_req = BOOST_FRACTION_OF_V0 * V0 * factor
+            G_actual = (G_pre * V_old + v_basal_req * kp.g_boost_conc) / (V_old + v_basal_req)
+            v_gluc_req = 0.0
+            if (config.mode == "closed_loop" or config.glucose_feedback_in_static) and (
+                G_pre < G_MIN or G_actual < G_MIN
+            ):
+                v_gluc_req = max(
+                    0.0,
+                    (V_old + v_basal_req) * (G_TARGET - G_actual) / (C_STOCK_GLUCOSE_G_L - G_TARGET),
                 )
+            headspace = max(0.0, vessel - V_old)
+            requested = v_basal_req + v_gluc_req
+            scale = 1.0
+            if requested > headspace:
+                scale = headspace / requested if requested > 0.0 else 0.0
+            v_basal = v_basal_req * scale
+            v_gluc = v_gluc_req * scale
+            if scale < 1.0:
+                n_bolus_clipped += 1
+                clipped_volume_L += requested - (v_basal + v_gluc)
+            pre = dict(zip(STATE_NAMES, (float(v) for v in state)))
+            V_new = V_old + v_basal + v_gluc
+            if V_new > V_old:
+                dilution = V_old / V_new
+                state = state * dilution
+                state[2] = (G_pre * V_old + v_basal * kp.g_boost_conc + v_gluc * C_STOCK_GLUCOSE_G_L) / V_new
+                V = V_new
+            k_fd = int(round(fd / GRID_DT_DAYS))
+            out[:, k_fd] = state
+            vol[k_fd] = V
+            feed_events.append({
+                "day": fd,
+                "step_index_after": k_fd,
+                "V_old_L": V_old,
+                "V_new_L": V,
+                "v_basal_requested_L": v_basal_req,
+                "v_gluc_requested_L": v_gluc_req,
+                "scale_factor": scale,
+                "v_basal_L": v_basal,
+                "v_gluc_L": v_gluc,
+                "adaptive_factor": factor,
+                "glucose_added_g": v_basal * kp.g_boost_conc + v_gluc * C_STOCK_GLUCOSE_G_L,
+                "pre": pre,
+                "post": dict(zip(STATE_NAMES, (float(v) for v in state))),
+            })
+            if v_gluc > 0.0 and audit_logger is not None:
+                _audit_event(
+                    audit_logger,
+                    "glucose_g_L", f"{G_actual:.4f}", f"{state[2]:.4f}",
+                    f"URS-07 glucose top-up at culture day {fd:.1f}: "
+                    f"G_pre_feed {G_pre:.4f} g/L, V_gluc "
+                    f"{v_gluc:.6f} L of {C_STOCK_GLUCOSE_G_L:.0f} g/L stock",
+                )
+        if not shift_logged and abs(time_days[shift_index] - t_b) <= _EPS:
+            _log_shift()
+            shift_logged = True
+        t_a = t_b
+    if not shift_logged:
+        _log_shift()
 
-                if v_gluc_L > 0.0 and audit_logger is not None:
-                    _audit_event(
-                        audit_logger,
-                        "glucose_g_L", f"{G_actual:.4f}", f"{G:.4f}",
-                        f"URS-07 glucose top-up at culture day {fd:.1f}: "
-                        f"G_pre_feed {G_pre_feed:.4f} g/L, V_gluc "
-                        f"{v_gluc_L:.6f} L of {C_STOCK:.0f} g/L stock",
-                    )
+    xv_s, xd_s, g_s, l_s, n_s, p_s = out
+    total = xv_s + xd_s
+    viability = np.where(total > 0.0, 100.0 * xv_s / np.where(total > 0.0, total, 1.0), 0.0)
+    oxy = compute_dissolved_oxygen_state(
+        xv_s, config.do_setpoint_pct, kla_eff_h,
+        o2_enrichment_enabled=config.o2_enrichment_enabled,
+        max_o2_mole_fraction=config.max_o2_mole_fraction,
+    )
+    pre_states = [ev["pre"] for ev in feed_events]
+    peak_candidates = [(float(xv_s[i]), time_days[i]) for i in range(n_grid)] + [
+        (p["Xv"], ev["day"]) for p, ev in zip(pre_states, feed_events)]
+    peak_vcd, peak_vcd_day = max(peak_candidates, key=lambda c: c[0])
+    lac_candidates = [(float(l_s[i]), time_days[i]) for i in range(n_grid)] + [
+        (p["L"], ev["day"]) for p, ev in zip(pre_states, feed_events)]
+    peak_lac, peak_lac_day = max(lac_candidates, key=lambda c: c[0])
 
-                fed_done[fd] = True
-
-    final_titer = titer_series[-1]
-    final_viability = viability_series[-1]
-    final_volume = volume_series[-1]
-    harvested_mass_g = float(final_titer) * float(final_volume)
-    total_feed_volume_L = float(final_volume) - V_0
-
+    final_volume = float(vol[-1])
+    final_titer = float(p_s[-1])
+    do_real = oxy["do_real_pct"]
     return {
         "time_days": time_days,
-        "vcd": vcd_series,
-        "viability_pct": viability_series,
-        "glucose_g_L": glucose_series,
-        "lactate_g_L": lactate_series,
-        "titer_g_L": titer_series,
+        "vcd": xv_s.tolist(),
+        "dead_cell_density": xd_s.tolist(),
+        "viability_pct": viability.tolist(),
+        "glucose_g_L": g_s.tolist(),
+        "lactate_g_L": l_s.tolist(),
+        "nh3_mmol_L": n_s.tolist(),
+        "titer_g_L": p_s.tolist(),
         "temp_C": temp_series,
-        "volume_L": volume_series,
-        "final_titer_g_L": round(float(final_titer), 4),
-        "final_viability_pct": round(float(final_viability), 2),
+        "volume_L": vol.tolist(),
+        "do_real_pct": do_real.tolist(),
+        "do_eff_pct": do_real.tolist(),  # v1.3.x name, kept as an alias of do_real_pct
+        "do_controller_saturated": [bool(s) for s in oxy["do_controller_saturated"]],
+        "required_y_o2": oxy["required_y_o2"].tolist(),
+        "f_do_metabolic": oxy["f_do"].tolist(),
+        "oxygen_supply_ratio": oxy["oxygen_supply_ratio"].tolist(),
+        "daily_pre_feed": daily_pre_feed,
+        "final_titer_g_L": round(final_titer, 4),
+        "final_viability_pct": round(float(viability[-1]), 2),
+        "final_nh3_mmol_L": round(float(n_s[-1]), 4),
         "peak_vcd": round(float(peak_vcd), 4),
-        "harvested_mass_g": round(harvested_mass_g, 4),
-        "total_feed_volume_L": round(total_feed_volume_L, 4),
+        "peak_vcd_day": float(peak_vcd_day),
+        "peak_lactate_g_L": round(float(peak_lac), 4),
+        "peak_lactate_day": float(peak_lac_day),
+        "harvested_mass_g": round(final_titer * final_volume, 4),
+        "total_feed_volume_L": round(final_volume - V0, 4),
+        "initial_volume_L": V0,
         "feed_events": feed_events,
         "bolus_clipped_alarm": n_bolus_clipped > 0,
         "n_bolus_clipped": n_bolus_clipped,
         "clipped_volume_L": round(clipped_volume_L, 6),
-        "oxygen_supply_ratio": o2_ratio_series,
-        "do_eff_pct": do_eff_series,
-        "f_do_metabolic": f_do_series,
-        "min_oxygen_supply_ratio": round(min(o2_ratio_series), 6),
-        "min_do_eff_pct": round(min(do_eff_series), 4),
-        "min_f_do_metabolic": round(min(f_do_series), 6),
+        "min_oxygen_supply_ratio": round(float(np.min(oxy["oxygen_supply_ratio"])), 6),
+        "min_do_real_pct": round(float(np.min(do_real)), 4),
+        "min_do_eff_pct": round(float(np.min(do_real)), 4),
+        "min_f_do_metabolic": round(float(np.min(oxy["f_do"])), 6),
+        "do_controller_saturated_any": bool(np.any(oxy["do_controller_saturated"])),
+        "max_required_y_o2": round(float(np.max(oxy["required_y_o2"])), 6),
         "kla_eff_h_inv": round(kla_eff_h, 4),
+        "y_o2_max": y_o2_max,
+        "hydrodynamic_stress": stress,
+        "solver": {
+            "method_requested": method,
+            "rtol": rtol,
+            "atol": atol,
+            "segments": segments,
+            "n_segments": len(segments),
+            "nfev_total": int(sum(s["nfev"] for s in segments)),
+            "fallback_used": any(s["fallback"] for s in segments),
+        },
     }

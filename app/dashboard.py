@@ -5,6 +5,10 @@ reales de src/: ningun KPI se estima ni se fija en el tablero. Se lanza con:
 
     streamlit run app/dashboard.py
 
+v1.4.0: la pestana 1 muestra amonio (NH3), DO real con el estado del controlador
+(saturacion frente a hipoxia real) y la validacion contra Bionova NISTCHO (2026);
+la pestana 4 agrega estabilidad I-MR y equivalencia formal TOST + Levene.
+
 Autor del portafolio: Alejandro Timaran, Ingenieria Biologica, UNAL.
 """
 
@@ -32,10 +36,21 @@ import streamlit as st
 
 from src.models import ProcessDescription
 from src.bioreactor_twin import (
+    CALIBRATED_PARAMETER_NAMES,
+    DO_DEATH_ONSET_PCT,
+    DO_HYPOXIA_NORM_PCT,
+    IMPELLER_DAMAGE_ONSET_W_M3,
+    INITIAL_FILL_FRACTION,
+    NH3_DEATH_ONSET_MM,
     compute_split_range_ph_actuators,
     get_temperature_setpoint,
     check_safety_interlocks,
     simulate_cho_fed_batch,
+)
+from src.model_validation import (
+    compute_validation_metrics,
+    load_bionova_reference_dataset,
+    simulate_bionova_condition,
 )
 from src.amab_design_space import (
     AMAB_MEASURED_KLA_H_INV,
@@ -61,6 +76,7 @@ from src.spc_six_sigma import (
     compute_iso16269_tolerance_interval,
     compute_process_capability,
     compute_moving_range_summary,
+    compare_bioreactor_equivalence_tost,
     compare_bioreactor_equivalence_ttest,
 )
 from src.audit_trail_part11 import AuditTrailLogger
@@ -451,6 +467,55 @@ def _compare_fig(t_s, y_s, t_c, y_c, title, ytitle, height=300, bolus_days=(), l
     return _apply_figure(fig)
 
 
+def _fmt_opt(value, fmt: str) -> str:
+    """Formato para metricas que pueden no aplicar (None -> 'n/a')."""
+    return "n/a" if value is None else format(value, fmt)
+
+
+@st.cache_data(show_spinner=False)
+def _bionova_validation() -> dict:
+    """Corre el protocolo Bionova (30 y 19 W/m3) y sus metricas. No depende de los sliders."""
+    dataset = load_bionova_reference_dataset()
+    sim30 = simulate_bionova_condition("stratyx_30_W_m3", dataset=dataset)
+    sim19 = simulate_bionova_condition("stratyx_19_W_m3", dataset=dataset)
+    m30 = compute_validation_metrics(sim30, dataset, "stratyx_30_W_m3")
+    m19 = compute_validation_metrics(sim19, dataset, "stratyx_19_W_m3")
+    rows = []
+    for label, metrics in (("30 W/m3 (calibracion)", m30), ("19 W/m3 (fuera de muestra)", m19)):
+        for key, v in metrics["variables"].items():
+            rows.append({
+                "Condicion": label,
+                "Variable": key,
+                "n": str(v["n"]),
+                "R2": _fmt_opt(v["R2"], ".3f"),
+                "RMSE": f"{v['RMSE']:.3f}",
+                "NRMSE (%)": _fmt_opt(v["NRMSE_pct"], ".1f"),
+                "RMSE / sigma": f"{v['rmse_over_sigma']:.2f}",
+                "Error dia 14": _fmt_opt(v["day14_abs_error"], "+.3f"),
+                "Cumple RMSE <= 2 sigma": "Si" if v["meets_credibility_criterion"] else "No",
+            })
+        for key, pt in metrics["points"].items():
+            rows.append({
+                "Condicion": label,
+                "Variable": f"{key} (dia {pt['observed_day']})",
+                "n": "1",
+                "R2": "n/a",
+                "RMSE": f"{abs(pt['abs_error']):.3f}",
+                "NRMSE (%)": "n/a",
+                "RMSE / sigma": f"{abs(pt['abs_error']) / pt['sigma']:.2f}",
+                "Error dia 14": f"{pt['abs_error']:+.3f}",
+                "Cumple RMSE <= 2 sigma": "Si" if pt["within_2sigma"] else "No",
+            })
+    return {
+        "dataset": dataset,
+        "sim30": sim30,
+        "sim19": sim19,
+        "metrics30": m30,
+        "metrics19": m19,
+        "table": pd.DataFrame(rows),
+    }
+
+
 tab1, tab2, tab3, tab4, tab5 = st.tabs(
     [
         "1. Gemelo Digital CHO-K1",
@@ -486,7 +551,12 @@ with tab1:
                 step=0.5,
                 help="Bionova usa 19 y 30 W/m3 (Ref. 2). 47.6 W/m3 es el P/V maximo demostrado aceptable a 2 L (A-Mab Tabla 3.22), criterio conservador, no umbral de dano. Bounds [2, 100].",
             )
-            _leyenda("A la derecha, hasta 30 W/m3, el titulo sube un poco. Por encima de 47.6 W/m3 salta la alarma de cizalla aunque el sparge sea bajo (P/V > 47.6 O sparge > 0.15). Cada exceso sube kd y baja qp de forma continua: caen viabilidad y titulo.")
+            _leyenda(
+                "Por encima de 47.6 W/m3 salta la alarma de cizalla aunque el sparge sea bajo "
+                "(P/V > 47.6 O sparge > 0.15). La alarma es conservadora y no cambia la cinetica: "
+                f"el dano por impulsor empieza en {IMPELLER_DAMAGE_ONSET_W_M3:g} W/m3, fuera del rango "
+                "del slider (A-Mab opera sano a 60 W/m3 local), asi que las curvas no cambian con P/V."
+            )
         with g2:
             temp_shift_day = st.slider(
                 "Dia del cambio termico (d)",
@@ -506,7 +576,7 @@ with tab1:
                 step=0.01,
                 help="Bounds sparge_vvm [0, 1]. El umbral de 0.15 vvm es un supuesto de modelado (sin fuente).",
             )
-            _leyenda("Hasta 0.15 vvm el sparge no agrega cizalla. Por encima de 0.15 salta la alarma aunque P/V sea bajo (P/V > 47.6 O sparge > 0.15), y el exceso sube kd y baja qp de forma continua: caen viabilidad y titulo. Si ambos se pasan, el efecto se combina.")
+            _leyenda("Hasta 0.15 vvm el sparge no agrega cizalla. Por encima de 0.15 salta la alarma aunque P/V sea bajo (P/V > 47.6 O sparge > 0.15), y el estres de burbujeo sube kd y baja qp de forma continua: caen viabilidad y titulo. Es la unica cizalla que actua en la cinetica dentro del rango de los sliders.")
 
         _band("Volumen y controlador de pH")
         g4, g5 = st.columns(2)
@@ -531,12 +601,43 @@ with tab1:
             )
             _leyenda("A la derecha la banda es mas ancha y el controlador actua mas tarde. A la izquierda actua ante un desvio chico. Gobierna solo el controlador split-range del expansor inferior: el gemelo no lee el pH, asi que no cambia las curvas ni los KPI.")
 
+        _band("Duracion y oxigeno")
+        g6, g7 = st.columns(2)
+        with g6:
+            duration_days = st.slider(
+                "Duracion del cultivo en el gemelo (d)",
+                min_value=5,
+                max_value=21,
+                value=int(ProcessDescription().duration_days),
+                step=1,
+                help="Bounds duration_days [5, 21] d. Los bolos siguen el protocolo Bionova (dias 2-12); despues no hay alimentacion.",
+            )
+            _leyenda("A la derecha el cultivo sigue sin alimentacion despues del dia 12: se agota la glucosa, el NH3 sigue subiendo y la viabilidad cae (sin inmortalidad sintetica).")
+        with g7:
+            o2_enrichment_enabled = st.toggle(
+                "Enriquecimiento con O2 puro (A-Mab Fig. 3.12)",
+                value=bool(ProcessDescription().o2_enrichment_enabled),
+                help="Encendido: el controlador de DO puede subir la fraccion de O2 del gas hasta 1.0. Apagado: solo aire (y_O2 = 0.2095).",
+            )
+            _leyenda("Apagado, el controlador se satura cuando OUR/kLa supera C* del aire y el DO real cae bajo el set-point. La biologia solo responde al DO real: hay hipoxia solo bajo 15 %.")
+
+    # The shift cannot fall after the end of the run (ProcessDescription validator).
+    shift_eff = min(float(temp_shift_day), float(duration_days))
+    if shift_eff < float(temp_shift_day):
+        st.caption(
+            f"Dia del cambio termico ajustado de {temp_shift_day:g} a {shift_eff:g} d porque el "
+            f"cultivo dura {duration_days} d (temp_shift_day <= duration_days)."
+        )
+
     shared = dict(
         vessel_volume_L=vessel_volume_L,
         power_density_W_m3=power_density_W_m3,
-        temp_shift_day=temp_shift_day,
+        temp_shift_day=shift_eff,
         ph_deadband=ph_deadband,
         sparge_vvm=sparge_vvm,
+        duration_days=int(duration_days),
+        o2_enrichment_enabled=bool(o2_enrichment_enabled),
+        initial_fill_fraction=INITIAL_FILL_FRACTION,
         # DO set-point from the scale-up slider (key "do_setpoint_pct"); Streamlit
         # stores it in session_state before each rerun, so both twin runs use it.
         do_setpoint_pct=float(
@@ -667,22 +768,146 @@ with tab1:
         ("viability_pct", "Viabilidad", "Viabilidad (%)"),
         ("glucose_g_L", "Glucosa", "Glucosa (g/L)"),
         ("lactate_g_L", "Lactato", "Lactato (g/L)"),
+        ("nh3_mmol_L", "Amonio NH3", "NH3 (mmol/L)"),
         ("titer_g_L", "Titulo de mAb", "Titulo (g/L)"),
         ("temp_C", "Setpoint de temperatura", "Temperatura (C)"),
+        ("do_real_pct", "DO real en el liquido", "DO real (% sat. aire)"),
     ]
     for row_start in range(0, len(traj), 2):
         cols = st.columns(2)
         for slot, (key, title, ytitle) in zip(cols, traj[row_start:row_start + 2]):
             with slot:
-                st.plotly_chart(
-                    _compare_fig(
-                        static_res["time_days"], static_res[key],
-                        closed_res["time_days"], closed_res[key],
-                        title, ytitle, height=300,
-                        line_shape="hv" if key == "temp_C" else "linear",
-                    ),
-                    width="stretch",
+                fig_tr = _compare_fig(
+                    static_res["time_days"], static_res[key],
+                    closed_res["time_days"], closed_res[key],
+                    title, ytitle, height=300,
+                    line_shape="hv" if key == "temp_C" else "linear",
                 )
+                if key == "do_real_pct":
+                    fig_tr.add_hline(
+                        y=shared["do_setpoint_pct"], line=dict(color=P["ink"], dash="dot", width=1.6),
+                        annotation_text=f"set-point {shared['do_setpoint_pct']:g} %",
+                        annotation_position="top left",
+                    )
+                    fig_tr.add_hline(
+                        y=DO_HYPOXIA_NORM_PCT, line=dict(color=P["limit"], dash="dash", width=1.6),
+                        annotation_text=f"hipoxia < {DO_HYPOXIA_NORM_PCT:g} %",
+                        annotation_position="bottom left",
+                    )
+                elif key == "nh3_mmol_L":
+                    fig_tr.add_hline(
+                        y=NH3_DEATH_ONSET_MM,
+                        line=dict(color=P["limit"], dash="dash", width=1.6),
+                        annotation_text=f"umbral de muerte por NH3 {NH3_DEATH_ONSET_MM:g} mM",
+                        annotation_position="top left",
+                    )
+                st.plotly_chart(fig_tr, width="stretch")
+    _leyenda(
+        "NH3 se acumula con las celulas viables y se diluye en cada bolo; por encima de 5 mM suma "
+        "muerte celular y frena el crecimiento (K_I_NH3). El DO real sale del balance de O2 "
+        "C_L = min(C_sp, C*_max - OUR/kLa): el controlador puede quedarse sin capacidad (saturado) "
+        "sin que haya hipoxia biologica, que solo existe bajo 15 % de DO real."
+    )
+
+    # Estado del controlador de DO frente a hipoxia real (lo calcula el gemelo).
+    do_rows = []
+    for name, res in (("receta estatica", static_res), ("lazo cerrado", closed_res)):
+        min_do = res["min_do_real_pct"]
+        if min_do < DO_HYPOXIA_NORM_PCT:
+            do_rows.append(("bad", f"{name}: hipoxia real, DO real minimo {min_do:.1f} % < {DO_HYPOXIA_NORM_PCT:g} % "
+                                   f"(f_do minimo {res['min_f_do_metabolic']:.3f}; muerte hipoxica bajo {DO_DEATH_ONSET_PCT:g} %)"))
+        elif res["do_controller_saturated_any"]:
+            do_rows.append(("warn", f"{name}: controlador de DO saturado (DO real minimo {min_do:.1f} %, por debajo del "
+                                    f"set-point) sin hipoxia biologica: f_do = 1.000. Haria falta y_O2 = "
+                                    f"{res['max_required_y_o2']:.3f} y el gas llega a {res['y_o2_max']:.4f}."))
+        else:
+            do_rows.append(("ok", f"{name}: DO real = set-point ({shared['do_setpoint_pct']:g} %) en todo el cultivo; "
+                                  f"fraccion de O2 requerida maxima {res['max_required_y_o2']:.3f} (tope {res['y_o2_max']:.4f})."))
+    for kind, text in do_rows:
+        _banner(kind, text)
+
+    # ------------------------------------------------------------------
+    # Validacion del modelo frente a Bionova NISTCHO (2026)
+    # ------------------------------------------------------------------
+    with st.container(border=True):
+        _band("Validacion vs. Bionova NISTCHO (2026)")
+        val = _bionova_validation()
+        st.caption(
+            "Protocolo exacto de Bionova (mode static con glucose_feedback_in_static: bolos fijos de "
+            "4.62 % de V0 y regla pre-feed de glucosa < 2 -> 5 g/L; 190 mL en 250 mL; 30 W/m3; DO 30 %; "
+            "36.5 -> 34 C el dia 7). Puntos: "
+            "rombos llenos = valor impreso exacto; circulos con barra = valor digitalizado de figura "
+            "con su incertidumbre. Las muestras de Bionova son pre-feed, igual que daily_pre_feed del "
+            f"gemelo. Se calibraron {len(CALIBRATED_PARAMETER_NAMES)} parametros con 30 W/m3; 19 W/m3 "
+            "nunca entro en la calibracion (prediccion fuera de muestra)."
+        )
+        val_vars = [
+            ("vcd_1e6_mL", "vcd", "Xv", "VCD (1e6 cel/mL)"),
+            ("viability_pct", "viability_pct", "viability_pct", "Viabilidad (%)"),
+            ("glucose_g_L", "glucose_g_L", "G", "Glucosa (g/L)"),
+            ("lactate_g_L", "lactate_g_L", "L", "Lactato (g/L)"),
+            ("nh3_mmol_L", "nh3_mmol_L", "NH3", "NH3 (mmol/L)"),
+            ("titer_g_L", "titer_g_L", "Titer", "Titulo (g/L)"),
+        ]
+        oos_points = {
+            "viability_pct": "viability_d14_pct", "lactate_g_L": "lactate_d14_g_L",
+            "nh3_mmol_L": "nh3_d14_mmol_L", "titer_g_L": "titer_d14_g_L",
+        }
+        for row_start in range(0, len(val_vars), 2):
+            cols = st.columns(2)
+            for slot, (dkey, skey, pkey, ytitle) in zip(cols, val_vars[row_start:row_start + 2]):
+                with slot:
+                    series = val["dataset"]["calibration_set"]["series"][dkey]
+                    sim = val["sim30"]
+                    fig_v = go.Figure()
+                    fig_v.add_trace(go.Scatter(
+                        x=sim["time_days"], y=sim[skey], mode="lines", name="Modelo (30 W/m3)",
+                        line=dict(color=P["closed"], width=2.4),
+                    ))
+                    pre_days = sorted(sim["daily_pre_feed"])
+                    fig_v.add_trace(go.Scatter(
+                        x=pre_days, y=[sim["daily_pre_feed"][d][pkey] for d in pre_days],
+                        mode="markers", name="Modelo pre-feed",
+                        marker=dict(color=P["closed"], size=5, symbol="square"),
+                    ))
+                    for vtype, symbol, label in (
+                        ("digitized_figure_approx", "circle-open", "Bionova 30 W/m3 (digitalizado)"),
+                        ("printed_exact", "diamond", "Bionova 30 W/m3 (impreso)"),
+                    ):
+                        pts = [(d, v) for d, v, t in zip(series["days"], series["values"], series["value_types"]) if t == vtype]
+                        if pts:
+                            fig_v.add_trace(go.Scatter(
+                                x=[d for d, _ in pts], y=[v for _, v in pts], mode="markers", name=label,
+                                marker=dict(color=P["static"], size=9, symbol=symbol, line=dict(width=2, color=P["static"])),
+                                error_y=dict(type="constant", value=series["uncertainty_abs"] if vtype != "printed_exact" else 0.0,
+                                             visible=vtype != "printed_exact", color=P["static"]),
+                            ))
+                    vset = val["dataset"]["validation_set"]
+                    if dkey in vset["series"]:
+                        s19 = vset["series"][dkey]
+                        fig_v.add_trace(go.Scatter(
+                            x=s19["days"], y=s19["values"], mode="markers", name="Bionova 19 W/m3 (fuera de muestra)",
+                            marker=dict(color=P["v300"], size=9, symbol="triangle-up-open", line=dict(width=2, color=P["v300"])),
+                            error_y=dict(type="constant", value=s19["uncertainty_abs"], visible=True, color=P["v300"]),
+                        ))
+                    if dkey in oos_points:
+                        pt = vset["points"][oos_points[dkey]]
+                        fig_v.add_trace(go.Scatter(
+                            x=[pt["day"]], y=[pt["value"]], mode="markers", name="Bionova 19 W/m3 dia 14",
+                            marker=dict(color=P["v300"], size=10, symbol="triangle-up-open", line=dict(width=2, color=P["v300"])),
+                            error_y=dict(type="constant", value=pt["uncertainty_abs"], visible=True, color=P["v300"]),
+                        ))
+                    fig_v.update_layout(title=f"{ytitle}: modelo vs Bionova", xaxis_title="Tiempo (d)",
+                                        yaxis_title=ytitle, height=320)
+                    st.plotly_chart(_apply_figure(fig_v, legend_rows=3), width="stretch")
+        st.dataframe(val["table"], width="stretch", hide_index=True)
+        st.caption(
+            "R2 = 1 - SS_res/SS_tot, RMSE en las unidades de cada variable, NRMSE = RMSE / rango "
+            "observado. Criterio de credibilidad (ASME V&V 40, uso: cribado de estrategias de "
+            "alimentacion): RMSE <= 2 x incertidumbre declarada. El dia 0 es la condicion inicial y no "
+            "cuenta. Fuera de muestra (19 W/m3) solo hay serie de VCD y puntos del dia 14 y del pico de "
+            "lactato. Calculado por src/model_validation.py."
+        )
 
     with st.container(border=True):
         _band("Limpieza y esterilizacion")
@@ -792,7 +1017,10 @@ with tab1:
         "perfil 36.5 -> 34 C en el dia 7 con NISTCHO, CHO-K1); "
         "ASME BPE-2014 (CIP). Valores calculados en vivo por src/bioreactor_twin.py. "
         "La ganancia de titulo es la que producen las ecuaciones (misma cinetica en ambos "
-        "modos). El +43 % de Quint et al. es un dato de literatura, no un resultado de este modelo."
+        "modos). El +43 % de Quint et al. es un dato de literatura, no un resultado de este modelo. "
+        "Con la cinetica calibrada (v1.4.0) la glucosa del Cell Boost no limita en 14 d, asi que los "
+        "bolos extra de Ark (x1.80 dia 8, x1.82 dia 10) diluyen el titulo en g/L aunque suben la masa "
+        "cosechada; el gemelo no tiene aminoacidos ni otros nutrientes que esos bolos podrian aportar."
     )
 
 
@@ -807,6 +1035,18 @@ with tab1:
 # P/V del punto de 15,000 L, asi que el valor 26.0 W/m3 se mantiene aqui.
 AMAB_REF_PV_W_M3 = 26.0
 VS_VALID_MIN, VS_VALID_MAX = 0.005, 0.017
+
+
+def _schema_lower_bound(field: str) -> float:
+    """Limite inferior (ge) de un campo de ProcessDescription, leido del esquema."""
+    for meta in ProcessDescription.model_fields[field].metadata:
+        if getattr(meta, "ge", None) is not None:
+            return float(meta.ge)
+    raise KeyError(f"{field} has no ge bound")
+
+
+# El slider de DO arranca en el limite de validacion del esquema (5 % desde v1.4.0).
+DO_SLIDER_MIN_PCT = _schema_lower_bound("do_setpoint_pct")
 PV_WINDOW_W_M3 = (19.0, 30.0)
 # Los presets corresponden 1:1 con las columnas de A-Mab Tabla 3.22 (p.105) y usan
 # su kLa medido; la correlacion solo se usa en "Personalizado".
@@ -998,18 +1238,20 @@ with tab2:
         with e4:
             do_slider_pct = st.slider(
                 "Setpoint de DO (% saturacion de aire)",
-                min_value=10.0,
+                min_value=DO_SLIDER_MIN_PCT,
                 max_value=90.0,
                 value=float(ProcessDescription().do_setpoint_pct),
                 step=1.0,
                 key="do_setpoint_pct",
-                help="ProcessDescription.do_setpoint_pct; bounds del modelo [10, 100] %.",
+                help=f"ProcessDescription.do_setpoint_pct; bounds del modelo [{DO_SLIDER_MIN_PCT:g}, 100] %, "
+                     f"slider {DO_SLIDER_MIN_PCT:g}-90 %. Bajo {DO_HYPOXIA_NORM_PCT:g} % de DO real hay hipoxia real.",
             )
             _leyenda(
-                f"Fuerza impulsora = C* ({C_STAR_O2_MMOL_L:.3f} mmol/L, supuesto de modelado) x (1 - DO/100); OTR = kLa x fuerza "
-                "impulsora. Afecta tanto el margen OTR >= OUR de escalamiento como la cinetica "
-                "CHO (hipoxia/efecto Pasteur bajo 20% DO, banda supuesta y no calibrada, y limitacion "
-                "de transferencia si OTR < OUR)."
+                f"Fuerza impulsora con aire = C* ({C_STAR_O2_MMOL_L:.3f} mmol/L, supuesto de modelado) x (1 - DO/100); OTR = kLa x fuerza "
+                "impulsora. Afecta tanto el margen OTR >= OUR de escalamiento como el gemelo de la pestana 1, "
+                "donde el controlador sostiene el set-point enriqueciendo el gas con O2. La cinetica CHO "
+                f"responde solo al DO real: hipoxia y efecto Pasteur bajo {DO_HYPOXIA_NORM_PCT:g} % y muerte "
+                f"hipoxica bajo {DO_DEATH_ONSET_PCT:g} % (bandas supuestas, no calibradas)."
             )
         # El setpoint pasa por el esquema validado (ProcessDescription) antes de usarse.
         do_setpoint_pct = ProcessDescription(do_setpoint_pct=do_slider_pct).do_setpoint_pct
@@ -1050,13 +1292,22 @@ with tab2:
                 f">= OUR {scale['our_max_mmol_L_h']:.2f} mmol/L/h."
             )
         else:
+            scale_pure = compute_scale_up_engineering(
+                superficial_gas_vel_m_s=superficial_gas_vel_m_s,
+                power_per_vol_W_m3=power_per_vol_W_m3,
+                vcc_1e6_cells_mL=vcc,
+                do_percent=do_setpoint_pct,
+                measured_kla_h_inv=measured_kla,
+                o2_mole_fraction=1.0,
+            )
             st.warning(
                 f"URS-06 aviso del modelo, oxigeno insuficiente: con DO {do_setpoint_pct:g} %, OTR "
                 f"{scale['otr_mmol_L_h']:.2f} < OUR {scale['our_max_mmol_L_h']:.2f} mmol/L/h. "
                 f"El deficit frente a la demanda viene de C* = {C_STAR_O2_MMOL_L:.3f} mmol/L (solo "
                 f"aire, sin enriquecimiento con O2 puro) y qO2 = {Q_O2_MMOL_CELL_H * 1e9:.2f} "
-                "pmol/cel/h, supuestos sin fuente. A-Mab Tabla 3.23 (p.106) demostro operacion a "
-                "18-30e6 cel/mL en 2 L y 24e6 cel/mL en 5,000 L."
+                "pmol/cel/h, supuestos sin fuente. Con O2 puro en el gas (y_O2 = 1.0, A-Mab Fig. 3.12) "
+                f"el OTR seria {scale_pure['otr_mmol_L_h']:.2f} mmol/L/h. A-Mab Tabla 3.23 (p.106) "
+                "demostro operacion a 18-30e6 cel/mL en 2 L y 24e6 cel/mL en 5,000 L."
             )
 
         v1, v2, v3 = st.columns(3)
@@ -1386,6 +1637,22 @@ with tab4:
     n4.metric("Media global (lb/in)", f"{cap['mean']:.2f}")
     n5.metric("N (muestras)", f"{mr['n']}")
 
+    with st.container(border=True):
+        _band("Estabilidad estadistica antes de la capacidad (I-MR, regla 1 de Shewhart)")
+        st.caption(
+            "Los indices de capacidad solo describen un proceso en control estadistico. La regla 1 "
+            "cuenta los puntos fuera de [LCL within, UCL within]; los supuestos se cumplen si ademas "
+            "los datos son normales (Shapiro-Wilk)."
+        )
+        s1, s2, s3 = st.columns(3)
+        s1.metric("Puntos fuera de control (regla 1)", f"{cap['n_out_of_control_points']}")
+        _chip(s2, "in_statistical_control", cap["in_statistical_control"],
+              "En control" if cap["in_statistical_control"] else "Fuera de control",
+              str(cap["in_statistical_control"]))
+        _chip(s3, "capability_assumptions_met", cap["capability_assumptions_met"],
+              "Supuestos OK" if cap["capability_assumptions_met"] else "Supuestos no cumplidos",
+              str(cap["capability_assumptions_met"]))
+
     ch1, ch2 = st.columns(2)
     with ch1:
         x_idx = list(range(1, len(GORSKY_TABLE_6_2_TORQUE_N30) + 1))
@@ -1476,6 +1743,39 @@ with tab4:
         )
     else:
         _banner("warn", "Hacen falta al menos dos numeros validos en cada reactor.")
+
+    with st.container(border=True):
+        _band("Equivalencia formal TOST + Levene (Gorsky 2020, p.131)")
+        st.caption(
+            "Que la prueba t no encuentre diferencia no prueba equivalencia. TOST (dos pruebas t de "
+            "Welch unilaterales) prueba |media A - media B| < margen; es equivalente a que el IC "
+            "(1 - 2 alpha) de la diferencia quede dentro de +/- margen. Levene (centro mediana) "
+            "verifica que las dispersiones sean compatibles. El margen debe fijarse con criterio "
+            "cientifico (por ejemplo una fraccion del rango de especificacion), no con los datos."
+        )
+        equiv_margin = st.number_input(
+            "Margen de equivalencia (misma unidad que los datos)",
+            min_value=0.01, max_value=10.0, value=1.0, step=0.05, key="tost_margin",
+        )
+        if len(group_a) >= 2 and len(group_b) >= 2:
+            tost = compare_bioreactor_equivalence_tost(group_a, group_b, equiv_margin=float(equiv_margin), alpha=0.05)
+            tq = st.columns(4)
+            tq[0].metric("Diferencia de medias (A - B)", f"{tost['mean_diff']:+.4f}")
+            tq[1].metric("IC 90 % de la diferencia", f"[{tost['ci_90_low']:+.3f}, {tost['ci_90_high']:+.3f}]")
+            tq[2].metric("p TOST", f"{tost['p_tost']:.4f}")
+            tq[3].metric("p Levene", f"{tost['levene_p_value']:.4f}")
+            tc2 = st.columns(3)
+            _chip(tc2[0], "Medias equivalentes (TOST)", tost["means_equivalent"],
+                  "Equivalentes" if tost["means_equivalent"] else "No equivalentes",
+                  f"margen +/- {tost['equiv_margin']:g}")
+            _chip(tc2[1], "Varianzas compatibles (Levene)", tost["variances_compatible"],
+                  "Compatibles" if tost["variances_compatible"] else "Distintas",
+                  f"p = {tost['levene_p_value']:.4f}")
+            _chip(tc2[2], "statistically_equivalent", tost["statistically_equivalent"],
+                  "Equivalentes" if tost["statistically_equivalent"] else "No equivalentes",
+                  str(tost["statistically_equivalent"]))
+        else:
+            _banner("warn", "TOST necesita al menos dos numeros validos en cada reactor.")
 
     st.caption(
         "Fuentes: Gorsky, Principles of Parenteral Solution Validation, Elsevier 2020, cap. 6; "
@@ -1606,8 +1906,8 @@ def _run_oq_in_temp() -> dict:
     """Re-ejecuta tests/ en una COPIA temporal del repo.
 
     tests/conftest.py escribe el log en <raiz>/docs/04_...md relativo a su propia
-    ubicacion, asi que al copiar src/, tests/ y pytest.ini a un directorio temporal
-    el log nuevo cae en <tmp>/docs/ y el log comprometido del repo no se toca.
+    ubicacion, asi que al copiar src/, tests/, data/ y pytest.ini a un directorio
+    temporal el log nuevo cae en <tmp>/docs/ y el log comprometido del repo no se toca.
     """
     before = _sha256_file(OQ_LOG_PATH)
     tmp = tempfile.mkdtemp(prefix="oq_rerun_")
@@ -1617,6 +1917,8 @@ def _run_oq_in_temp() -> dict:
         ignore = shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache")
         shutil.copytree(os.path.join(ROOT_DIR, "src"), os.path.join(tmp, "src"), ignore=ignore)
         shutil.copytree(TESTS_DIR, os.path.join(tmp, "tests"), ignore=ignore)
+        # Reference dataset of the model-validation OQ (test_oq_03g, v1.4.0).
+        shutil.copytree(os.path.join(ROOT_DIR, "data"), os.path.join(tmp, "data"), ignore=ignore)
         shutil.copy2(os.path.join(ROOT_DIR, "pytest.ini"), os.path.join(tmp, "pytest.ini"))
         os.makedirs(os.path.join(tmp, "docs"), exist_ok=True)
         env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")

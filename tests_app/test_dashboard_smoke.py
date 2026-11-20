@@ -4,7 +4,8 @@ Kept OUTSIDE tests/ on purpose: tests/conftest.py writes the FDA CSA OQ log
 (docs/04) for the qualified OQ tests in tests/, and this UI smoke test must not
 change that record. The CI runs it as a separate step after tests/.
 
-13 tests here; together with the 20 OQ tests in tests/ the full run is 33 tests.
+17 tests here; together with the 24 OQ tests in tests/ the full run is 41 tests.
+Every interaction runs with DeprecationWarning promoted to an error.
 
 Run with:  python -m pytest tests_app -v
 """
@@ -21,8 +22,14 @@ from streamlit.testing.v1 import AppTest
 from src.models import ProcessDescription
 from src.amab_design_space import AMAB_MEASURED_KLA_H_INV, compute_scale_up_engineering
 from src.bioreactor_twin import simulate_cho_fed_batch
+from src.model_validation import (
+    compute_validation_metrics,
+    load_bionova_reference_dataset,
+    simulate_bionova_condition,
+)
 from src.spc_six_sigma import (
     GORSKY_TABLE_6_2_TORQUE_N30,
+    compare_bioreactor_equivalence_tost,
     compute_moving_range_summary,
     compute_process_capability,
 )
@@ -143,7 +150,7 @@ def test_do_slider_drives_otr_and_oxygen_alarm(at):
     assert alarms() == []
     assert any("URS-06 OK" in s.value for s in at.success)
 
-    at.slider(key="do_setpoint_pct").set_value(85.0).run()
+    _run_strict(at.slider(key="do_setpoint_pct").set_value(85.0))
     # The oxygen alarm is an intended model warning (st.warning), never an error.
     assert not at.exception, [e.value for e in at.exception]
     assert not at.error, [e.value for e in at.error]
@@ -154,24 +161,37 @@ def test_do_slider_drives_otr_and_oxygen_alarm(at):
     assert otr_shown() != otr_30
     assert len(alarms()) == 1
 
-    at.slider(key="do_setpoint_pct").set_value(30.0).run()
+    _run_strict(at.slider(key="do_setpoint_pct").set_value(30.0))
     _clean(at)
     assert otr_shown() == otr_30
     assert alarms() == []
 
 
 def test_do_slider_changes_scaleup_and_twin(at):
+    """DO set-point drives OTR always; the twin responds only to the real DO (v1.4.0).
+
+    The slider starts at the 5 % schema limit. With O2 enrichment on, DO 85 % is held by
+    the controller and the culture is the same as at 30 % (no false hypoxia); DO 5 % and
+    10 % are real hypoxia (f_do < 1) and change the KPIs, and DO 5 % raises the real-hypoxia
+    banner. With enrichment off, DO 85 % saturates the controller and the air-limited
+    transfer lowers the titer.
+    """
     def titers():
         return _metric_values(at, "Titulo final (g/L)")
 
     def viabilities():
         return _metric_values(at, "Viabilidad final (%)")
 
+    schema_min = next(m.ge for m in ProcessDescription.model_fields["do_setpoint_pct"].metadata
+                      if getattr(m, "ge", None) is not None)
+    assert at.slider(key="do_setpoint_pct").min == schema_min == 5.0
     base_otr = _metric_values(at, "OTR (mmol/L/h)")
     base_titer, base_viab = titers(), viabilities()
-    for do in (10.0, 85.0):
-        at.slider(key="do_setpoint_pct").set_value(do).run()
+    for do, same_as_base in ((5.0, False), (10.0, False), (85.0, True)):
+        _run_strict(at.slider(key="do_setpoint_pct").set_value(do))
         assert not at.exception, [e.value for e in at.exception]
+        hypoxia_banners = [m.value for m in at.markdown if 'class="bp-banner"' in m.value and "hipoxia real" in m.value]
+        assert len(hypoxia_banners) == (2 if do < 15.0 else 0), do
         expected = [
             simulate_cho_fed_batch(
                 ProcessDescription(mode=m, vessel_volume_L=2.0, do_setpoint_pct=do)
@@ -181,7 +201,17 @@ def test_do_slider_changes_scaleup_and_twin(at):
         assert titers() == [f"{r['final_titer_g_L']:.4f}" for r in expected]
         assert viabilities() == [f"{r['final_viability_pct']:.2f}" for r in expected]
         assert _metric_values(at, "OTR (mmol/L/h)") != base_otr
-        assert titers() != base_titer
+        assert (titers() == base_titer) is same_as_base, do
+    _run_strict(_by_label(at.toggle, "Enriquecimiento con O2 puro (A-Mab Fig. 3.12)").set_value(False))
+    assert not at.exception, [e.value for e in at.exception]
+    air = [
+        simulate_cho_fed_batch(
+            ProcessDescription(mode=m, vessel_volume_L=2.0, do_setpoint_pct=85.0, o2_enrichment_enabled=False)
+        )
+        for m in ("static", "closed_loop")
+    ]
+    assert titers() == [f"{r['final_titer_g_L']:.4f}" for r in air]
+    assert titers() != base_titer
     assert any("Afecta tanto el margen OTR >= OUR" in m.value for m in at.markdown)
     assert not any("Solo afecta el balance de oxigeno" in m.value for m in at.markdown)
 
@@ -250,7 +280,7 @@ def test_shewhart_legend_is_below_the_plot(at):
 
 
 def test_volume_slider_switches_to_kg(at):
-    _by_label(at.slider, "Volumen nominal del biorreactor (L)").set_value(15000.0).run()
+    _run_strict(_by_label(at.slider, "Volumen nominal del biorreactor (L)").set_value(15000.0))
     _clean(at)
     closed = simulate_cho_fed_batch(ProcessDescription(mode="closed_loop", vessel_volume_L=15000.0))
     masses = _metric_values(at, "Masa cosechada de mAb (kg)")
@@ -273,7 +303,7 @@ def test_scale_presets_and_amab_mode(at):
     warn_volumes = {2.0, 500.0, 1000.0, 5000.0}
     assert list(at.selectbox(key="scale_preset").options) == list(presets)
     for preset, volume in presets.items():
-        at.selectbox(key="scale_preset").set_value(preset).run()
+        _run_strict(at.selectbox(key="scale_preset").set_value(preset))
         assert not at.exception, [e.value for e in at.exception]
         assert not at.error, [e.value for e in at.error]
         shown = [w.value for w in at.warning]
@@ -286,20 +316,20 @@ def test_scale_presets_and_amab_mode(at):
             kla = AMAB_MEASURED_KLA_H_INV[volume]
             assert _metric_values(at, "kLa (1/h)") == [f"{kla:.2f}"], preset
     assert any("coinciden" in c.value and "20.00 h^-1" in c.value for c in at.caption)
-    at.selectbox(key="scale_preset").set_value("15,000 L comercial (referencia A-Mab)").run()
+    _run_strict(at.selectbox(key="scale_preset").set_value("15,000 L comercial (referencia A-Mab)"))
     _clean(at)
     for option in at.radio(key="amab_mode").options:
-        at.radio(key="amab_mode").set_value(option).run()
+        _run_strict(at.radio(key="amab_mode").set_value(option))
         _clean(at)
-        _by_label(at.slider, "Osmolalidad (mOsm/kg)").set_value(440.0).run()
+        _run_strict(_by_label(at.slider, "Osmolalidad (mOsm/kg)").set_value(440.0))
         _clean(at)
 
 
 def test_fft_intervals_and_sources(at):
     for source in _by_label(at.radio, "Senal analizada").options:
-        _by_label(at.radio, "Senal analizada").set_value(source).run()
+        _run_strict(_by_label(at.radio, "Senal analizada").set_value(source))
         for dt in (5.0, 15.0, 30.0, 60.0):
-            _by_label(at.selectbox, "target_sampling_interval_min (min)").set_value(dt).run()
+            _run_strict(_by_label(at.selectbox, "target_sampling_interval_min (min)").set_value(dt))
             _clean(at)
 
 
@@ -343,3 +373,102 @@ def test_oq_rerun_button_runs_suite_without_touching_committed_log(at):
     assert _metric_values(at, "Aprobadas (re-ejecucion)") == [f"{n_tests}/{n_tests}"]
     assert _metric_values(at, "Fallidas o con error (re-ejecucion)") == ["0"]
     assert _sha256(OQ_LOG) == before
+
+
+def _chart_specs(app):
+    return [json.loads(c.proto.spec) for c in app.get("plotly_chart")]
+
+
+def _chart(app, title):
+    for spec in _chart_specs(app):
+        if json.dumps(spec["layout"].get("title", {})).find(f'"{title}"') >= 0:
+            return spec
+    raise AssertionError(f"chart not found: {title}")
+
+
+def _banners(app):
+    return [m.value for m in app.markdown if 'class="bp-banner"' in m.value]
+
+
+def test_nh3_and_do_real_charts_and_controller_banner(at):
+    """Tab 1 plots NH3 and the real DO from the twin and states controller saturation vs real hypoxia."""
+    runs = {
+        m: simulate_cho_fed_batch(ProcessDescription(mode=m, vessel_volume_L=2.0))
+        for m in ("static", "closed_loop")
+    }
+    nh3 = _chart(at, "Amonio NH3")
+    do = _chart(at, "DO real en el liquido")
+    for idx, mode in ((0, "static"), (1, "closed_loop")):
+        assert nh3["data"][idx]["y"] == pytest.approx(runs[mode]["nh3_mmol_L"], rel=1e-12)
+        assert do["data"][idx]["y"] == pytest.approx(runs[mode]["do_real_pct"], rel=1e-12)
+    assert sum("DO real = set-point (30 %)" in b for b in _banners(at)) == 2
+
+    _run_strict(_by_label(at.toggle, "Enriquecimiento con O2 puro (A-Mab Fig. 3.12)").set_value(False))
+    _clean(at)
+    air = simulate_cho_fed_batch(
+        ProcessDescription(mode="closed_loop", vessel_volume_L=2.0, o2_enrichment_enabled=False)
+    )
+    assert air["min_do_real_pct"] < 15.0
+    hypoxia = [b for b in _banners(at) if "hipoxia real" in b]
+    assert len(hypoxia) == 2
+    assert f"{air['min_do_real_pct']:.1f} %" in hypoxia[1]
+
+
+def test_bionova_validation_block_matches_model_validation(at):
+    """The Bionova block overlays the dataset and its table reproduces compute_validation_metrics."""
+    ds = load_bionova_reference_dataset()
+    m30 = compute_validation_metrics(simulate_bionova_condition("stratyx_30_W_m3", dataset=ds), ds, "stratyx_30_W_m3")
+    m19 = compute_validation_metrics(simulate_bionova_condition("stratyx_19_W_m3", dataset=ds), ds, "stratyx_19_W_m3")
+    tables = [d.value for d in at.dataframe if "Cumple RMSE <= 2 sigma" in d.value.columns]
+    assert len(tables) == 1
+    table = tables[0]
+    assert len(table) == len(m30["variables"]) + len(m19["variables"]) + len(m19["points"])
+    for label, metrics in (("30 W/m3 (calibracion)", m30), ("19 W/m3 (fuera de muestra)", m19)):
+        for key, v in metrics["variables"].items():
+            row = table[(table["Condicion"] == label) & (table["Variable"] == key)].iloc[0]
+            assert row["RMSE"] == f"{v['RMSE']:.3f}"
+            assert row["R2"] == ("n/a" if v["R2"] is None else f"{v['R2']:.3f}")
+    vcd = _chart(at, "VCD (1e6 cel/mL): modelo vs Bionova")
+    names = [tr.get("name") for tr in vcd["data"]]
+    assert "Bionova 30 W/m3 (digitalizado)" in names and "Bionova 30 W/m3 (impreso)" in names
+    assert "Bionova 19 W/m3 (fuera de muestra)" in names
+    digitized = vcd["data"][names.index("Bionova 30 W/m3 (digitalizado)")]
+    assert digitized["error_y"]["value"] == ds["calibration_set"]["series"]["vcd_1e6_mL"]["uncertainty_abs"]
+
+
+def test_duration_slider_and_shift_clamp(at):
+    """Duration slider feeds the twin; a shift later than the run is clamped, never an error."""
+    for days in (21, 5):
+        _run_strict(_by_label(at.slider, "Duracion del cultivo en el gemelo (d)").set_value(days))
+        _clean(at)
+        shift = min(7.0, float(days))
+        expected = [
+            simulate_cho_fed_batch(
+                ProcessDescription(mode=m, vessel_volume_L=2.0, duration_days=days, temp_shift_day=shift)
+            )
+            for m in ("static", "closed_loop")
+        ]
+        assert _metric_values(at, "Titulo final (g/L)") == [f"{r['final_titer_g_L']:.4f}" for r in expected]
+        clamp = [c.value for c in at.caption if "Dia del cambio termico ajustado" in c.value]
+        assert (len(clamp) == 1) is (days == 5)
+
+
+def test_tost_levene_section_and_stability_chips(at):
+    """Tab 4 shows I-MR stability and the TOST + Levene result of compare_bioreactor_equivalence_tost."""
+    cap = compute_process_capability(GORSKY_TABLE_6_2_TORQUE_N30)
+    assert _metric_values(at, "Puntos fuera de control (regla 1)") == [f"{cap['n_out_of_control_points']}"]
+    html = " ".join(m.value for m in at.markdown)
+    assert "in_statistical_control" in html and "capability_assumptions_met" in html
+    a = [8.1, 7.9, 8.4, 8.0, 8.3, 7.8]
+    b = [8.6, 8.9, 9.1, 8.7, 9.0, 8.8]
+    for margin in (1.0, 0.5):
+        _run_strict(at.number_input(key="tost_margin").set_value(margin))
+        _clean(at)
+        tost = compare_bioreactor_equivalence_tost(a, b, equiv_margin=margin)
+        assert _metric_values(at, "p TOST") == [f"{tost['p_tost']:.4f}"]
+        assert _metric_values(at, "p Levene") == [f"{tost['levene_p_value']:.4f}"]
+        assert _metric_values(at, "IC 90 % de la diferencia") == [
+            f"[{tost['ci_90_low']:+.3f}, {tost['ci_90_high']:+.3f}]"]
+        word = "Equivalentes" if tost["statistically_equivalent"] else "No equivalentes"
+        chips = [m.value for m in at.markdown if "statistically_equivalent" in m.value and "bp-chip" in m.value]
+        assert len(chips) == 1 and f">{word}<" in chips[0]

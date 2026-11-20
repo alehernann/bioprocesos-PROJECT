@@ -43,6 +43,16 @@ def _csa_category(nodeid: str) -> str:
     return "Uncategorized"
 
 
+def pytest_sessionstart(session):
+    """Start every session with an empty record list.
+
+    The list is module-level, so a second session in the same interpreter (for
+    example ``pytest.main`` called twice) would otherwise append to the results of
+    the first one and write a wrong execution log.
+    """
+    _OQ_RESULTS.clear()
+
+
 def pytest_runtest_logreport(report):
     """Collect the result and duration of each executed test.
 

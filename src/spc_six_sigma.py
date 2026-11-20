@@ -6,6 +6,11 @@ Validation*, Elsevier, 2020, pp. 115-136, together with the tolerance-interval
 machinery of ISO 16269-6:2014 and the capability indices of ASTM E2281.
 
 The two torque datasets reproduce Gorsky (2020) Tables 6-1 (n=10) and 6-2 (n=30).
+
+v1.4.0 adds the I-MR statistical-control check that must hold before capability is
+interpreted (``in_statistical_control``, ``capability_assumptions_met``) and the
+formal equivalence test ``compare_bioreactor_equivalence_tost`` (Schuirmann TOST
+with Welch t-tests plus Levene's test, Gorsky 2020 p.131).
 """
 
 import numpy as np
@@ -66,6 +71,15 @@ def compute_process_capability(data, lsl: float = 5.0, usl: float = 12.0) -> dic
     std_within, ucl_within, lcl_within (I-MR Shewhart limits, mean +/- 3*std_within
     = mean +/- 2.66*MR-bar, short-term), capable_4sigma, normality_p_value and
     is_normal.
+
+    STATISTICAL-CONTROL CHECK (v1.4.0)
+    ----------------------------------
+    Capability indices only describe a process that is in statistical control
+    (Gorsky 2020, ch. 6). Shewhart Rule 1 is applied to the individuals chart:
+    ``n_out_of_control_points`` counts the points outside
+    [lcl_within, ucl_within] (unrounded limits), ``in_statistical_control`` is
+    True when that count is 0, and ``capability_assumptions_met`` =
+    is_normal AND in_statistical_control. All earlier keys are unchanged.
     """
     arr = np.asarray(data, dtype=float)
     mean = np.mean(arr)
@@ -97,6 +111,13 @@ def compute_process_capability(data, lsl: float = 5.0, usl: float = 12.0) -> dic
     normality_p_value = float(shapiro_result.pvalue)
     is_normal = bool(normality_p_value >= 0.05)
 
+    # Shewhart Rule 1 on the I chart (within limits, unrounded).
+    ucl_within = mean + 3 * std_within
+    lcl_within = mean - 3 * std_within
+    n_out_of_control = int(np.sum((arr > ucl_within) | (arr < lcl_within)))
+    in_statistical_control = bool(n_out_of_control == 0)
+    capability_assumptions_met = bool(is_normal and in_statistical_control)
+
     return {
         "mean": round(float(mean), 2),
         "std": round(float(std_overall), 2),
@@ -117,6 +138,9 @@ def compute_process_capability(data, lsl: float = 5.0, usl: float = 12.0) -> dic
         "capable_4sigma": capable_4sigma,
         "normality_p_value": round(normality_p_value, 4),
         "is_normal": is_normal,
+        "n_out_of_control_points": n_out_of_control,
+        "in_statistical_control": in_statistical_control,
+        "capability_assumptions_met": capability_assumptions_met,
     }
 
 
@@ -135,6 +159,105 @@ def compute_moving_range_summary(data, d2: float = 1.128) -> dict:
         "mr_bar": round(mr_bar, 2),
         "d2": float(d2),
         "std_within": round(mr_bar / d2, 2),
+    }
+
+
+def compare_bioreactor_equivalence_tost(
+    group_a, group_b, equiv_margin: float, alpha: float = 0.05
+) -> dict:
+    """Formal equivalence test: Schuirmann TOST (Welch) plus Levene (Gorsky 2020, p.131).
+
+    A non-significant t-test does not prove equivalence. TOST tests
+    H0: |mu_A - mu_B| >= equiv_margin against H1: |mu_A - mu_B| < equiv_margin with
+    two one-sided Welch t-tests (unequal variances, Welch-Satterthwaite df):
+
+        t_lower = (d + margin) / se,  p_lower = P(T > t_lower)   (H0: d <= -margin)
+        t_upper = (d - margin) / se,  p_upper = P(T < t_upper)   (H0: d >= +margin)
+        p_tost  = max(p_lower, p_upper);  means_equivalent = p_tost < alpha
+
+    with d = mean_A - mean_B and se = sqrt(s_A^2/n_A + s_B^2/n_B). Equivalently, the
+    (1 - 2*alpha) confidence interval of d (``ci_low``, ``ci_high``; 90 % for
+    alpha = 0.05, also returned as ``ci_90_low`` / ``ci_90_high``) lies inside
+    (-margin, +margin). Levene's test (``scipy.stats.levene``, median centre, i.e.
+    the Brown-Forsythe variant) checks that the spreads are compatible
+    (p >= alpha). ``statistically_equivalent`` = means_equivalent AND
+    variances_compatible. ``equiv_margin`` must be set from a scientific
+    justification (e.g. a fraction of the specification range), never from the
+    data being compared.
+    """
+    a = np.asarray(group_a, dtype=float)
+    b = np.asarray(group_b, dtype=float)
+    if a.size < 2 or b.size < 2:
+        raise ValueError("Each group needs at least two values.")
+    if not np.all(np.isfinite(a)) or not np.all(np.isfinite(b)):
+        raise ValueError("Groups must contain only finite numbers.")
+    margin = float(equiv_margin)
+    if not margin > 0.0:
+        raise ValueError("equiv_margin must be > 0.")
+    if not 0.0 < alpha < 0.5:
+        raise ValueError("alpha must be in (0, 0.5).")
+
+    n_a, n_b = int(a.size), int(b.size)
+    mean_a, mean_b = float(a.mean()), float(b.mean())
+    diff = mean_a - mean_b
+    va = float(a.var(ddof=1)) / n_a
+    vb = float(b.var(ddof=1)) / n_b
+    se = float(np.sqrt(va + vb))
+    if se > 0.0:
+        df = (va + vb) ** 2 / (
+            (va ** 2 / (n_a - 1) if va > 0 else 0.0) + (vb ** 2 / (n_b - 1) if vb > 0 else 0.0)
+        )
+        t_lower = (diff + margin) / se
+        t_upper = (diff - margin) / se
+        p_lower = float(stats.t.sf(t_lower, df))
+        p_upper = float(stats.t.cdf(t_upper, df))
+        half = float(stats.t.ppf(1.0 - alpha, df)) * se
+        half_90 = float(stats.t.ppf(0.95, df)) * se
+    else:
+        # Both groups constant: the difference is known exactly.
+        df = float(n_a + n_b - 2)
+        t_lower = float("inf") if diff > -margin else float("-inf")
+        t_upper = float("-inf") if diff < margin else float("inf")
+        p_lower = 0.0 if diff > -margin else 1.0
+        p_upper = 0.0 if diff < margin else 1.0
+        half = half_90 = 0.0
+    p_tost = max(p_lower, p_upper)
+    means_equivalent = bool(p_tost < alpha)
+
+    if float(a.var(ddof=1)) == 0.0 and float(b.var(ddof=1)) == 0.0:
+        levene_stat, levene_p = 0.0, 1.0  # identical (zero) spread
+    else:
+        lev = stats.levene(a, b, center="median")
+        levene_stat, levene_p = float(lev.statistic), float(lev.pvalue)
+    variances_compatible = bool(levene_p >= alpha)
+
+    return {
+        "n_a": n_a,
+        "n_b": n_b,
+        "mean_a": mean_a,
+        "mean_b": mean_b,
+        "mean_diff": diff,
+        "se_diff": se,
+        "df_welch": float(df),
+        "equiv_margin": margin,
+        "alpha": float(alpha),
+        "t_lower": float(t_lower),
+        "p_lower": p_lower,
+        "t_upper": float(t_upper),
+        "p_upper": p_upper,
+        "p_tost": p_tost,
+        "ci_level": 1.0 - 2.0 * float(alpha),
+        "ci_low": diff - half,
+        "ci_high": diff + half,
+        "ci_90_low": diff - half_90,
+        "ci_90_high": diff + half_90,
+        "ci_within_margin": bool(-margin < diff - half and diff + half < margin),
+        "means_equivalent": means_equivalent,
+        "levene_stat": levene_stat,
+        "levene_p_value": levene_p,
+        "levene_center": "median",
+        "variances_compatible": variances_compatible,
+        "statistically_equivalent": bool(means_equivalent and variances_compatible),
     }
 
 
