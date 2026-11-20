@@ -8,12 +8,12 @@ Portafolio de bioprocesos, control y validacion GxP de Alejandro Timaran, estudi
 
 ## Descripcion ejecutiva
 
-Este repositorio reune un conjunto de modulos cientificos en Python que modelan y validan, de extremo a extremo, un sistema de control de biorreactor para cultivo de celulas CHO-K1, siguiendo marcos regulatorios reales (FDA CSA 2026, ISPE GAMP 5, ICH Q8-Q12, 21 CFR Part 11, EU GMP Annex 11/22, ASME BPE-2014, ISO 16269-6, USP). El portafolio integra:
+Este repositorio reune un conjunto de modulos cientificos en Python que modelan y validan, de extremo a extremo, un sistema de control de biorreactor para cultivo de celulas CHO-K1, siguiendo marcos regulatorios reales (FDA CSA 2026, ISPE GAMP 5, ASME V&V 40, ICH Q8-Q12, 21 CFR Part 11, EU GMP Annex 11/22, ASME BPE-2014, ISO 16269-6, USP). El portafolio integra:
 
-- Un **gemelo digital mecanistico** fed-batch CHO-K1 con receta estatica y lazo cerrado adaptativo (base Bionova Scientific / Ark Biotech 2026).
-- La evaluacion del **espacio de diseno multivariado A-Mab** (ISPE 2009) y el escalamiento de transferencia de oxigeno (kLa, OUR) con el kLa medido por escala de A-Mab Tabla 3.22 (2 L a 25,000 L); por debajo de 2 L (0.25 L de Bionova) el gemelo usa 10 h^-1 del modelo estandar de 2 L como proxy (supuesto de modelado).
+- Un **gemelo digital mecanistico** fed-batch CHO-K1 de 6 estados (celulas viables y muertas, glucosa, lactato, amonio, titulo) mas el volumen, **calibrado contra Bionova NISTCHO (2026)** y validado fuera de muestra, con receta estatica, protocolo Bionova y lazo cerrado adaptativo (Ark Biotech 2026).
+- La evaluacion del **espacio de diseno multivariado A-Mab** (ISPE 2009) y el escalamiento de transferencia de oxigeno (kLa, OUR, enriquecimiento con O2) con el kLa medido por escala de A-Mab Tabla 3.22 (2 L a 25,000 L); por debajo de 2 L (0.25 L de Bionova) el gemelo usa 10 h^-1 del modelo estandar de 2 L como proxy (supuesto de modelado).
 - Analitica termica de cadena de frio: **MKT**, **buffer termico virtual (VTB)** y verificacion de muestreo por **FFT/Nyquist** (Rusnack, Pharm. Eng. 2026).
-- Control estadistico de procesos **Six Sigma** (cartas de Shewhart, capacidad Cp/Cpk, intervalos de tolerancia ISO 16269, prueba t de Welch) sobre los datasets de Gorsky (2020).
+- Control estadistico de procesos **Six Sigma** (cartas de Shewhart con estabilidad I-MR, capacidad Cp/Cpk, intervalos de tolerancia ISO 16269, prueba t de Welch y equivalencia formal TOST + Levene) sobre los datasets de Gorsky (2020).
 - Una **traza de auditoria encadenada por SHA-256** conforme a 21 CFR Part 11 y al guardarail humano-en-el-lazo del EU GMP Annex 22.
 
 Todo esto se expone en un **tablero interactivo de Streamlit + Plotly** (`app/dashboard.py`) con 5 pestanas, respaldado por una **suite de calificacion operacional (OQ)** en pytest que genera automaticamente un log de ejecucion GxP.
@@ -28,21 +28,26 @@ flowchart TD
 
     subgraph src["src/ (Modulos matematicos / logica cientifica)"]
         MODELS["models.py\nProcessDescription (pydantic v2)"]
-        TWIN["bioreactor_twin.py\nGemelo digital CHO-K1 + interlocks"]
+        TWIN["bioreactor_twin.py\nGemelo CHO-K1 de 6 estados + interlocks"]
+        VAL["model_validation.py\nCalibracion, identificabilidad, validacion"]
         AMAB["amab_design_space.py\nEspacio de diseno A-Mab + escalamiento"]
         THERMAL["thermal_vtb_mkt.py\nMKT, VTB, FFT/Nyquist"]
-        SPC["spc_six_sigma.py\nShewhart, Cp/Cpk, ISO 16269, Welch"]
+        SPC["spc_six_sigma.py\nShewhart I-MR, Cp/Cpk, ISO 16269, Welch, TOST"]
         AUDIT["audit_trail_part11.py\nAudit trail SHA-256 (Part 11 / Annex 22)"]
+    end
+
+    subgraph data["data/ (Datos de referencia)"]
+        BION["bionova_nistcho_2026.json\nimpresos + digitalizados, pre-feed"]
     end
 
     subgraph tests["tests/ (Calificacion operacional OQ)"]
         CONF["conftest.py\ngenera docs/04 en cada corrida"]
-        TOQ["test_csa_oq_validation.py\n20 pruebas OQ (FDA CSA)"]
+        TOQ["test_csa_oq_validation.py\n24 pruebas OQ (FDA CSA)"]
     end
 
     subgraph docs["docs/ (Paquete documental GxP)"]
         D1["01 URS"]
-        D2["02 CSA Risk"]
+        D2["02 CSA Risk + V&V 40"]
         D3["03 RTM"]
         D4["04 OQ Log (generado)"]
         D5["05 Bibliografia"]
@@ -50,12 +55,15 @@ flowchart TD
 
     DASH --> MODELS
     DASH --> TWIN
+    DASH --> VAL
     DASH --> AMAB
     DASH --> THERMAL
     DASH --> SPC
     DASH --> AUDIT
 
     TWIN --> MODELS
+    VAL --> TWIN
+    VAL --> BION
     TOQ --> src
     CONF --> D4
     TOQ --> CONF
@@ -66,26 +74,27 @@ flowchart TD
 
 | Modulo | Responsabilidad |
 | --- | --- |
-| `models.py` | Esquema `ProcessDescription` (pydantic v2) con los parametros criticos del proceso (CPP) y sus limites de validacion de entrada: volumen, P/V, sparge, temperaturas, dia de cambio termico, pH, DO, umbrales de glucosa, duracion y modo (`static` / `closed_loop`). |
-| `bioreactor_twin.py` | Gemelo digital mecanistico CHO-K1 fed-batch: `simulate_cho_fed_batch` (VCD, viabilidad, glucosa, lactato, titulo), controlador split-range de pH `compute_split_range_ph_actuators`, programa de cambio termico `get_temperature_setpoint` e interlocks de seguridad `check_safety_interlocks` (cizalla hidrodinamica, CIP con velocidad ASME BPE 1.52 m/s, SIP con integral de letalidad F0). |
-| `amab_design_space.py` | `evaluate_amab_design_space`: superficies de respuesta de las 4 CQA de N-glicano (z1..z4) y verificacion del espacio de diseno A-Mab; `compute_scale_up_engineering`: kLa (medido por escala o correlacion), OTR y OUR para escalamiento de oxigeno; `AMAB_MEASURED_KLA_H_INV` y `measured_kla_for_volume`: kLa medido de A-Mab Tabla 3.22. |
-| `thermal_vtb_mkt.py` | `calculate_mkt_celsius` (temperatura cinetica media, Arrhenius), `apply_vtb_filter` (buffer termico virtual de primer orden por volumen) y `analyze_fft_nyquist` (limite de Nyquist, frecuencia dominante, riesgo de aliasing). Incluye `VTB_CALIBRATION_TABLE`. |
-| `spc_six_sigma.py` | `compute_process_capability` (Cp/Cpu/Cpl/Cpk, UCL/LCL), `compute_iso16269_tolerance_interval` (intervalo de tolerancia ISO 16269-6) y `compare_bioreactor_equivalence_ttest` (prueba t de Welch). Datasets de torque de Gorsky (`GORSKY_TABLE_6_1_TORQUE_N10`, `GORSKY_TABLE_6_2_TORQUE_N30`). |
+| `models.py` | Esquema `ProcessDescription` (pydantic v2) con los parametros criticos del proceso (CPP), sus limites de validacion de entrada y validadores cruzados (disparo de glucosa < objetivo; cambio termico <= duracion): volumen, llenado inicial, P/V, sparge, temperaturas, dia de cambio termico, pH, DO, enriquecimiento con O2, umbrales de glucosa, duracion y modo (`static` / `bionova_baseline` / `closed_loop`). |
+| `bioreactor_twin.py` | Gemelo digital mecanistico CHO-K1 fed-batch: `simulate_cho_fed_batch` (Xv, Xd, glucosa, lactato, NH3, titulo y V(t); RK45 con respaldo Radau; `daily_pre_feed`), `compute_dissolved_oxygen_state` (DO real con enriquecimiento de O2), `compute_hydrodynamic_stress`, constantes calibradas documentadas, controlador split-range de pH `compute_split_range_ph_actuators`, programa de cambio termico `get_temperature_setpoint` e interlocks de seguridad `check_safety_interlocks` (cizalla hidrodinamica, CIP con velocidad ASME BPE 1.52 m/s, SIP con integral de letalidad F0). |
+| `model_validation.py` | `load_bionova_reference_dataset`, `run_parameter_calibration` (`least_squares` TRF), `compute_validation_metrics` (R2, RMSE, NRMSE, error del dia 14 dentro y fuera de muestra), `compute_jacobian_identifiability` (valores singulares, cond(J), pares colineales) y `check_numerical_convergence` (ASME V&V 40). |
+| `amab_design_space.py` | `evaluate_amab_design_space`: superficies de respuesta de las 4 CQA de N-glicano (z1..z4) y verificacion del espacio de diseno A-Mab; `compute_scale_up_engineering`: kLa (medido por escala o correlacion), OTR y OUR con fraccion molar de O2 del gas (`o2_mole_fraction`, por defecto aire); `AMAB_MEASURED_KLA_H_INV` y `measured_kla_for_volume`: kLa medido de A-Mab Tabla 3.22. |
+| `thermal_vtb_mkt.py` | `calculate_mkt_celsius` (temperatura cinetica media, Arrhenius), `apply_vtb_filter` (buffer termico virtual de primer orden por volumen) y `analyze_fft_nyquist` (limite de Nyquist, frecuencia dominante, riesgo de aliasing). Incluye `VTB_CALIBRATION_TABLE` (con nota sobre la anomalia fisica del rotulo "300 mL (Bulk)"). |
+| `spc_six_sigma.py` | `compute_process_capability` (Cp/Cpu/Cpl/Cpk, UCL/LCL, regla 1 de Shewhart, `in_statistical_control`, `capability_assumptions_met`), `compute_iso16269_tolerance_interval` (intervalo de tolerancia ISO 16269-6), `compare_bioreactor_equivalence_ttest` (prueba t de Welch) y `compare_bioreactor_equivalence_tost` (TOST de Schuirmann + Levene). Datasets de torque de Gorsky (`GORSKY_TABLE_6_1_TORQUE_N10`, `GORSKY_TABLE_6_2_TORQUE_N30`). |
 | `audit_trail_part11.py` | `AuditTrailLogger`: traza de auditoria encadenada por SHA-256 a prueba de manipulacion, con aprobacion humana obligatoria (Annex 22) y razon de cambio documentada (Part 11); `verify_chain_integrity` detecta cualquier alteracion. |
 
 ## Documentos GxP (docs/)
 
 | Documento | Descripcion |
 | --- | --- |
-| `docs/01_URS_Bioreactor_Control_System.md` | Especificacion de requisitos de usuario (URS) del sistema de control del biorreactor. |
-| `docs/02_FDA_CSA_Risk_Assessment_2026.md` | Evaluacion de riesgo bajo la guia FDA Computer Software Assurance (CSA) 2026. |
-| `docs/03_RTM_Traceability_Matrix.md` | Matriz de trazabilidad de requisitos (RTM) que vincula URS, riesgo y pruebas. |
+| `docs/01_URS_Bioreactor_Control_System.md` | Especificacion de requisitos de usuario (URS-01 a URS-16, NFR-01 a NFR-07) del sistema de control del biorreactor. |
+| `docs/02_FDA_CSA_Risk_Assessment_2026.md` | Evaluacion de riesgo bajo la guia FDA Computer Software Assurance (CSA) 2026 y credibilidad del modelo segun ASME V&V 40 (seccion 9). |
+| `docs/03_RTM_Traceability_Matrix.md` | Matriz de trazabilidad de requisitos (RTM) que vincula URS, riesgo y pruebas, con la evidencia de calibracion y validacion (seccion 11). |
 | `docs/04_Automated_OQ_Execution_Log.md` | Log de ejecucion de la calificacion operacional (OQ). **Generado automaticamente** por `tests/conftest.py` en cada corrida de pytest. |
 | `docs/05_Academic_and_Regulatory_Bibliography.md` | Bibliografia academica, industrial y regulatoria de la cual se basa este repositorio. |
 
 Nota: docs/04_Automated_OQ_Execution_Log.md se mantiene en inglés porque se regenera automáticamente en cada ejecución de pytest tests/.
 
-Version del software: **1.3.2** (`src/__init__.py`). El historial de cambios esta en [`CHANGELOG.md`](CHANGELOG.md).
+Version del software: **1.4.0** (`src/__init__.py`), candidato en revision en un Draft PR; el tag `v1.4.0` se crea despues de la auditoria externa. El historial de cambios esta en [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Instalacion
 
@@ -103,7 +112,7 @@ Correr la suite de calificacion operacional (OQ) desde la raiz del repositorio (
 python -m pytest -v
 ```
 
-Correr la prueba de humo del tablero (Streamlit AppTest, 13 pruebas; no modifica el log OQ). Con las 20 pruebas OQ de `tests/`, `python -m pytest tests/ tests_app/ -v` corre 33 pruebas:
+Correr la prueba de humo del tablero (Streamlit AppTest, 17 pruebas, con `DeprecationWarning` tratado como error; no modifica el log OQ). Con las 24 pruebas OQ de `tests/`, `python -m pytest tests/ tests_app/ -v` corre 41 pruebas:
 
 ```bash
 python -m pytest -v tests_app
@@ -111,82 +120,98 @@ python -m pytest -v tests_app
 
 La CI de GitHub Actions (`.github/workflows/csa_validation.yml`) ejecuta Python 3.11 y corre las dos suites en cada push y pull request a `main`. No se ha verificado la compatibilidad con otras versiones de Python. La CI no publica `docs/04_Automated_OQ_Execution_Log.md`: el log versionado se genera localmente al ejecutar `python -m pytest -v`, y la CI vuelve a correr las pruebas de forma independiente.
 
+Reproducir la calibracion (fuera de linea; el tablero nunca la ejecuta) y la verificacion numerica:
+
+```bash
+python -c "from src.model_validation import run_parameter_calibration as c; r = c(); print(r['parameter_table'])"
+python -c "from src.model_validation import check_numerical_convergence as c; print(c())"
+```
+
 Lanzar el tablero interactivo:
 
 ```bash
 streamlit run app/dashboard.py
 ```
 
-## Nota de calibracion del gemelo digital
+## Nota de calibracion del gemelo digital (v1.4.0)
 
-Los resultados del gemelo digital (14 d, parametros por defecto, v1.3.1) son **valores medidos, no forzados**: son la salida directa de las ecuaciones de `simulate_cho_fed_batch`. Los dos modos usan la **misma ley cinetica** (mu, kd, qp, q_G y q_L dependen solo de G, L, T, Xv, la cizalla y el DO); `mode` solo decide la dosificacion de los bolos.
+El gemelo es un modelo mecanistico de 6 estados (Xv, Xd, G, L, NH3, titulo P) mas el volumen V, con **una sola ley cinetica** para todos los modos: `mode` solo decide la dosificacion de los bolos y nunca entra en mu, kd, qp, q_G, q_L ni q_NH3. Los resultados son **valores medidos, no forzados**.
 
-**Modelo v1.3.1:**
-- **Temperatura:** escalon 36.5 -> 34.0 C en el dia 7 (sin rampa), tomado de Bionova (Ref. 2, NISTCHO, CHO-K1). La fase a 36.5 C queda fuera del Design Space de A-Mab (34-36 C, Tabla 3.14) pero dentro del rango del DoE de A-Mab (34-37 C, Tabla 3.10); el Design Space se evalua en la fase de produccion. Las anclas de mu_max(T) y qp(T) en 34.0 y 36.5 C son supuestos de modelado, no calibrados.
-- **Glucosa:** q_G(G, T) = mu/Y_X_G + M_G * G/(G + K_G_UPTAKE), con saturacion Monod en crecimiento y mantenimiento y mu_max(T).
-- **Lactato (continuo, sin ventanas de G ni interruptores de tiempo; T es la T(t) instantanea):** produccion q_L,prod = Y_L/G(T) * q_G, con Y_L/G interpolado entre 0.18 g/g a 36.5 C y 0.03 g/g a 34.0 C; consumo q_L,cons = q_L,cons,max(T) * L/(L + K_L) * K_I_G/(K_I_G + G) * (f_basal + (1 - f_basal) * G/(G + K_anap)), con q_L,cons,max interpolado entre 0.008 g/(1e9 cel*d) a 36.5 C y 0.045 a 34.0 C; dL/dt = (q_L,prod - q_L,cons) * Xv.
-- **Oxigeno disuelto:** kLa_eff = `measured_kla_for_volume(vessel_volume_L)`, el kLa medido de A-Mab Tabla 3.22 (p.105) de la columna inmediatamente inferior: 2 a < 500 L 10, 500 L 8, 1,000 L 10, 5,000 L 10, >= 15,000 L 20 h^-1 (por encima de 25,000 L, 20 es una extrapolacion); por debajo de 2 L (0.25 L de Bionova, 190 mL) se usa 10 h^-1 del modelo estandar de 2 L como proxy (supuesto de modelado). P/V ya no afecta el suministro de O2 en el gemelo; solo actua sobre la productividad (fPV) y la cizalla; OTR_cap = kLa_eff * C* * (1 - DO/100) y OUR = Xv * 1e9 * qO2, ambos en mmol/(L*h); ratio = min(1, OTR_cap/OUR) y DO_eff = DO * ratio. Siempre aplicado y continuo (C0, sin ramas): f_do = min(1, (DO_eff/(DO_eff + 2))/(20/22)) * ratio multiplica mu y qp (vale exactamente 1 con DO_eff >= 20 % y ratio = 1); Y_L/G se multiplica por 1 + 0.8 * max(0, (20 - DO_eff)/20) (efecto Pasteur) y kd suma KD_HYPOXIA * (max(0, (15 - DO_eff)/15) + max(0, (0.85 - ratio)/0.85)), que es exactamente 0 en los umbrales.
-- **Volumen:** V0 = 0.70 * vessel_volume_L. En cada bolo, el basal y el top-up de glucosa se escalan juntos si no caben en el espacio libre, de modo que V(t) <= vessel_volume_L; si algun bolo se recorta, `bolus_clipped_alarm` = True y el tablero muestra un aviso. Cada bolo diluye exactamente (C * V_old / V_new).
-- **Cizalla:** la alarma salta si P/V > 47.6 W/m3 **OR** sparge > 0.15 vvm, con el mismo umbral en todas las escalas. 47.6 W/m3 es el P/V maximo demostrado aceptable a 2 L (A-Mab Tabla 3.22), usado como criterio conservador y no como umbral de dano; 0.15 vvm es un supuesto de modelado. La intensidad continua sigma_shear = sigma_imp + sigma_sparge + sigma_imp * sigma_sparge (0.0 en nominal) suma KD_SHEAR * sigma_shear a kd y divide qp por (1 + ALPHA_SHEAR_QP * sigma_shear).
+**Ecuaciones** (T del programa 36.5 -> 34.0 C; mu_max(T) y qp(T) lineales entre 34.0 y 36.5 C):
 
-| Escala | Modo | Titulo final (g/L) | Viabilidad final (%) | Masa cosechada (g) | V0 / Vfinal (L) | min / max G (g/L) | pico / final L (g/L) (dia pico) | VCD pico (1e6 cel/mL) |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 0.25 L | static | 1.0537 | 80.54 | 0.2355 | 0.1750 / 0.2235 | 0.0044 / 6.0000 | 1.2151 / 0.8793 (d 7.0) | 6.8310 |
-| 0.25 L | closed_loop | 1.2189 | 90.55 | 0.2939 | 0.1750 / 0.2411 | 0.6408 / 6.0000 | 1.3425 / 0.5842 (d 7.0) | 8.1709 |
-| 2.0 L | static | 1.0537 | 80.54 | 1.8841 | 1.4000 / 1.7881 | 0.0044 / 6.0000 | 1.2151 / 0.8793 (d 7.0) | 6.8310 |
-| 2.0 L | closed_loop | 1.2189 | 90.55 | 2.3514 | 1.4000 / 1.9292 | 0.6408 / 6.0000 | 1.3425 / 0.5842 (d 7.0) | 8.1709 |
+- Crecimiento: mu = mu_max(T) * G/(K_S_G+G) * K_I_L/(K_I_L+L) * K_I_NH3/(K_I_NH3+NH3) * max(0, 1 - Xv/X_max) * f_do(DO_real).
+- Muerte y lisis: kd = kd_basal + kd_starve * K_st^2/(K_st^2+G^2) + kd_NH3 * max(0, NH3 - 5 mM) + kd_hyp * max(0, (10 - DO_real)/10) + kd_shear * sigma; dXv/dt = (mu - kd) Xv; dXd/dt = kd Xv - k_lisis Xd.
+- Glucosa: q_G = mu/Y_X_G + m_G * G/(K_S_G+G); dG/dt = -q_G Xv.
+- Lactato (switch gobernado por el estado): produccion de desborde q_Lp = Y_L_G * mu/Y_X_G (+ efecto Pasteur bajo 15 % de DO real); consumo q_Lc = q_L,max * (1 - mu/mu_max(36.5)) * L/(K_L+L) * f_do. Mientras las celulas crecen rapido el lactato se acumula; cuando mu cae (densidad, NH3, temperatura) el consumo se libera y el lactato se reconsume. El pico aparece el dia 5 aunque el cambio termico se mueva al dia 10 o 14.
+- Amonio: dNH3/dt = q_NH3 Xv; inhibe el crecimiento (K_I_NH3 = 20 mM) y suma muerte por encima de 5 mM, lo que produce la caida de viabilidad de los dias 10-14 y a 21 d.
+- Titulo: dP/dt = qp(T) * f_do / (1 + alpha * sigma) * Xv.
+- Oxigeno: el controlador sostiene el set-point enriqueciendo el gas con O2 (hasta `max_o2_mole_fraction`); el DO real del liquido es C_L = min(C_sp, max(0, C*_max - OUR/kLa)). La biologia depende solo del DO real: f_do = 1.0 desde 15 %, Pasteur bajo 15 % y muerte hipoxica bajo 10 %. La saturacion del controlador no es hipoxia por si misma.
+- Cizalla: la alarma (P/V > 47.6 W/m3 **OR** sparge > 0.15 vvm) no cambia la cinetica. En las ecuaciones solo actua el burbujeo por encima de 0.15 vvm; el impulsor solo penaliza por encima de 476 W/m3, fuera del rango del esquema (P/V <= 100 W/m3).
+- Volumen y bolos: V0 = `initial_fill_fraction` * V (0.70 por defecto; 0.76 en el protocolo Bionova). Bolos de 4.62 % de V0 los dias 2-12 (x1.80 y x1.82 de Ark en closed_loop los dias 8 y 10), regla pre-feed de glucosa < 2 -> 5 g/L en bionova_baseline y closed_loop, balance de masa exacto de las 6 especies y recorte por capacidad (`bolus_clipped_alarm`).
+- Numerica: integracion por tramos entre eventos con `solve_ivp` RK45 (rtol 1e-6, atol 1e-9) y respaldo automatico Radau; 8.8 ms por corrida de 14 d.
 
-- **Ganancia emergente closed_loop vs static:** titulo **+15.68 %** y masa cosechada **+24.80 %** en ambas escalas. Las concentraciones son identicas entre 0.25 L y 2.0 L; la masa escala exactamente con el volumen (factor 8). Con los valores por defecto ningun bolo se recorta (`bolus_clipped_alarm` = False).
-- **Lactato:** sube hasta el cambio de temperatura del dia 7 y despues se reconsume en ambos modos; en lazo cerrado la glucosa mantenida sostiene el termino anaplerotico y el lactato final queda por debajo del de la receta estatica.
+**Parametros calibrados** (Bionova Stratyx 30 W/m3, 60 puntos pre-feed, `least_squares` TRF; detalle, RSE y colinealidad en docs/03, seccion 11):
 
-**Respuesta al setpoint de DO (2.0 L, kLa 10 h^-1; los mismos valores por litro a 0.25 L, con la masa cosechada multiplicada por 0.125):**
+| Parametro | Valor | Cotas | Estado | Identificable |
+| --- | --- | --- | --- | --- |
+| mu_max(36.5 C) | 0.8329 1/d | [0.65, 0.95] | interior | Si (RSE 10.9 %) |
+| mu_max(34.0 C) | 0.3221 1/d | [0.10, 0.35] | interior | Si (18.7 %) |
+| K_I_L | 5.011 g/L | [5, 15] | NEAR_BOUND (inferior) | No (65.5 %): requiere pulsos de lactato |
+| G_BOOST_CONC | 76.44 g/L | [55, 85] | interior | Si (3.8 %) |
+| X_max | 42.65e6 cel/mL | [20, 60] | interior | Si (10.5 %) |
+| q_L,max | 0.2856 g/(1e9 cel*d) | [0, 1] | interior | Si (21.2 %) |
+| q_NH3 | 0.0582 mmol/(1e9 cel*d) | [0, 0.3] | interior | Si (6.3 %) |
+| kd_NH3 | 0.0178 1/(d*mM) | [0, 0.2] | interior | Si (22.6 %) |
+| qp(36.5 C) | 0.01501 g/(1e9 cel*d) | [0, 0.05] | interior | Si (13.9 %) |
+| qp(34.0 C) | 0.00888 g/(1e9 cel*d) | [0, 0.05] | interior | Si (10.5 %) |
 
-| DO (%) | Modo | Titulo final (g/L) | Viabilidad final (%) | Masa cosechada (g) | pico / final L (g/L) | VCD pico | min ratio OTR/OUR | min f_do |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 10 | static | 0.7687 | 69.23 | 1.3745 | 1.4638 / 1.0526 | 5.4616 | 1.0000 | 0.9167 |
-| 10 | closed_loop | 0.8089 | 77.71 | 1.5469 | 1.5135 / 0.9198 | 5.6681 | 1.0000 | 0.9167 |
-| 30 | static | 1.0537 | 80.54 | 1.8841 | 1.2151 / 0.8793 | 6.8310 | 1.0000 | 1.0000 |
-| 30 | closed_loop | 1.2189 | 90.55 | 2.3514 | 1.3425 / 0.5842 | 8.1709 | 1.0000 | 1.0000 |
-| 85 | static | 0.5943 | 74.38 | 1.0626 | 1.1052 / 0.7413 | 5.6283 | 0.5597 | 0.5597 |
-| 85 | closed_loop | 0.5765 | 80.74 | 1.1030 | 1.1495 / 0.5936 | 5.7831 | 0.5447 | 0.5447 |
+Fijos (no calibrados): K_S_G 0.5 g/L, K_I_NH3 20 mM, umbral NH3 5 mM, Y_X_G 3.0e9 cel/g, m_G 0.05 g/(1e9 cel*d), Y_L_G 0.80 g/g, K_L 0.30 g/L, kd_basal 0.03 1/d, k_lisis 1.0 1/d, kd_starve 0.5 1/d (K_st 0.1 g/L), kd_hyp 0.1 1/d, fraccion Pasteur 0.8, kd_shear 0.03 1/d, alpha_shear 1.0. cond(J) = 398.8; colineales (|r| > 0.90): mu_max(36.5), K_I_L, X_max y q_L,max entre si.
 
-- A DO 10 % la hipoxia (efecto Pasteur) sube el lactato y baja titulo y viabilidad; a DO 85 % la fuerza impulsora no alcanza y OTR < OUR en la fase de alta densidad.
-- **Setpoint de DO (slider del tablero, 10-90 %, por defecto 30 %):** pasa por `ProcessDescription.do_setpoint_pct` a las dos corridas del gemelo y a `compute_scale_up_engineering(do_percent=...)`. Fuerza impulsora = C* (0.210 mmol/L, supuesto de modelado) x (1 - DO/100) y OTR = kLa x fuerza impulsora. El panel de escalamiento recalcula OTR >= OUR (URS-06) y avisa si no se cumple; con la referencia A-Mab (kLa 20.0, VCC 15e6 cel/mL, OUR 1.50 mmol/L/h) eso ocurre por encima de ~64.3 % de DO. El aviso es del modelo (no un error): el deficit viene de C* = 0.210 mmol/L (solo aire, sin enriquecimiento con O2 puro) y qO2 = 0.10 pmol/cel/h, supuestos sin fuente, mientras A-Mab Tabla 3.23 (p.106) demostro operacion a 18-30e6 cel/mL en 2 L y 24e6 cel/mL en 5,000 L.
-- **Continuidad del DO (C0):** el factor de hipoxia esta normalizado en 20 % de DO (supuesto de modelado, no calibrado; A-Mab opero la produccion a 30-70 % de DO, Tabla 3.14), asi que f_do vale exactamente 1.0 en 20 % y varia de forma continua por debajo (|f_do(20) - f_do(19.99)| < 1e-3); no hay salto en ningun DO. **Limitacion conocida:** el kLa del gemelo depende solo del volumen (tabla medida); el gemelo no tiene geometria del recipiente. **DO 85 %:** a DO 85 % con kLa 10 h^-1 el OTR cae a 10 x 0.210 x 0.15 = 0.315 mmol/L/h; el ratio OTR/OUR minimo baja a 0.5597 (static) y 0.5447 (closed_loop), f_do limita qp, y closed_loop queda en 0.5765 g/L frente a 0.5943 g/L de static, aunque cosecha mas masa (1.1030 g frente a 1.0626 g a 2 L): su mayor volumen de alimentacion (volumen final 1.9133 L frente a 1.7881 L) diluye la concentracion, y su mayor densidad celular (pico 5.78 frente a 5.63e6 cel/mL) baja algo mas el f_do medio (0.726 frente a 0.752).
-- Escalamiento: los presets de la calculadora son las columnas de A-Mab Tabla 3.22 y usan su kLa medido (2 L 10, 500 L 8, 1,000 L 10, 5,000 L 10, 15,000 L 20, 25,000 L Future 20 h^-1); a VCC 15e6 cel/mL y DO 30 % el OTR es 1.47 / 1.18 / 1.47 / 1.47 / 2.94 / 2.94 mmol/L/h frente a OUR 1.50, asi que 2, 500, 1,000 y 5,000 L muestran el aviso de oxigeno del modelo. En 15,000 L la correlacion (Vs = 0.015 m/s, P/V = 26 W/m3) y el valor medido coinciden en **20.00 h^-1** (**OTR = 2.94 mmol/L/h** con DO = 30 %). La correlacion solo se usa en el preset Personalizado; en las esquinas de prueba Vs = 0.005-0.017 m/s (supuesto de modelado) y P/V = 19-30 W/m3 (Bionova) da 11.10-21.84 h^-1.
-- Six Sigma (Gorsky Tabla 6.2, n=30, lb/in; unidad impresa asi en Gorsky, Tabla 6-2; dimensionalmente un torque se expresaria en lbf·in, observacion del repo, no de la fuente): **Ppk 0.51**, **Cpk(within) 0.43**, **Shapiro-Wilk p = 0.243**; intervalo de tolerancia ISO 16269-6 (Tabla 6.1, n=10, kp) con **k_factor 3.394**.
-- Calificacion operacional: **20/20 pruebas OQ** aprobadas.
+**Validacion contra Bionova** (criterio de credibilidad: RMSE <= 2 x incertidumbre declarada):
 
-**Parametros de lactato y DO y su trazabilidad:**
+| Condicion | VCD | Viabilidad | Glucosa | Lactato | NH3 | Titulo |
+| --- | --- | --- | --- | --- | --- | --- |
+| 30 W/m3, dentro de muestra: R2 / RMSE | 0.981 / 1.15 | 0.623 / 1.42 % | 0.891 / 0.68 g/L | 0.854 / 0.156 g/L | 0.917 / 0.98 mM | 0.948 / 0.094 g/L |
+| 30 W/m3, error dia 14 | +0.88 | -2.33 pp | -0.62 g/L | -0.29 g/L | +1.18 mM | +0.095 g/L (+5.0 %) |
+| 19 W/m3, fuera de muestra | R2 0.750, RMSE 2.76 (1.84 sigma) | dia 14: -2.78 pp | sin datos | pico -0.11 g/L (dia 5); dia 14 -0.17 g/L | dia 14 +1.18 mM | dia 14 +0.111 g/L (+5.9 %) |
 
-| Parametro | Valor | Trazabilidad |
-| --- | --- | --- |
-| Y_LG_GROWTH | 0.18 g/g a 36.5 C | Supuesto de modelado, no calibrado (elegido para situar el pico de lactato en 1.0-1.35 g/L el dia 6-7) |
-| Y_LG_SHIFT | 0.03 g/g a 34.0 C | Supuesto de modelado, no calibrado |
-| q_L,cons,max | 0.008 -> 0.045 g/(1e9 cel*d) (36.5 -> 34.0 C) | Supuesto de modelado, no calibrado |
-| K_L | 0.35 g/L | Supuesto de modelado, no calibrado |
-| K_I_G | 4.5 g/L | Supuesto de modelado, no calibrado |
-| f_basal | 0.05 | Supuesto de modelado, no calibrado |
-| K_anap | 0.60 g/L | Supuesto de modelado, no calibrado |
-| Q_O2_MMOL_CELL_H | 1.0e-10 mmol/(cel*h) | Valor por defecto de `src/amab_design_space.py` (OUR 1.50 mmol/(L*h) a 15e6 cel/mL); el repo no cita una pagina de A-Mab para este valor |
-| C_STAR_O2_MMOL_L | 0.210 mmol/L | Supuesto de modelado, no calibrado (sin fuente bibliografica) |
-| kLa (ley de potencia) | KLA_COEFF 80.14 * Vs^0.481 * (P/V)^0.194 | Forma de A-Mab Ec. 4 (p.101), kLa = k (P/V)^a Vs^b con k, a, b dependientes de la configuracion; A-Mab la ajusto para 15,000 L con sparger open pipe (Fig. 3.11, p.102). El coeficiente 80.14 se recalibro en este repo para dar ~20.0 h^-1 en el punto de 15,000 L (Tabla 3.22); no se lee de la Fig. 3.11. Tabla 3.22 reporta kLa medido de 8-20 h^-1. Solo se usa en el preset Personalizado de la calculadora |
-| kLa medido por escala | 2 L 10, 500 L 8, 1,000 L 10, 5,000 L 10, 15,000 L 20, 25,000 L (Future) 20 h^-1 | A-Mab Tabla 3.22 (p.105); 2 L es el modelo estandar scale-down (caracterizacion 2 L: 8-17 h^-1). El gemelo usa la columna inmediatamente inferior a su volumen |
-| kLa por debajo de 2 L | 10 h^-1 | Supuesto de modelado: proxy del modelo estandar de 2 L (A-Mab no tiene columna < 2 L) |
-| Vs | 0.015 m/s | Punto de 15,000 L de A-Mab (Tabla 3.22); valor inicial de los presets de la calculadora. El gemelo ya no lo usa. A-Mab (p.98) indica que P/V y Vs no tienen por que mantenerse constantes al escalar |
-| mu_max / qp (anclas 34.0 y 36.5 C) | 0.12 / 0.58 1/d; 0.0185 / 0.0115 g/(1e9 cel*d) | Supuesto de modelado, no calibrado |
-| Ventana P/V de prueba | 19 y 30 W/m3 | Bionova (Ref. 2, pp. 3-4) |
-| Sparge micro-escala Bionova | 0.00263 vvm | 0.5 mL/min / 190 mL = 0.00263 vvm (Bionova, Ref. 2, pp. 3-4) |
-| Umbral de sparge | 0.15 vvm | Supuesto de modelado, sin fuente bibliografica |
-| Factores adaptativos Ark | 1.80 (dia 8) / 1.82 (dia 10) | Ark reporta +80 % / +82 % frente al plan del dia 0 ("by day eight ... up to 82%") |
-| K_DO_PCT | 2.0 % | Supuesto de modelado, no calibrado |
-| Factor Pasteur | 0.8 | Supuesto de modelado, no calibrado |
-| Umbrales DO 20 % / DO_eff 15 % / ratio 0.85 | 20 / 15 / 0.85 | Supuesto de modelado, no calibrado |
-| KD_HYPOXIA | 0.05 1/d | Supuesto de modelado, no calibrado |
+Todas las variables cumplen el criterio. Limitaciones que se reportan sin ajustar ecuaciones: K_I_L no identificable; lactato tardio bajo (0.03 frente a 0.2-0.3 g/L); consumo tardio de glucosa bajo, por lo que la regla 2 -> 5 g/L no se dispara en el modelo (en Bionova la glucosa pre-feed de los dias 10 y 12, 1.2 y 1.9 g/L, queda bajo el disparo); sin efecto de P/V entre 19 y 30 W/m3 (a 19 W/m3 el modelo sobrestima la VCD tardia).
 
-Las paginas de A-Mab v2.1 que cita el repo para el espacio de diseno (pp. 90-92 y 100-106) respaldan las ecuaciones de N-glicanos (`evaluate_amab_design_space`), no la cinetica de lactato ni de DO; el repo no cita la p. 93. Para transferencia de oxigeno el repo cita A-Mab Ec. 4 (p.101), Fig. 3.11 (p.102) y Tabla 3.22.
+**Receta estatica frente a lazo cerrado** (2.0 L, DO 30 %, enriquecimiento con O2; concentraciones identicas a 0.25 L):
 
-**Literatura frente a modelo:** el boletin de Ark Biotech (Quint et al., 2026) reporta un +43 % de titulo; es un dato de literatura, no un resultado de este modelo. La ganancia del modelo (+15.68 %) sale de parametros no calibrados (cinetica de lactato, DO, muerte celular y cizalla) y no debe usarse como prediccion sin ajustarlos a datos experimentales. En el tablero la **ganancia de titulo se calcula en vivo** a partir de la simulacion y no es constante.
+| Duracion | Modo | Titulo (g/L) | Viabilidad (%) | VCD pico | NH3 final (mM) | Masa (g) | Feed (L) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 14 d | static | 1.9915 | 88.22 | 23.96 | 11.68 | 3.5609 | 0.3881 |
+| 14 d | closed_loop | 1.9243 | 88.98 | 23.68 | 11.32 | 3.6424 | 0.4929 |
+| 21 d | static | 2.4946 | 34.41 | 23.96 | 14.98 | 4.4605 | 0.3881 |
+| 21 d | closed_loop | 2.7265 | 39.86 | 23.68 | 16.58 | 5.1610 | 0.4929 |
+
+- A 14 d el lazo cerrado **no supera** a la receta estatica en g/L (-3.37 %): la glucosa del Cell Boost no limita en ninguno de los dos modos y los bolos extra de Ark diluyen el titulo. Cosecha +2.29 % de masa y gana +0.76 puntos de viabilidad (menos NH3). A 21 d, sin alimentacion despues del dia 12, la glucosa extra retrasa el agotamiento: +9.30 % en g/L y +15.70 % de masa. El gemelo no tiene aminoacidos ni otros nutrientes que esos bolos podrian aportar, por eso no reproduce el +43 % de Ark (dato de literatura).
+- A 21 d la viabilidad cae a 34-40 % (agotamiento de glucosa y NH3 > 5 mM): no hay inmortalidad sintetica.
+
+**Respuesta al setpoint de DO** (closed_loop, 2.0 L, kLa 10 h^-1):
+
+| DO (%) | Enriquecimiento O2 | Titulo (g/L) | VCD pico | Pico L (g/L) | DO real min (%) | f_do min | Controlador saturado |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 5 | Si | 0.9301 | 14.10 | 1.526 | 5.00 | 0.846 | No |
+| 30 | Si | 1.9243 | 23.68 | 1.341 | 30.00 | 1.000 | No |
+| 85 | Si | 1.9243 | 23.68 | 1.341 | 85.00 | 1.000 | No |
+| 30 | No (solo aire) | 1.6408 | 20.20 | 1.341 | 3.86 | 0.792 | Si |
+| 85 | No (solo aire) | 1.6408 | 20.20 | 1.341 | 3.86 | 0.792 | Si |
+
+- Con enriquecimiento el controlador sostiene 30 y 85 % sin saturarse (y_O2 requerido maximo 0.298 y 0.414) y la biologia es identica: no hay hipoxia falsa.
+- Solo con aire, a DO 85 % el controlador se satura desde el dia 2.5 y el DO real pasa por 55-75 % (dias 3.4-4.6) con f_do = 1.0. La hipoxia real aparece cuando Xv supera 17.85e6 cel/mL, el limite fisico de transferencia con aire a kLa 10 h^-1 (antes de v1.4.0, DO_eff = DO * ratio penalizaba dos veces y fijaba un techo artificial de 14.7e6 cel/mL a DO 30 %).
+- A DO 5 % la hipoxia es real (f_do 0.846, efecto Pasteur, muerte hipoxica) y el titulo baja 52 %. Los parametros de hipoxia son supuestos no calibrados.
+
+**Verificacion numerica:** RK45 (1e-6) frente a RK45 y Radau (1e-9): error maximo 1.24e-6; el Euler de v1.3.2 (dt 0.1 d) tenia 8.4e-2. Barrido de 256 esquinas de los sliders: sin NaN/Inf ni valores negativos, 5.1 ms de media y 15.8 ms de maximo.
+
+**Escalamiento (pestana 2):** los presets son las columnas de A-Mab Tabla 3.22 y usan su kLa medido (2 L 10, 500 L 8, 1,000 L 10, 5,000 L 10, 15,000 L 20, 25,000 L Future 20 h^-1). Con aire, a VCC 15e6 cel/mL y DO 30 % el OTR es 1.47 / 1.18 / 1.47 / 1.47 / 2.94 / 2.94 mmol/L/h frente a OUR 1.50, asi que 2, 500, 1,000 y 5,000 L muestran el aviso de oxigeno del modelo, que ahora indica tambien el OTR con O2 puro. En 15,000 L la correlacion (Vs = 0.015 m/s, P/V = 26 W/m3) y el valor medido coinciden en **20.00 h^-1** (**OTR = 2.94 mmol/L/h** con DO = 30 %).
+
+**Six Sigma** (Gorsky Tabla 6.2, n=30, lb/in; unidad impresa asi en Gorsky, Tabla 6-2; dimensionalmente un torque se expresaria en lbf·in, observacion del repo, no de la fuente): **Ppk 0.51**, **Cpk(within) 0.43**, **Shapiro-Wilk p = 0.243**, **0 puntos fuera de control** (regla 1 I-MR, supuestos de capacidad cumplidos); intervalo de tolerancia ISO 16269-6 (Tabla 6.1, n=10, kp) con **k_factor 3.394**. La pestana 4 incluye TOST + Levene editable.
+
+**Calificacion operacional:** **24/24 pruebas OQ** y 17/17 pruebas de humo del tablero.
+
+Las paginas de A-Mab v2.1 que cita el repo para el espacio de diseno (pp. 90-92 y 100-106) respaldan las ecuaciones de N-glicanos (`evaluate_amab_design_space`), no la cinetica del gemelo. Para transferencia de oxigeno el repo cita A-Mab Ec. 4 (p.101), Fig. 3.11 (p.102), Fig. 3.12 (enriquecimiento con O2) y Tabla 3.22.
 
 ## Seccion 5: Bibliografia Academica, Industrial y Regulatoria
 Referencias Bibliográficas y Marco Regulatorio (References)
@@ -221,3 +246,7 @@ D. Guías Regulatorias, Validación de Sistemas Computarizados (CSA/GAMP 5) y Di
 18. ISPE, GAMP® 5 Guide: A Risk-Based Approach to Compliant GxP Computerized Systems, 2nd ed., North Bethesda, MD: International Society for Pharmaceutical Engineering, 2022; and ISPE Baseline® Guide, Vol. 8: Pharma 4.0™, 2023.
 19. ASME BPE-2014, Bioprocessing Equipment: An International Standard, The American Society of Mechanical Engineers, New York, NY, 2014.
 20. European Commission / EMA & FDA, EudraLex Volume 4, Annex 11 (Computerized Systems) & Draft Annex 22 (Artificial Intelligence); ICH Harmonised Guidelines Q8(R2), Q9(R1), Q10, Q11, Q12; and Ministerio de Salud y Protección Social de Colombia, Decreto 1782 de 2014 (evaluación farmacológica y farmacéutica de medicamentos biológicos) y Resolución 1160 de 2016 (BPM Farmacéuticas / OMS Informes Técnicos 37 y 45).
+
+E. Credibilidad de Modelos Computacionales (añadida en v1.4.0)
+
+21. ASME V&V 40-2018, Assessing Credibility of Computational Modeling through Verification and Validation: Application to Medical Devices, The American Society of Mechanical Engineers, New York, NY, 2018.

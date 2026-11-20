@@ -5,9 +5,9 @@
 |-------|-------|
 | **ID del documento** | URS-BRX-001 |
 | **Título** | Especificación de Requisitos de Usuario del sistema de control del biorreactor CHO-K1 fed-batch |
-| **Versión** | 1.3.2 |
+| **Versión** | 1.4.0 |
 | **Estado** | Aprobado para implementación |
-| **Marco regulatorio** | GAMP 5 (2nd ed.), ICH Q8(R2)/Q9(R1)/Q10/Q11, FDA CSA (Feb 2026), 21 CFR Part 11, EudraLex Annex 11 |
+| **Marco regulatorio** | GAMP 5 (2nd ed.), ICH Q8(R2)/Q9(R1)/Q10/Q11, FDA CSA (Feb 2026), ASME V&V 40-2018 (por analogía), 21 CFR Part 11, EudraLex Annex 11 |
 | **Producto** | Anticuerpo monoclonal (caso de referencia A-Mab) expresado en CHO-K1 |
 | **Tipo de proceso** | Fed-batch, tren controlado single-use / acero inoxidable |
 | **Rango de escala** | Micro-escala de 0.25 L (Stratyx™ / Ambr®) hasta 15,000 L comercial |
@@ -81,10 +81,14 @@ Scripted Testing** según la guía FDA CSA 2026 (ver documento 02).
 - **21 CFR Part 11 / EudraLex Annex 11 / Draft Annex 22 (AI)** — registros y firmas electrónicas.
 - **ASME BPE-2014** — diseño higiénico de equipos de bioprocesamiento (velocidad de CIP).
 - **ISPE A-Mab Case Study (2009)** — proceso de referencia del Design Space.
+- **ASME V&V 40-2018** — marco de credibilidad de modelos computacionales (escrito para dispositivos
+  médicos; aquí se aplica por analogía al gemelo digital). Separa la **verificación** del software
+  (¿el código resuelve bien las ecuaciones?) de la **validación** del modelo (¿las ecuaciones
+  reproducen datos medidos para el contexto de uso?). Ver URS-16 y el documento 02, sección 9.
 
 ---
 
-## 5. Requisitos de usuario (URS-01 a URS-15)
+## 5. Requisitos de usuario (URS-01 a URS-16)
 
 ### 5.1 Set-point de temperatura
 
@@ -143,18 +147,27 @@ de Vs: supuesto de modelado) con la correlación de kLa (forma de A-Mab Ec. 4, p
 punto de 15,000 L). El gemelo y los presets de escala usan el kLa medido de A-Mab Tabla 3.22 (p.105):
 2 L 10, 500 L 8, 1,000 L 10, 5,000 L 10, 15,000 L 20 y 25,000 L (Future) 20 h⁻¹, con la columna
 inmediatamente inferior al volumen del recipiente; por debajo de 2 L se usa 10 h⁻¹ del modelo
-estándar de 2 L como proxy (supuesto de modelado). En el gemelo, P/V ya no afecta el suministro de
-O2; solo actúa sobre la productividad y la cizalla. Cuando OTR < OUR, THE SYSTEM muestra un aviso
-del modelo: el déficit viene de C* = 0.210 mmol/L (solo aire) y qO2 = 0.10 pmol/cél/h, supuestos sin
-fuente, mientras A-Mab Tabla 3.23 (p.106) demostró operación a 18–30e6 cél/mL en 2 L. El
-set-point de DO es configurable (por defecto 30 %; `ProcessDescription.do_setpoint_pct`) y entra en
-la fuerza impulsora: OTR = kLa × C* × (1 − DO/100), con C* = 0.210 mmol/L (supuesto de modelado, no
-calibrado; a 30 % de DO, 0.147 mmol/L). A mayor set-point de DO, menor OTR disponible. El mismo
-set-point entra en la cinética CHO del gemelo (v1.3.1): por debajo de 20 % de DO, o si OTR < OUR, se reducen
-mu y qp, sube el rendimiento de lactato (efecto Pasteur) y se añade muerte por hipoxia. La banda de
-20 % es un supuesto de modelado (no calibrado); A-Mab operó la producción a 30–70 % de DO (Tabla 3.14)
-y usó 20–70 % solo en el seed N-1 (Tabla 3.7, p.67). La regulación del DO medido se delega al
-controlador local; THE SYSTEM no simula ni califica un lazo PID de DO.
+estándar de 2 L como proxy (supuesto de modelado). En el gemelo, P/V no afecta el suministro de
+O2. Cuando OTR < OUR con aire, THE SYSTEM muestra un aviso del modelo: el déficit viene de
+C* = 0.210 mmol/L (solo aire) y qO2 = 0.10 pmol/cél/h, supuestos sin fuente, mientras A-Mab Tabla 3.23
+(p.106) demostró operación a 18–30e6 cél/mL en 2 L; el aviso indica además el OTR con O2 puro. El
+set-point de DO es configurable (por defecto 30 %; `ProcessDescription.do_setpoint_pct`, límites de
+validación 5–100 % desde v1.4.0) y entra en la fuerza impulsora: OTR = kLa × (C*_gas − C*_aire × DO/100),
+con C*_gas = C*_aire × y_O2 / 0.2095 (ley de Henry; `o2_mole_fraction`, por defecto aire, con lo que
+OTR = kLa × C* × (1 − DO/100) y a 30 % de DO la fuerza impulsora es 0.147 mmol/L). A mayor set-point
+de DO, menor OTR disponible.
+
+*Gemelo (v1.4.0):* el controlador de DO del gemelo sostiene el set-point enriqueciendo el gas con O2
+puro (`o2_enrichment_enabled`, por defecto activo, hasta `max_o2_mole_fraction`; A-Mab Fig. 3.12). El
+DO real del líquido sale del balance cuasi estacionario C_L = min(C_sp, max(0, C*_max − OUR/kLa)). Si
+ni el tope de O2 alcanza, el controlador se satura (`do_controller_saturated`) y el DO real cae bajo
+el set-point; eso no es hipoxia por sí mismo. La respuesta biológica depende **solo del DO real**:
+f_do vale exactamente 1.0 desde 15 % de DO real y baja de forma continua por debajo; el efecto Pasteur
+actúa bajo 15 % y la muerte hipóxica bajo 10 %. Con solo aire y kLa 10 h⁻¹ el DO real baja de 15 %
+cuando Xv supera 17.85e6 cél/mL (límite físico de transferencia), mientras que con enriquecimiento el
+set-point se mantiene por encima de 20e6 cél/mL. Las bandas de 15 % y 10 % son supuestos de modelado
+(no calibrados); A-Mab operó la producción a 30–70 % de DO (Tabla 3.14). La regulación del DO medido
+se delega al controlador local; THE SYSTEM no simula ni califica un lazo PID de DO.
 - *Categoría GAMP:* 5 — *Riesgo de proceso:* High — *Módulos:* `models.py`, `amab_design_space.py`, `bioreactor_twin.py` — *OQ:* `test_oq_01_setpoints_and_ph_split_range_exclusivity`, `test_oq_05b_amab_scale_up_kla_pilot_commercial_range`, `test_oq_06b_do_setpoint_driving_force`
 
 ### 5.4 Alimentación adaptativa de glucosa
@@ -162,17 +175,38 @@ controlador local; THE SYSTEM no simula ni califica un lazo PID de DO.
 #### URS-07 — Disparo de la alimentación adaptativa de glucosa
 **WHEN** en cada día de alimentación la glucosa medida antes del bolo (medición pre-feed, como en
 Bionova, Ref. 2) está **por debajo de 2.0 g/L**,
-**THE SYSTEM SHALL** disparar una reposición de glucosa en bolo que lleve la glucosa hacia un
-objetivo de **5.0 g/L**, evitando sobrepasos que causen acumulación de lactato o desviaciones de
-osmolalidad. Entre días de alimentación no se evalúa el disparo.
+**THE SYSTEM SHALL** disparar una reposición de glucosa en bolo que lleve la glucosa exactamente al
+objetivo de **5.0 g/L** después del bolo base, sin sobrepasar ese objetivo, y no disparar la
+reposición cuando el bolo base ya alcanza el objetivo. Entre días de alimentación no se evalúa el
+disparo. La regla aplica en los modos `bionova_baseline` (protocolo exacto de Bionova: bolos fijos
+de 4.62 % de V0 más esta regla) y `closed_loop` (además, modulación de Ark de los bolos de los días 8
+y 10); el modo `static` no tiene retroalimentación de glucosa. El bolo base de Cell Boost aporta
+glucosa por sí mismo (G_BOOST_CONC calibrado en 76.44 g/L), así que la glucosa post-bolo puede
+superar 5.0 g/L sin intervención del controlador (Bionova midió 8.1 g/L el día 3).
+
+*Hallazgo v1.4.0:* con la glucosa calibrada del Cell Boost, las corridas por defecto mantienen la
+glucosa pre-feed ≥ 2.0 g/L en todos los días de alimentación, así que la reposición no llega a
+dispararse con la regla 2 → 5 g/L (en los datos de Bionova la glucosa pre-feed de los días 10 y 12,
+1.2 y 1.9 g/L, queda bajo el disparo; el modelo consume menos glucosa al final del cultivo que lo
+medido). La lógica se verifica evento por evento
+con la regla por defecto y con un disparo validado más alto (6.0 → 9.0 g/L), donde sí se activa.
 - *Categoría GAMP:* 5 — *Riesgo de proceso:* High — *Módulo:* `bioreactor_twin.py` — *OQ:* `test_oq_03_closed_loop_vs_static_titer_gain`
 
-#### URS-08 — Ventaja de título del lazo cerrado
-**WHEN** se habilita la estrategia de alimentación adaptativa frente a una línea base de
-alimentación estática (lazo abierto),
-**THE SYSTEM SHALL** demostrar un aumento reproducible del título final de anticuerpo y de la
-viabilidad final. La magnitud de la ganancia es la salida emergente de las ecuaciones del modelo y
-se reporta tal cual, sin restringirla a una banda fija.
+#### URS-08 — Comparación del lazo cerrado frente a la receta estática
+**WHEN** se compara la estrategia `closed_loop` con la receta `static` (misma ley cinética; el modo
+solo cambia la dosificación),
+**THE SYSTEM SHALL** reportar la diferencia emergente de título final (g/L), masa cosechada (g) y
+viabilidad final, y **SHALL** demostrar de forma reproducible la ventaja que explica el balance de
+masa: mayor masa cosechada y mayor viabilidad final con el mayor volumen de alimentación. La
+diferencia de título en g/L se reporta tal cual, sin restringirla a una banda ni a un signo.
+
+*Control de cambios v1.4.0:* hasta v1.3.2 este requisito exigía un aumento del título en g/L. Con la
+cinética calibrada contra Bionova, a 14 d la glucosa no limita en ninguno de los dos modos y los bolos
+extra de Ark (×1.80 el día 8 y ×1.82 el día 10) diluyen el título: −3.37 % en g/L, +2.29 % de masa
+cosechada y +0.76 puntos de viabilidad (NH3 final 11.32 frente a 11.68 mM). A 21 d, sin alimentación
+después del día 12, la glucosa extra retrasa el agotamiento: +9.30 % en g/L, +15.70 % de masa y +5.45
+puntos de viabilidad. El gemelo no tiene aminoácidos ni otros nutrientes que los bolos extra
+podrían aportar, por lo que no puede reproducir el +43 % de Ark (dato de literatura).
 - *Categoría GAMP:* 5 — *Riesgo de proceso:* High — *Módulo:* `bioreactor_twin.py` — *OQ:* `test_oq_03_closed_loop_vs_static_titer_gain`
 
 ### 5.5 Interlock de seguridad por cizalla hidrodinámica
@@ -190,7 +224,14 @@ sparge; la acción correctiva queda a cargo del operador o del controlador local
 usado como criterio conservador, no como umbral de daño (el daño celular ocurre a P/V órdenes de
 magnitud mayores, A-Mab p.100 / Ma 2002). 0.15 vvm es un supuesto de modelado sin fuente
 bibliográfica.
-- *Categoría GAMP:* 5 — *Riesgo de proceso:* High — *Módulo:* `bioreactor_twin.py` — *OQ:* `test_oq_04_safety_shear_and_cip_sip_interlocks`
+
+*Desacople alarma–cinética (v1.4.0):* la alarma conservadora no entra en la cinética del gemelo. En las
+ecuaciones, el estrés hidrodinámico responde al burbujeo (sparge > 0.15 vvm, interfaz gas-líquido) y
+el impulsor solo penaliza por encima de 476 W/m³ (diez veces la alarma y aún por debajo del daño
+documentado; A-Mab opera sano a 60 W/m³ de P/V local según la revisión de v1.4.0 de la Tabla 3.22).
+Como `ProcessDescription` limita P/V a 100 W/m³, dentro del dominio validado P/V dispara la alarma
+pero no cambia título ni viabilidad.
+- *Categoría GAMP:* 5 — *Riesgo de proceso:* High — *Módulo:* `bioreactor_twin.py` — *OQ:* `test_oq_04_safety_shear_and_cip_sip_interlocks`, `test_oq_04b_shear_or_gate_and_continuous_penalty`
 
 #### URS-10 — Mismo umbral de cizalla en todas las escalas
 **WHEN** el proceso opera a cualquier escala entre 0.25 L y 15,000 L,
@@ -242,8 +283,33 @@ logger de Audit Trail pasado a la función,
 **THE SYSTEM SHALL** capturar una entrada de Audit Trail conforme a **21 CFR Part 11**, con marca de
 tiempo, atribuible y con evidencia de manipulación, y **SHALL** soportar el análisis de Statistical
 Process Control (SPC) y de capacidad de proceso (Cpk) de los datos registrados, respetando el
-guardrail de AI del Draft Annex 22.
-- *Categoría GAMP:* 5 — *Riesgo de proceso:* High — *Módulos:* `audit_trail_part11.py`, `spc_six_sigma.py` — *OQ:* `test_oq_09_part11_audit_trail_and_annex22_guardrail`, `test_oq_08_gorsky_spc_tolerance_and_capability`
+guardrail de AI del Draft Annex 22. Desde v1.4.0 **SHALL** verificar la estabilidad estadística I-MR
+(regla 1 de Shewhart) antes de declarar cumplidos los supuestos de capacidad
+(`capability_assumptions_met` = normalidad Y control estadístico) y **SHALL** ofrecer una prueba
+formal de equivalencia entre biorreactores (TOST de Schuirmann con pruebas t de Welch y prueba de
+Levene; Gorsky 2020, p.131).
+- *Categoría GAMP:* 5 — *Riesgo de proceso:* High — *Módulos:* `audit_trail_part11.py`, `spc_six_sigma.py` — *OQ:* `test_oq_09_part11_audit_trail_and_annex22_guardrail`, `test_oq_08_gorsky_spc_tolerance_and_capability`, `test_oq_08b_spc_control_stability_and_tost_equivalence`
+
+### 5.8 Credibilidad del modelo mecanístico (ASME V&V 40 / FDA CSA)
+
+#### URS-16 — Calibración, identificabilidad y validación predictiva contra datos medidos
+**WHEN** el gemelo digital se usa para comparar estrategias de alimentación (contexto de uso: cribado
+de estrategias en desarrollo de proceso, influencia baja del modelo en la decisión, sin uso para
+liberación de lotes),
+**THE SYSTEM SHALL** usar parámetros cinéticos calibrados contra datos medidos y documentados como
+constantes (`src/bioreactor_twin.py`), **SHALL** reportar para cada parámetro libre su valor, sus
+cotas, si quedó en una cota (`AT_BOUND` / `NEAR_BOUND`) y su identificabilidad práctica (valores
+singulares del Jacobiano escalado, cond(J), pares colineales |r| > 0.90, error estándar relativo), y
+**SHALL** reportar R², RMSE, NRMSE y el error del día 14 dentro de muestra (Bionova Stratyx 30 W/m³)
+y fuera de muestra (Stratyx 19 W/m³, nunca usado en la calibración), comparando con el estado pre-feed
+del gemelo (`daily_pre_feed`), que coincide con el momento del muestreo de Bionova.
+
+*Criterio de credibilidad (fijado para este contexto de uso):* RMSE ≤ 2 × la incertidumbre declarada
+de cada variable dentro de muestra y para la serie de VCD fuera de muestra, y cada punto de 19 W/m³
+dentro de 2 × su incertidumbre. *Verificación separada:* la OQ verifica el software (balances,
+positividad, convergencia del integrador, estabilidad en todo el dominio de los sliders); la
+validación del modelo biológico es esta URS.
+- *Categoría GAMP:* 5 — *Riesgo de proceso:* High — *Módulos:* `model_validation.py`, `bioreactor_twin.py`, `data/bionova_nistcho_2026.json` — *OQ:* `test_oq_03g_bionova_validation_fit_and_oos`, `test_oq_03f_rk45_convergence_and_nh3_decline`
 
 ---
 
@@ -256,17 +322,19 @@ guardrail de AI del Draft Annex 22.
 | NFR-03 | El subsistema de procesamiento de señales debe respetar el criterio de Nyquist en el muestreo (ver `test_oq_07`). |
 | NFR-04 | El sistema debe degradarse de forma segura: ante una entrada inválida lanza un error validado en lugar de producir silenciosamente una salida incorrecta. |
 | NFR-05 | Las alarmas e interlocks que se registran en el Audit Trail (cuando se pasa un logger) llevan marca de tiempo ISO-8601 en UTC. Sin logger, THE SYSTEM solo devuelve los indicadores y no registra nada. |
+| NFR-06 | Estabilidad numérica en todo el dominio de los sliders del tablero (P/V 2–100 W/m³, sparge 0–1 vvm, día de cambio térmico 1–14 d, DO 10–90 %, volumen 0.25–35,000 L, duración 5–21 d, con y sin enriquecimiento de O2): sin NaN ni Inf, concentraciones ≥ 0, viabilidad en [0, 100] % y V(t) ≤ volumen del recipiente (`test_oq_03h`). Integración RK45 (rtol 1e-6, atol 1e-9) con cambio automático a Radau, con error frente a la referencia rtol 1e-9 < 1e-4 (`test_oq_03f`). |
+| NFR-07 | Desempeño interactivo: una corrida de 14 d del gemelo tarda en promedio < 80 ms y ninguna esquina del dominio de los sliders tarda ≥ 0.25 s (`test_oq_03h`). |
 
 ## 7. Trazabilidad
 
-Cada requisito, de URS-01 a URS-15, se traza hacia adelante a un módulo de `src/`, un nivel de
+Cada requisito, de URS-01 a URS-16, se traza hacia adelante a un módulo de `src/`, un nivel de
 riesgo CSA y un caso de prueba OQ en la Requirements Traceability Matrix (documento
 `03_RTM_Traceability_Matrix.md`). La justificación de la clasificación de riesgo se define en
 `02_FDA_CSA_Risk_Assessment_2026.md`.
 
 ## 8. Aceptación
 
-Esta URS se acepta cuando los 15 requisitos de usuario quedan demostrados con evidencia OQ aprobada
+Esta URS se acepta cuando los 16 requisitos de usuario quedan demostrados con evidencia OQ aprobada
 y la RTM muestra 100 % de trazabilidad bidireccional, sin requisitos huérfanos ni pruebas huérfanas.
 
 ## Historial de versiones
@@ -280,5 +348,6 @@ Historial de versiones del documento. Las versiones son las del software (`src/_
 | 1.3.0 | 2026-11-11 | 664efca: traducción al español. 6d8c509: URS-09 con compuerta OR; URS-06 con fuerza impulsora del DO configurable. |
 | 1.3.1 | 2026-11-11 | fd01ad7: URS-06 describe el acople del DO con la cinética del gemelo. |
 | 1.3.2 | 2026-11-14 | b0fa17d y 99116f9 (Bloques 1 y 2): textos alineados con el código y la evidencia bibliográfica; versión del documento alineada con el software; historial añadido. cb5a484 (Bloque 3): sin cambios en este documento. 9c9ab7d (Bloque 4): URS-06 con el kLa medido por escala de A-Mab Tabla 3.22 y el proxy de 2 L por debajo de 2 L. |
+| 1.4.0 | 2026-11-20 | Modelo mecanístico calibrado de 6 estados (rama `feat/v1.4.0-mechanistic-validation`, Draft PR). URS-06: DO real, enriquecimiento con O2 y saturación del controlador sin hipoxia falsa; límite inferior de DO 5 %. URS-07: modo `bionova_baseline` y hallazgo de que la regla 2 → 5 g/L no se dispara con la glucosa calibrada. URS-08 revisado bajo control de cambios (ventaja en masa y viabilidad; g/L reportado). URS-09: desacople alarma–cinética. URS-15: estabilidad I-MR y TOST + Levene. Nuevos URS-16 (credibilidad ASME V&V 40), NFR-06 y NFR-07. |
 
 *Fin del documento URS-BRX-001.*
