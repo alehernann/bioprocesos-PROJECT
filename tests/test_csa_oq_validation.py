@@ -261,6 +261,12 @@ def test_oq_03b_vessel_capacity_and_bolus_mass_balance():
                     assert pre_day["G"] == pytest.approx(ev["pre"]["G"], abs=1e-12)
                     assert pre_day["V"] == pytest.approx(v_old, abs=1e-12)
 
+    # No bolus on the harvest day: feed days 2, 4, ..., 12 strictly before the end.
+    for duration, n_boluses in ((5, 2), (12, 5), (13, 6), (14, 6), (21, 6)):
+        res = simulate_cho_fed_batch(ProcessDescription(duration_days=duration, temp_shift_day=min(7.0, duration)))
+        assert len(res["feed_events"]) == n_boluses, duration
+        assert all(ev["day"] < duration for ev in res["feed_events"])
+
 
 def test_oq_03c_lactate_reconsumption_and_nonnegativity():
     """Lactate peaks in the growth phase (days 4-6) and is reconsumed; L(t) >= 0 in every mode.
@@ -439,17 +445,25 @@ def test_oq_03h_slider_domain_physical_stability():
     """Every corner of the Streamlit slider domain integrates to a finite, physical result in < 0.25 s.
 
     Full factorial of the slider extremes P/V {2, 100} W/m3, sparge {0, 1} vvm,
-    temp_shift_day {1, 14} d, DO {10, 90} %, V {0.25, 35000} L and duration {5, 21} d,
-    for static and closed_loop with and without O2 enrichment (256 runs). A shift later
-    than the run (14 > 5 d) is rejected by the schema and run with the dashboard clamp
-    min(shift, duration). Checks: no NaN/Inf, concentrations >= 0, viability in [0, 100],
-    V(t) <= vessel, wall time < 0.25 s per run, and mean wall time of the default 14-day
-    run < 80 ms (Streamlit budget).
+    temp_shift_day {1, 14} d, DO {5, 90} % (the slider starts at the 5 % schema limit),
+    V {0.25, 35000} L and duration {5, 21} d, for static and closed_loop with and without
+    O2 enrichment (256 runs). A shift later than the run (14 > 5 d) is rejected by the
+    schema and run with the dashboard clamp min(shift, duration). Checks: no NaN/Inf,
+    concentrations >= 0, viability in [0, 100], V(t) <= vessel, wall time < 0.25 s per
+    run, and mean wall time of the default 14-day run < 80 ms (Streamlit budget).
+
+    Directional sensitivity of the calibrated equations (no numeric bands), in both
+    modes: sparge 0.25 vs 0.10 vvm lowers titer and viability; 21 vs 14 days raises NH3
+    and lowers viability (real decline, no synthetic immortality); a shift on day 4 vs
+    day 10 gives a lower peak VCD (mu_max(34) < mu_max(36.5)).
     """
     keys_nonneg = ("vcd", "dead_cell_density", "glucose_g_L", "lactate_g_L", "nh3_mmol_L",
                    "titer_g_L", "volume_L", "do_real_pct")
+    do_min = next(m.ge for m in ProcessDescription.model_fields["do_setpoint_pct"].metadata
+                  if getattr(m, "ge", None) is not None)
+    assert do_min == 5.0
     corners = itertools.product(
-        (2.0, 100.0), (0.0, 1.0), (1.0, 14.0), (10.0, 90.0), (0.25, 35000.0), (5, 21),
+        (2.0, 100.0), (0.0, 1.0), (1.0, 14.0), (do_min, 90.0), (0.25, 35000.0), (5, 21),
         ("static", "closed_loop"), (True, False),
     )
     n_runs = 0
@@ -483,6 +497,18 @@ def test_oq_03h_slider_domain_physical_stability():
     for _ in range(20):
         simulate_cho_fed_batch(ProcessDescription())
     assert (time.perf_counter() - t0) / 20 < 0.080
+
+    for mode in ("static", "closed_loop"):
+        def run(**kw):
+            return simulate_cho_fed_batch(ProcessDescription(mode=mode, **kw))
+        low_sparge, high_sparge = run(sparge_vvm=0.10), run(sparge_vvm=0.25)
+        assert high_sparge["final_titer_g_L"] < low_sparge["final_titer_g_L"], mode
+        assert high_sparge["final_viability_pct"] < low_sparge["final_viability_pct"], mode
+        d14, d21 = run(duration_days=14), run(duration_days=21)
+        assert d21["final_nh3_mmol_L"] > d14["final_nh3_mmol_L"], mode
+        assert d21["final_viability_pct"] < d14["final_viability_pct"], mode
+        early, late = run(temp_shift_day=4.0), run(temp_shift_day=10.0)
+        assert early["peak_vcd"] < late["peak_vcd"], mode
 
 
 def test_oq_04_safety_shear_and_cip_sip_interlocks():

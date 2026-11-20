@@ -360,6 +360,15 @@ Q_NH3 = 0.0582430              # mmol/(1e9 cell*d) ammonium production
 KD_NH3 = 0.0177939             # 1/d per mM of NH3 above NH3_DEATH_ONSET_MM
 QP_36_5 = 0.0150130            # g/(1e9 cell*d) specific productivity at 36.5 C
 QP_34_0 = 0.00888312           # g/(1e9 cell*d) specific productivity at 34.0 C
+# WHY qp(36.5 C) > qp(34.0 C) (empirical, v1.4.0 audit). Bionova Fig. 4 shows production
+# slowing late in the run: titer gained per IVCD is 0.0118 (days 0-8), 0.0108 (8-10),
+# 0.0084 (10-12) and 0.0028 g/(1e9 cell*d) (12-14) (digitized, no dilution correction).
+# In NISTCHO the 34 C phase moderated growth and NH3 and sustained viability; it did
+# not raise the instantaneous qp. With one run and one shift day, the temperature
+# anchors are the only term that can absorb that late slowdown, so the temperature
+# effect on qp is confounded with culture age and unmodeled nutrient depletion. A
+# shift-day sweep is therefore an extrapolation: with these anchors a later shift
+# always gives more titer, which no Bionova run has tested.
 
 # FIXED MODELING ASSUMPTIONS (NOT CALIBRATED). Either not identifiable from the
 # Bionova data (normoxic, glucose > 1 g/L, no shear or sparge excursions) or fixed

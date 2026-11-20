@@ -1035,6 +1035,18 @@ with tab1:
 # P/V del punto de 15,000 L, asi que el valor 26.0 W/m3 se mantiene aqui.
 AMAB_REF_PV_W_M3 = 26.0
 VS_VALID_MIN, VS_VALID_MAX = 0.005, 0.017
+
+
+def _schema_lower_bound(field: str) -> float:
+    """Limite inferior (ge) de un campo de ProcessDescription, leido del esquema."""
+    for meta in ProcessDescription.model_fields[field].metadata:
+        if getattr(meta, "ge", None) is not None:
+            return float(meta.ge)
+    raise KeyError(f"{field} has no ge bound")
+
+
+# El slider de DO arranca en el limite de validacion del esquema (5 % desde v1.4.0).
+DO_SLIDER_MIN_PCT = _schema_lower_bound("do_setpoint_pct")
 PV_WINDOW_W_M3 = (19.0, 30.0)
 # Los presets corresponden 1:1 con las columnas de A-Mab Tabla 3.22 (p.105) y usan
 # su kLa medido; la correlacion solo se usa en "Personalizado".
@@ -1226,12 +1238,13 @@ with tab2:
         with e4:
             do_slider_pct = st.slider(
                 "Setpoint de DO (% saturacion de aire)",
-                min_value=10.0,
+                min_value=DO_SLIDER_MIN_PCT,
                 max_value=90.0,
                 value=float(ProcessDescription().do_setpoint_pct),
                 step=1.0,
                 key="do_setpoint_pct",
-                help="ProcessDescription.do_setpoint_pct; bounds del modelo [5, 100] %, slider 10-90 %.",
+                help=f"ProcessDescription.do_setpoint_pct; bounds del modelo [{DO_SLIDER_MIN_PCT:g}, 100] %, "
+                     f"slider {DO_SLIDER_MIN_PCT:g}-90 %. Bajo {DO_HYPOXIA_NORM_PCT:g} % de DO real hay hipoxia real.",
             )
             _leyenda(
                 f"Fuerza impulsora con aire = C* ({C_STAR_O2_MMOL_L:.3f} mmol/L, supuesto de modelado) x (1 - DO/100); OTR = kLa x fuerza "

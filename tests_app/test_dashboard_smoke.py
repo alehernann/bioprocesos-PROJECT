@@ -170,10 +170,11 @@ def test_do_slider_drives_otr_and_oxygen_alarm(at):
 def test_do_slider_changes_scaleup_and_twin(at):
     """DO set-point drives OTR always; the twin responds only to the real DO (v1.4.0).
 
-    With O2 enrichment on, DO 85 % is held by the controller and the culture is the same
-    as at 30 % (no false hypoxia); DO 10 % is real hypoxia (f_do < 1) and changes the KPIs.
-    With enrichment off, DO 85 % saturates the controller and the air-limited transfer
-    lowers the titer.
+    The slider starts at the 5 % schema limit. With O2 enrichment on, DO 85 % is held by
+    the controller and the culture is the same as at 30 % (no false hypoxia); DO 5 % and
+    10 % are real hypoxia (f_do < 1) and change the KPIs, and DO 5 % raises the real-hypoxia
+    banner. With enrichment off, DO 85 % saturates the controller and the air-limited
+    transfer lowers the titer.
     """
     def titers():
         return _metric_values(at, "Titulo final (g/L)")
@@ -181,11 +182,16 @@ def test_do_slider_changes_scaleup_and_twin(at):
     def viabilities():
         return _metric_values(at, "Viabilidad final (%)")
 
+    schema_min = next(m.ge for m in ProcessDescription.model_fields["do_setpoint_pct"].metadata
+                      if getattr(m, "ge", None) is not None)
+    assert at.slider(key="do_setpoint_pct").min == schema_min == 5.0
     base_otr = _metric_values(at, "OTR (mmol/L/h)")
     base_titer, base_viab = titers(), viabilities()
-    for do, same_as_base in ((10.0, False), (85.0, True)):
+    for do, same_as_base in ((5.0, False), (10.0, False), (85.0, True)):
         _run_strict(at.slider(key="do_setpoint_pct").set_value(do))
         assert not at.exception, [e.value for e in at.exception]
+        hypoxia_banners = [m.value for m in at.markdown if 'class="bp-banner"' in m.value and "hipoxia real" in m.value]
+        assert len(hypoxia_banners) == (2 if do < 15.0 else 0), do
         expected = [
             simulate_cho_fed_batch(
                 ProcessDescription(mode=m, vessel_volume_L=2.0, do_setpoint_pct=do)
