@@ -110,16 +110,18 @@ def bionova_process_description(
 ) -> ProcessDescription:
     """Exact Bionova protocol (Ref. 2, pp. 3-4) as a validated ProcessDescription.
 
-    mode ``bionova_baseline`` (fixed boluses + pre-feed glucose rule), 0.25 L vessel,
-    initial fill 0.76 (190 mL), sparge 0.5 mL/min / 190 mL, DO 30 %, 36.5 -> 34.0 C
-    on day 7, 14 days; ``condition`` selects P/V (30 or 19 W/m3).
+    ``mode="static"`` with ``glucose_feedback_in_static=True`` (fixed boluses plus the
+    pre-feed glucose rule < 2 -> 5 g/L), 0.25 L vessel, initial fill 0.76 (190 mL),
+    sparge 0.5 mL/min / 190 mL, DO 30 %, 36.5 -> 34.0 C on day 7, 14 days;
+    ``condition`` selects P/V (30 or 19 W/m3). Every value is read from the dataset.
     """
     ds = dataset or load_bionova_reference_dataset()
     if condition not in CONDITION_SETS:
         raise ValueError(f"unknown condition {condition!r}; expected one of {sorted(CONDITION_SETS)}")
     proto = ds["protocol"]
     return ProcessDescription(
-        mode="bionova_baseline",
+        mode="static",
+        glucose_feedback_in_static=True,
         vessel_volume_L=proto["vessel_volume_L"],
         initial_fill_fraction=proto["initial_fill_fraction"],
         power_density_W_m3=ds[CONDITION_SETS[condition]]["power_density_W_m3"],

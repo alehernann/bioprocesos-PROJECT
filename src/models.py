@@ -12,8 +12,10 @@ validation limits of the digital twin (URS-01, URS-07/08), not process operating
 ranges.
 
 v1.4.0 adds cross-field validation (``model_validator``), the configurable initial
-fill fraction, pure-O2 enrichment of the sparge gas and the ``bionova_baseline``
-feeding mode (the exact Bionova protocol used for calibration).
+fill fraction, pure-O2 enrichment of the sparge gas and the
+``glucose_feedback_in_static`` flag. ``mode`` keeps its binary contract
+(``static`` / ``closed_loop``); the exact Bionova protocol used for calibration is
+``mode="static"`` with ``glucose_feedback_in_static=True``.
 """
 
 from typing import Literal
@@ -32,12 +34,16 @@ class ProcessDescription(BaseModel):
     never enters a kinetic rate):
 
     - ``static``: fixed day-0 recipe. Base bolus of 4.62 % of V0 on every feed day,
-      no glucose feedback, no bolus modulation.
-    - ``bionova_baseline``: the Bionova protocol (Ref. 2, pp. 3-4). Same fixed
-      boluses plus the pre-feed glucose rule (G < glucose_min_threshold_g_L ->
-      top-up to glucose_refill_target_g_L).
-    - ``closed_loop``: ``bionova_baseline`` plus the Ark adaptive bolus modulation
-      (x1.80 on day 8 and x1.82 on day 10, Quint et al. 2026).
+      no bolus modulation, and no glucose feedback unless
+      ``glucose_feedback_in_static`` is True.
+    - ``closed_loop``: the same boluses with the Ark adaptive modulation (x1.80 on
+      day 8 and x1.82 on day 10, Quint et al. 2026) plus the pre-feed glucose rule
+      (G < glucose_min_threshold_g_L -> top-up to glucose_refill_target_g_L).
+
+    ``glucose_feedback_in_static`` (default False) arms the pre-feed glucose rule in
+    ``static`` without changing the bolus recipe. ``mode="static"`` with this flag
+    is the Bionova protocol (Ref. 2, pp. 3-4: fixed boluses plus the < 2 -> 5 g/L
+    rule). The flag has no extra effect in ``closed_loop``, which always has the rule.
 
     Cross-field rules (``model_validator``): the glucose trigger must be below the
     refill target, and the temperature shift cannot be scheduled after the end of
@@ -57,12 +63,14 @@ class ProcessDescription(BaseModel):
     ph_setpoint: float = Field(default=7.00, ge=6.0, le=8.0)
     ph_deadband: float = Field(default=0.20, gt=0.0, le=1.0)
     # Lower validation limit 5 % (v1.4.0, was 10 %) so the twin can be exercised in
-    # real hypoxia (DO_real < 10 %); the dashboard slider stays at 10-90 %.
+    # real hypoxia (DO_real < 10 %); the dashboard slider reads this limit (5-90 %).
     do_setpoint_pct: float = Field(default=30.0, ge=5.0, le=100.0)
     glucose_min_threshold_g_L: float = Field(default=2.0, ge=0.5, le=10.0)
     glucose_refill_target_g_L: float = Field(default=5.0, ge=2.0, le=15.0)
     duration_days: int = Field(default=14, ge=5, le=21)
-    mode: Literal["static", "closed_loop", "bionova_baseline"] = Field(default="closed_loop")
+    mode: Literal["static", "closed_loop"] = Field(default="closed_loop")
+    # Pre-feed glucose rule in the static recipe (Bionova protocol); see class docstring.
+    glucose_feedback_in_static: bool = Field(default=False)
     # Initial working volume V0 = initial_fill_fraction * vessel_volume_L. The 0.70
     # default keeps URS-07 / test_oq_03b unchanged; 0.76 = 190/250 mL is the exact
     # Bionova fill (Ref. 2, pp. 3-4).

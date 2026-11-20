@@ -693,13 +693,14 @@ def simulate_cho_fed_batch(
     step ``euler_dt``) are available for verification (check_numerical_convergence).
 
     FEEDS (days 2, 4, 6, 8, 10, 12 that are < duration; none at harvest):
-        static:           v_basal = 0.0462 * V0, no glucose feedback;
-        bionova_baseline: v_basal = 0.0462 * V0 plus the pre-feed glucose rule;
-        closed_loop:      v_basal = 0.0462 * V0 * {1.80 day 8, 1.82 day 10, else 1}
-                          plus the pre-feed glucose rule.
-    Glucose rule (URS-07): if G_pre < glucose_min_threshold_g_L (or the post-bolus
-    G is), a 500 g/L stock top-up brings G exactly to glucose_refill_target_g_L
-    after the bolus. Both volumes are scaled together if they exceed the free
+        static:      v_basal = 0.0462 * V0; pre-feed glucose rule only if
+                     config.glucose_feedback_in_static (the Bionova protocol);
+        closed_loop: v_basal = 0.0462 * V0 * {1.80 day 8, 1.82 day 10, else 1}
+                     plus the pre-feed glucose rule.
+    Glucose rule (URS-07), armed when mode == "closed_loop" or
+    glucose_feedback_in_static: if G_pre < glucose_min_threshold_g_L (or the
+    post-bolus G is), a 500 g/L stock top-up brings G exactly to
+    glucose_refill_target_g_L after the bolus. Both volumes are scaled together if they exceed the free
     vessel volume (``bolus_clipped_alarm``), so V(t) <= vessel_volume_L. Every
     bolus is an exact mass balance: C_new = C * V_old / V_new for Xv, Xd, L, NH3
     and P (the feed contains none of them) and
@@ -811,7 +812,7 @@ def simulate_cho_fed_batch(
             v_basal_req = BOOST_FRACTION_OF_V0 * V0 * factor
             G_actual = (G_pre * V_old + v_basal_req * kp.g_boost_conc) / (V_old + v_basal_req)
             v_gluc_req = 0.0
-            if config.mode in ("closed_loop", "bionova_baseline") and (
+            if (config.mode == "closed_loop" or config.glucose_feedback_in_static) and (
                 G_pre < G_MIN or G_actual < G_MIN
             ):
                 v_gluc_req = max(

@@ -833,8 +833,9 @@ with tab1:
         _band("Validacion vs. Bionova NISTCHO (2026)")
         val = _bionova_validation()
         st.caption(
-            "Protocolo exacto de Bionova (bionova_baseline: bolos fijos de 4.62 % de V0 y regla pre-feed "
-            "de glucosa < 2 -> 5 g/L; 190 mL en 250 mL; DO 30 %; 36.5 -> 34 C el dia 7). Puntos: "
+            "Protocolo exacto de Bionova (mode static con glucose_feedback_in_static: bolos fijos de "
+            "4.62 % de V0 y regla pre-feed de glucosa < 2 -> 5 g/L; 190 mL en 250 mL; 30 W/m3; DO 30 %; "
+            "36.5 -> 34 C el dia 7). Puntos: "
             "rombos llenos = valor impreso exacto; circulos con barra = valor digitalizado de figura "
             "con su incertidumbre. Las muestras de Bionova son pre-feed, igual que daily_pre_feed del "
             f"gemelo. Se calibraron {len(CALIBRATED_PARAMETER_NAMES)} parametros con 30 W/m3; 19 W/m3 "

@@ -167,9 +167,10 @@ def _assert_glucose_rule(res, g_min, g_target):
 def test_oq_03_closed_loop_vs_static_titer_gain():
     """URS-07 pre-feed glucose rule event by event and URS-08 emergent closed_loop vs static comparison.
 
-    v1.4.0 change control. A top-up fires exactly when the pre-feed (or post-bolus)
-    glucose is below the trigger and the bolus alone does not reach the target, and it
-    lands exactly on the target. With the calibrated feed glucose (G_BOOST_CONC 76.44 g/L)
+    v1.4.0 change control. The rule is armed in closed_loop and in static with
+    glucose_feedback_in_static=True (the Bionova protocol; mode stays binary). A top-up
+    fires exactly when the pre-feed (or post-bolus) glucose is below the trigger and the
+    bolus alone does not reach the target, and it lands exactly on the target. With the calibrated feed glucose (G_BOOST_CONC 76.44 g/L)
     the default runs keep G >= 2.0 g/L on every feed day, so the rule is also exercised
     with a validated higher trigger (6.0 -> 9.0 g/L). URS-08 is directional on harvested
     mass and final viability; the g/L titer difference is emergent and only reported,
@@ -178,7 +179,8 @@ def test_oq_03_closed_loop_vs_static_titer_gain():
     feed_days = [2.0, 4.0, 6.0, 8.0, 10.0, 12.0]
     static = simulate_cho_fed_batch(ProcessDescription(mode="static"))
     closed = simulate_cho_fed_batch(ProcessDescription(mode="closed_loop"))
-    baseline = simulate_cho_fed_batch(ProcessDescription(mode="bionova_baseline"))
+    # Bionova protocol: static recipe with the pre-feed glucose rule armed.
+    baseline = simulate_cho_fed_batch(ProcessDescription(mode="static", glucose_feedback_in_static=True))
 
     # URS-07 with the default 2.0 -> 5.0 g/L rule.
     for res in (closed, baseline):
@@ -191,12 +193,15 @@ def test_oq_03_closed_loop_vs_static_titer_gain():
 
     # URS-07 exercised with a validated higher trigger (6.0 -> 9.0 g/L).
     high = dict(glucose_min_threshold_g_L=6.0, glucose_refill_target_g_L=9.0)
-    for mode in ("closed_loop", "bionova_baseline"):
-        res = simulate_cho_fed_batch(ProcessDescription(mode=mode, **high))
-        assert _assert_glucose_rule(res, 6.0, 9.0) >= 1, mode
+    for cfg in (dict(mode="closed_loop"), dict(mode="static", glucose_feedback_in_static=True)):
+        res = simulate_cho_fed_batch(ProcessDescription(**cfg, **high))
+        assert _assert_glucose_rule(res, 6.0, 9.0) >= 1, cfg
         assert res["total_feed_volume_L"] > sum(ev["v_basal_L"] for ev in res["feed_events"])
     static_high = simulate_cho_fed_batch(ProcessDescription(mode="static", **high))
     assert all(ev["v_gluc_L"] == 0.0 for ev in static_high["feed_events"])
+    # The flag arms the rule only: the static bolus recipe is unchanged.
+    for ev_flag, ev_plain in zip(baseline["feed_events"], static["feed_events"]):
+        assert ev_flag["v_basal_L"] == ev_plain["v_basal_L"]
 
     # Bolus train: 4.62 % of V0 on every feed day; closed_loop x1.80 on day 8 and x1.82
     # on day 10 (Ark reports +80 % / +82 % versus the day-0 plan).
@@ -219,10 +224,12 @@ def test_oq_03_closed_loop_vs_static_titer_gain():
 def test_oq_03b_vessel_capacity_and_bolus_mass_balance():
     """V0 = initial_fill_fraction * vessel, V(t) <= vessel and exact six-species balance in every bolus.
 
-    Checked at 0.25 L and 2.0 L, in the three modes, at the default fill (0.70) and at the
-    Bionova fill (0.76 = 190/250 mL): C_before*V_old + added == C_after*V_new for Xv, Xd,
-    G, L, NH3 and titer, against the event record and the recorded post-feed series. The
-    daily_pre_feed state of a feed day is the state before its bolus.
+    Checked at 0.25 L and 2.0 L, for static, static with glucose feedback and closed_loop,
+    at the default fill (0.70) and at the Bionova fill (0.76 = 190/250 mL):
+    C_before*V_old + added == C_after*V_new for Xv, Xd, G, L, NH3 and titer, against the
+    event record and the recorded post-feed series. The daily_pre_feed state of a feed
+    day is the state before its bolus. No bolus falls on the harvest day: a 14-day run
+    has exactly 6 boluses (days 2-12), a 12-day run 5.
     """
     series = {
         "Xv": "vcd", "Xd": "dead_cell_density", "G": "glucose_g_L",
@@ -230,10 +237,11 @@ def test_oq_03b_vessel_capacity_and_bolus_mass_balance():
     }
     for fill in (0.70, 0.76):
         for vessel in (0.25, 2.0):
-            for mode in ("static", "bionova_baseline", "closed_loop"):
-                res = simulate_cho_fed_batch(
-                    ProcessDescription(mode=mode, vessel_volume_L=vessel, initial_fill_fraction=fill)
-                )
+            for mode, feedback in (("static", False), ("static", True), ("closed_loop", False)):
+                res = simulate_cho_fed_batch(ProcessDescription(
+                    mode=mode, glucose_feedback_in_static=feedback,
+                    vessel_volume_L=vessel, initial_fill_fraction=fill,
+                ))
                 volume = res["volume_L"]
                 assert volume[0] == pytest.approx(fill * vessel, abs=1e-12)
                 assert max(volume) <= vessel + 1e-12
@@ -247,8 +255,8 @@ def test_oq_03b_vessel_capacity_and_bolus_mass_balance():
                     for key, name in series.items():
                         added = ev["glucose_added_g"] if key == "G" else 0.0
                         before = ev["pre"][key] * v_old + added
-                        assert ev["post"][key] * v_new == pytest.approx(before, abs=1e-9), (fill, vessel, mode, key)
-                        assert res[name][k] * v_new == pytest.approx(before, abs=1e-9), (fill, vessel, mode, key)
+                        assert ev["post"][key] * v_new == pytest.approx(before, abs=1e-9), (fill, vessel, mode, feedback, key)
+                        assert res[name][k] * v_new == pytest.approx(before, abs=1e-9), (fill, vessel, mode, feedback, key)
                     pre_day = res["daily_pre_feed"][int(ev["day"])]
                     assert pre_day["G"] == pytest.approx(ev["pre"]["G"], abs=1e-12)
                     assert pre_day["V"] == pytest.approx(v_old, abs=1e-12)
@@ -260,13 +268,13 @@ def test_oq_03c_lactate_reconsumption_and_nonnegativity():
     v1.4.0 change control: the peak now comes from the state-governed switch, not from
     the day-7 temperature step (v1.3.x asserted a peak after day 5).
     """
-    for mode in ("static", "bionova_baseline", "closed_loop"):
-        res = simulate_cho_fed_batch(ProcessDescription(mode=mode))
+    for mode, feedback in (("static", False), ("static", True), ("closed_loop", False)):
+        res = simulate_cho_fed_batch(ProcessDescription(mode=mode, glucose_feedback_in_static=feedback))
         lactate = res["lactate_g_L"]
-        assert min(lactate) >= 0.0, mode
-        assert 4.0 <= res["peak_lactate_day"] <= 6.0, mode
-        assert lactate[-1] < res["peak_lactate_g_L"], mode
-        assert lactate[res["time_days"].index(8.0)] < 0.5 * res["peak_lactate_g_L"], mode
+        assert min(lactate) >= 0.0, (mode, feedback)
+        assert 4.0 <= res["peak_lactate_day"] <= 6.0, (mode, feedback)
+        assert lactate[-1] < res["peak_lactate_g_L"], (mode, feedback)
+        assert lactate[res["time_days"].index(8.0)] < 0.5 * res["peak_lactate_g_L"], (mode, feedback)
 
 
 def test_oq_03d_lactate_switch_state_governed():
@@ -368,9 +376,10 @@ def test_oq_03g_bionova_validation_fit_and_oos():
     assert ds["sampling_timing"] == "pre_feed_daily"
     assert set(ds["value_type_definitions"]) == {"printed_exact", "digitized_figure_approx"}
     cfg = mv.bionova_process_description("stratyx_30_W_m3", ds)
-    assert cfg.mode == "bionova_baseline"
-    assert cfg.initial_fill_fraction == pytest.approx(0.76, abs=1e-12)
+    assert cfg.mode == "static" and cfg.glucose_feedback_in_static is True
+    assert (cfg.initial_fill_fraction, cfg.vessel_volume_L, cfg.power_density_W_m3) == (0.76, 0.25, 30.0)
     assert cfg.vessel_volume_L * cfg.initial_fill_fraction == pytest.approx(0.190, abs=1e-12)
+    assert mv.bionova_process_description("stratyx_19_W_m3", ds).power_density_W_m3 == 19.0
 
     cal = mv.run_parameter_calibration(dataset=ds)
     assert cal["success"] is True
@@ -945,8 +954,9 @@ def test_exploratory_10_invalid_pydantic_inputs():
     """Error-guessing: out-of-range CPPs and inconsistent set-point combinations are rejected.
 
     v1.4.0: also probes the cross-field validators (glucose trigger below the refill
-    target, temperature shift not after the end of the run) and the new fields
-    (initial_fill_fraction, max_o2_mole_fraction, mode).
+    target, temperature shift not after the end of the run), the new fields
+    (initial_fill_fraction, max_o2_mole_fraction, glucose_feedback_in_static) and the
+    binary mode contract (static / closed_loop).
     """
     with pytest.raises(pydantic.ValidationError):
         ProcessDescription(vessel_volume_L=-5.0, ph_setpoint=14.5)
@@ -964,12 +974,15 @@ def test_exploratory_10_invalid_pydantic_inputs():
     for bad in (
         dict(initial_fill_fraction=0.19), dict(initial_fill_fraction=0.96),
         dict(max_o2_mole_fraction=0.20), dict(max_o2_mole_fraction=1.01),
-        dict(mode="perfusion"), dict(do_setpoint_pct=4.9),
+        dict(mode="perfusion"), dict(mode="bionova_baseline"), dict(do_setpoint_pct=4.9),
     ):
         with pytest.raises(pydantic.ValidationError):
             ProcessDescription(**bad)
     cfg = ProcessDescription()
     assert (cfg.initial_fill_fraction, cfg.o2_enrichment_enabled, cfg.max_o2_mole_fraction) == (0.70, True, 1.0)
+    # mode keeps its binary contract; the Bionova protocol is static + glucose feedback.
+    assert ProcessDescription.model_fields["mode"].annotation.__args__ == ("static", "closed_loop")
+    assert cfg.glucose_feedback_in_static is False
 
 
 def test_exploratory_11_audit_trail_requires_reason():
