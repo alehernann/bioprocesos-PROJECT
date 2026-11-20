@@ -1,0 +1,135 @@
+{
+  "dataset_id": "bionova_nistcho_2026",
+  "schema_version": "1.0",
+  "software_version_introduced": "1.4.0",
+  "source": {
+    "reference": "R. Kulkarni, C. Horner, J.-M. Guedon, Y. Zahra, C. Edington, and M. Aswath, \"STRATYX Delivers Superior Viable Cell Density and Increased mAb Titer Compared with Conventional 250 mL Bioreactors in Fed-Batch CHO Culture,\" Culture Biosciences & Bionova Scientific Whitepaper, 2026.",
+    "bibliography_ref": "docs/05_Academic_and_Regulatory_Bibliography.md, Ref. 2",
+    "cell_line": "NISTCHO (CHO-K1 background, NIST reference mAb line)",
+    "systems": ["Stratyx 250 mL (Culture Biosciences)", "Ambr 250 (reference system, day-14 values only)"]
+  },
+  "value_type_definitions": {
+    "printed_exact": "Number printed in the text or a table of the whitepaper. Only the reporting precision applies (uncertainty_abs = 0.0 in this file).",
+    "digitized_figure_approx": "Number read by eye from a figure marker (Figs. 1-4). The declared absolute uncertainty (uncertainty_abs) covers the reading error and is used as the residual weight sigma in calibration."
+  },
+  "sampling_timing": "pre_feed_daily",
+  "sampling_note": "Daily samples are taken BEFORE the bolus of days 2, 4, 6, 8, 10 and 12 (Bionova pp. 3-4, Fig. 2). The glucose jump of each bolus therefore appears in the next day's sample (days 3, 5, 7, 9, 11 and 13). Model outputs must be compared with the twin's daily_pre_feed state, which is recorded exactly before each bolus.",
+  "protocol": {
+    "value_type": "printed_exact",
+    "pages": "pp. 3-4",
+    "vessel_volume_L": 0.25,
+    "initial_volume_L": 0.190,
+    "initial_fill_fraction": 0.76,
+    "inoculation_vcd_1e6_mL": 0.7,
+    "duration_days": 14,
+    "temp_initial_C": 36.5,
+    "temp_shift_C": 34.0,
+    "temp_shift_day": 7.0,
+    "do_setpoint_pct": 30.0,
+    "ph_setpoint": 7.00,
+    "ph_deadband": 0.20,
+    "feed_days": [2, 4, 6, 8, 10, 12],
+    "boost_fraction_csv": 0.0462,
+    "boost_fraction_note": "4.2 % Cell Boost 7a + 0.42 % Cell Boost 7b, as a fraction of the culture starting volume (CSV = V0) per feed day.",
+    "glucose_trigger_g_L": 2.0,
+    "glucose_trigger_timing": "pre-feed",
+    "glucose_target_g_L": 5.0,
+    "sparge_mL_min": 0.5,
+    "sparge_vvm_derived": 0.00263,
+    "sparge_note": "0.5 mL/min / 190 mL = 0.00263 vvm (derived in this repository, not printed as vvm).",
+    "power_density_conditions_W_m3": [19.0, 30.0]
+  },
+  "day14_printed": {
+    "value_type": "printed_exact",
+    "page": "p. 10",
+    "stratyx_30_W_m3": {
+      "viability_pct": 90.55,
+      "titer_g_L": 1.896,
+      "glutamine_mmol_L": 4.39,
+      "glutamate_mmol_L": 7.20
+    },
+    "ambr_30_W_m3": {
+      "viability_pct": 78.93,
+      "titer_g_L": 1.596,
+      "glutamine_mmol_L": 3.51,
+      "glutamate_mmol_L": 9.55
+    },
+    "note": "Glutamine and glutamate are stored for completeness; the twin has no amino-acid states. The Ambr values are a different system and are not used for calibration or validation."
+  },
+  "calibration_set": {
+    "condition": "stratyx_30_W_m3",
+    "power_density_W_m3": 30.0,
+    "role": "in-sample (calibration)",
+    "value_type": "digitized_figure_approx",
+    "figures": "Figs. 1-4, light-blue markers (Stratyx 30 W/m3)",
+    "sampling_timing": "pre_feed_daily",
+    "series": {
+      "vcd_1e6_mL": {
+        "unit": "1e6 cells/mL",
+        "uncertainty_abs": 1.5,
+        "days": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+        "values": [0.7, 1.2, 2.2, 4.0, 7.5, 12.0, 15.0, 17.8, 23.5, 25.0, 24.5, 23.8, 23.5, 20.0, 19.8],
+        "value_types": ["printed_exact", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx"]
+      },
+      "viability_pct": {
+        "unit": "%",
+        "uncertainty_abs": 2.0,
+        "days": [0, 2, 4, 6, 8, 10, 12, 14],
+        "values": [99.0, 98.0, 97.0, 96.5, 96.5, 95.0, 94.0, 90.55],
+        "value_types": ["digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "printed_exact"]
+      },
+      "glucose_g_L": {
+        "unit": "g/L",
+        "uncertainty_abs": 0.5,
+        "days": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+        "values": [6.0, 6.4, 5.8, 8.1, 6.0, 7.1, 5.4, 5.8, 3.9, 4.0, 1.2, 4.5, 1.9, 2.0, 2.2],
+        "value_types": ["digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx"]
+      },
+      "lactate_g_L": {
+        "unit": "g/L",
+        "uncertainty_abs": 0.15,
+        "days": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+        "values": [0.10, 0.28, 0.55, 0.95, 1.30, 1.35, 0.95, 0.60, 0.22, 0.20, 0.15, 0.22, 0.24, 0.28, 0.32],
+        "value_types": ["digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx"]
+      },
+      "nh3_mmol_L": {
+        "unit": "mmol/L",
+        "uncertainty_abs": 0.8,
+        "days": [0, 2, 4, 6, 8, 10, 12, 14],
+        "values": [0.5, 1.3, 3.0, 3.3, 4.5, 7.5, 10.2, 10.5],
+        "value_types": ["digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx"]
+      },
+      "titer_g_L": {
+        "unit": "g/L",
+        "uncertainty_abs": 0.08,
+        "days": [8, 10, 12, 14],
+        "values": [0.85, 1.38, 1.78, 1.896],
+        "value_types": ["digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "printed_exact"]
+      }
+    }
+  },
+  "validation_set": {
+    "condition": "stratyx_19_W_m3",
+    "power_density_W_m3": 19.0,
+    "role": "out-of-sample (cross-validation; never used in calibration)",
+    "value_type": "digitized_figure_approx",
+    "figures": "Figs. 1-4, dark-blue markers (Stratyx 19 W/m3)",
+    "sampling_timing": "pre_feed_daily",
+    "series": {
+      "vcd_1e6_mL": {
+        "unit": "1e6 cells/mL",
+        "uncertainty_abs": 1.5,
+        "days": [0, 4, 8, 10, 12, 14],
+        "values": [0.7, 6.8, 22.0, 21.5, 18.8, 17.2],
+        "value_types": ["printed_exact", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx", "digitized_figure_approx"]
+      }
+    },
+    "points": {
+      "viability_d14_pct": {"value": 91.0, "uncertainty_abs": 2.0, "day": 14, "value_type": "digitized_figure_approx"},
+      "lactate_peak_g_L": {"value": 1.45, "uncertainty_abs": 0.15, "day": 5, "value_type": "digitized_figure_approx"},
+      "lactate_d14_g_L": {"value": 0.20, "uncertainty_abs": 0.15, "day": 14, "value_type": "digitized_figure_approx"},
+      "nh3_d14_mmol_L": {"value": 10.5, "uncertainty_abs": 1.0, "day": 14, "value_type": "digitized_figure_approx"},
+      "titer_d14_g_L": {"value": 1.88, "uncertainty_abs": 0.08, "day": 14, "value_type": "digitized_figure_approx"}
+    }
+  }
+}
