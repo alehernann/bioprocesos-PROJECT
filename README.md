@@ -74,9 +74,9 @@ flowchart TD
 
 | Modulo | Responsabilidad |
 | --- | --- |
-| `models.py` | Esquema `ProcessDescription` (pydantic v2) con los parametros criticos del proceso (CPP), sus limites de validacion de entrada y validadores cruzados (disparo de glucosa < objetivo; cambio termico <= duracion): volumen, llenado inicial, P/V, sparge, temperaturas, dia de cambio termico, pH, DO, enriquecimiento con O2, umbrales de glucosa, duracion y modo (`static` / `bionova_baseline` / `closed_loop`). |
+| `models.py` | Esquema `ProcessDescription` (pydantic v2) con los parametros criticos del proceso (CPP), sus limites de validacion de entrada y validadores cruzados (disparo de glucosa < objetivo; cambio termico <= duracion): volumen, llenado inicial, P/V, sparge, temperaturas, dia de cambio termico, pH, DO, enriquecimiento con O2, umbrales de glucosa, duracion, modo binario (`static` / `closed_loop`) y `glucose_feedback_in_static` (regla de glucosa en la receta estatica; el protocolo Bionova es `static` con la bandera). |
 | `bioreactor_twin.py` | Gemelo digital mecanistico CHO-K1 fed-batch: `simulate_cho_fed_batch` (Xv, Xd, glucosa, lactato, NH3, titulo y V(t); RK45 con respaldo Radau; `daily_pre_feed`), `compute_dissolved_oxygen_state` (DO real con enriquecimiento de O2), `compute_hydrodynamic_stress`, constantes calibradas documentadas, controlador split-range de pH `compute_split_range_ph_actuators`, programa de cambio termico `get_temperature_setpoint` e interlocks de seguridad `check_safety_interlocks` (cizalla hidrodinamica, CIP con velocidad ASME BPE 1.52 m/s, SIP con integral de letalidad F0). |
-| `model_validation.py` | `load_bionova_reference_dataset`, `run_parameter_calibration` (`least_squares` TRF), `compute_validation_metrics` (R2, RMSE, NRMSE, error del dia 14 dentro y fuera de muestra), `compute_jacobian_identifiability` (valores singulares, cond(J), pares colineales) y `check_numerical_convergence` (ASME V&V 40). |
+| `model_validation.py` | `load_bionova_reference_dataset`, `run_parameter_calibration` (`least_squares` TRF), `compute_validation_metrics` (R2, RMSE, NRMSE, error del dia 14 dentro y fuera de muestra), `compute_jacobian_identifiability` (valores singulares, cond(J), pares colineales), `compare_k_i_l_m_g_swap` (experimento K_I,L fijo -> m_G libre con regla de adopcion) y `check_numerical_convergence` (ASME V&V 40). |
 | `amab_design_space.py` | `evaluate_amab_design_space`: superficies de respuesta de las 4 CQA de N-glicano (z1..z4) y verificacion del espacio de diseno A-Mab; `compute_scale_up_engineering`: kLa (medido por escala o correlacion), OTR y OUR con fraccion molar de O2 del gas (`o2_mole_fraction`, por defecto aire); `AMAB_MEASURED_KLA_H_INV` y `measured_kla_for_volume`: kLa medido de A-Mab Tabla 3.22. |
 | `thermal_vtb_mkt.py` | `calculate_mkt_celsius` (temperatura cinetica media, Arrhenius), `apply_vtb_filter` (buffer termico virtual de primer orden por volumen) y `analyze_fft_nyquist` (limite de Nyquist, frecuencia dominante, riesgo de aliasing). Incluye `VTB_CALIBRATION_TABLE` (con nota sobre la anomalia fisica del rotulo "300 mL (Bulk)"). |
 | `spc_six_sigma.py` | `compute_process_capability` (Cp/Cpu/Cpl/Cpk, UCL/LCL, regla 1 de Shewhart, `in_statistical_control`, `capability_assumptions_met`), `compute_iso16269_tolerance_interval` (intervalo de tolerancia ISO 16269-6), `compare_bioreactor_equivalence_ttest` (prueba t de Welch) y `compare_bioreactor_equivalence_tost` (TOST de Schuirmann + Levene). Datasets de torque de Gorsky (`GORSKY_TABLE_6_1_TORQUE_N10`, `GORSKY_TABLE_6_2_TORQUE_N30`). |
@@ -144,10 +144,10 @@ El gemelo es un modelo mecanistico de 6 estados (Xv, Xd, G, L, NH3, titulo P) ma
 - Glucosa: q_G = mu/Y_X_G + m_G * G/(K_S_G+G); dG/dt = -q_G Xv.
 - Lactato (switch gobernado por el estado): produccion de desborde q_Lp = Y_L_G * mu/Y_X_G (+ efecto Pasteur bajo 15 % de DO real); consumo q_Lc = q_L,max * (1 - mu/mu_max(36.5)) * L/(K_L+L) * f_do. Mientras las celulas crecen rapido el lactato se acumula; cuando mu cae (densidad, NH3, temperatura) el consumo se libera y el lactato se reconsume. El pico aparece el dia 5 aunque el cambio termico se mueva al dia 10 o 14.
 - Amonio: dNH3/dt = q_NH3 Xv; inhibe el crecimiento (K_I_NH3 = 20 mM) y suma muerte por encima de 5 mM, lo que produce la caida de viabilidad de los dias 10-14 y a 21 d.
-- Titulo: dP/dt = qp(T) * f_do / (1 + alpha * sigma) * Xv.
+- Titulo: dP/dt = qp(T) * f_do / (1 + alpha * sigma) * Xv. El ajuste da qp(36.5 C) = 0.01501 > qp(34.0 C) = 0.00888 g/(1e9 cel*d) por una razon empirica: en NISTCHO (Bionova, Fig. 4) la produccion se desacelera al final (titulo por IVCD 0.0118, 0.0108, 0.0084 y 0.0028 g/(1e9 cel*d) en los dias 0-8, 8-10, 10-12 y 12-14); la hipotermia modero crecimiento y NH3 y sostuvo la viabilidad en lugar de subir el qp instantaneo. Con un solo dia de cambio, el efecto de la temperatura queda confundido con la edad del cultivo: el gemelo no debe usarse para elegir el dia de cambio (ver el barrido abajo).
 - Oxigeno: el controlador sostiene el set-point enriqueciendo el gas con O2 (hasta `max_o2_mole_fraction`); el DO real del liquido es C_L = min(C_sp, max(0, C*_max - OUR/kLa)). La biologia depende solo del DO real: f_do = 1.0 desde 15 %, Pasteur bajo 15 % y muerte hipoxica bajo 10 %. La saturacion del controlador no es hipoxia por si misma.
 - Cizalla: la alarma (P/V > 47.6 W/m3 **OR** sparge > 0.15 vvm) no cambia la cinetica. En las ecuaciones solo actua el burbujeo por encima de 0.15 vvm; el impulsor solo penaliza por encima de 476 W/m3, fuera del rango del esquema (P/V <= 100 W/m3).
-- Volumen y bolos: V0 = `initial_fill_fraction` * V (0.70 por defecto; 0.76 en el protocolo Bionova). Bolos de 4.62 % de V0 los dias 2-12 (x1.80 y x1.82 de Ark en closed_loop los dias 8 y 10), regla pre-feed de glucosa < 2 -> 5 g/L en bionova_baseline y closed_loop, balance de masa exacto de las 6 especies y recorte por capacidad (`bolus_clipped_alarm`).
+- Volumen y bolos: V0 = `initial_fill_fraction` * V (0.70 por defecto; 0.76 en el protocolo Bionova). Bolos de 4.62 % de V0 los dias 2-12 (x1.80 y x1.82 de Ark en closed_loop los dias 8 y 10), regla pre-feed de glucosa < 2 -> 5 g/L en closed_loop y en static con `glucose_feedback_in_static` (el protocolo Bionova), sin bolo el dia de cosecha (6 bolos en 14 d), balance de masa exacto de las 6 especies y recorte por capacidad (`bolus_clipped_alarm`).
 - Numerica: integracion por tramos entre eventos con `solve_ivp` RK45 (rtol 1e-6, atol 1e-9) y respaldo automatico Radau; 8.8 ms por corrida de 14 d.
 
 **Parametros calibrados** (Bionova Stratyx 30 W/m3, 60 puntos pre-feed, `least_squares` TRF; detalle, RSE y colinealidad en docs/03, seccion 11):
@@ -175,7 +175,32 @@ Fijos (no calibrados): K_S_G 0.5 g/L, K_I_NH3 20 mM, umbral NH3 5 mM, Y_X_G 3.0e
 | 30 W/m3, error dia 14 | +0.88 | -2.33 pp | -0.62 g/L | -0.29 g/L | +1.18 mM | +0.095 g/L (+5.0 %) |
 | 19 W/m3, fuera de muestra | R2 0.750, RMSE 2.76 (1.84 sigma) | dia 14: -2.78 pp | sin datos | pico -0.11 g/L (dia 5); dia 14 -0.17 g/L | dia 14 +1.18 mM | dia 14 +0.111 g/L (+5.9 %) |
 
-Todas las variables cumplen el criterio. Limitaciones que se reportan sin ajustar ecuaciones: K_I_L no identificable; lactato tardio bajo (0.03 frente a 0.2-0.3 g/L); consumo tardio de glucosa bajo, por lo que la regla 2 -> 5 g/L no se dispara en el modelo (en Bionova la glucosa pre-feed de los dias 10 y 12, 1.2 y 1.9 g/L, queda bajo el disparo); sin efecto de P/V entre 19 y 30 W/m3 (a 19 W/m3 el modelo sobrestima la VCD tardia).
+Todas las variables cumplen el criterio.
+
+**Experimento de auditoria K_I,L fijo -> m_G libre** (`compare_k_i_l_m_g_swap`, 10 parametros libres en ambos casos; detalle en docs/03, seccion 11.1):
+
+| | A: vigente (K_I,L libre, m_G = 0.05) | B: K_I,L = 10 fijo, m_G libre en [0.03, 0.25] |
+| --- | --- | --- |
+| cond(J) | 398.8 | 45.2 |
+| Pares con abs(r) > 0.90 | 6 | 0 |
+| Parametros en cota | K_I,L NEAR_BOUND (5.011) | mu_max(34) AT_BOUND (0.35) |
+| m_G | 0.05 (fijo) | 0.0610 (RSE 17.1 %) |
+| R2 / RMSE lactato (30 W/m3) | 0.854 / 0.156 | 0.827 / 0.169 |
+| R2 / RMSE VCD (19 W/m3) | 0.750 / 2.76 | 0.784 / 2.57 |
+| G pre-feed minima en dia de alimentacion | 2.007 g/L: no repone | 1.757 g/L: repone el dia 12 |
+
+B mejora el condicionamiento y la mayoria de las metricas y dispara la regla el dia 12, pero deja mu_max(34) en su cota superior y empeora el lactato dentro de muestra y el lactato y el titulo del dia 14 fuera de muestra. No cumple la regla de adopcion, asi que el codigo mantiene A y la eleccion queda pendiente del auditor. Sin el punto digitalizado de VCD del dia 7, ambos escenarios quedan con todos sus parametros en el interior.
+
+**Barrido del dia de cambio termico** (constantes vigentes, protocolo Bionova; solo el dia 7 tiene datos):
+
+| Dia de cambio | VCD pico | Viabilidad final (%) | NH3 final (mM) | Titulo final (g/L) | Masa cosechada (g) |
+| --- | --- | --- | --- | --- | --- |
+| 4 | 20.09 | 92.89 | 8.80 | 1.3424 | 0.3258 |
+| 7 | 23.96 | 88.22 | 11.68 | 1.9915 | 0.4833 |
+| 10 | 30.45 | 86.04 | 13.07 | 2.6499 | 0.6467 |
+| 14 (sin cambio) | 30.51 | 85.04 | 13.80 | 3.4569 | 0.8456 |
+
+Limitaciones que se reportan sin ajustar ecuaciones: K_I_L no identificable; lactato tardio bajo (0.03 frente a 0.2-0.3 g/L); consumo tardio de glucosa bajo, por lo que la regla 2 -> 5 g/L no se dispara en el modelo (en Bionova la glucosa pre-feed de los dias 10 y 12, 1.2 y 1.9 g/L, queda bajo el disparo); sin efecto de P/V entre 19 y 30 W/m3 (a 19 W/m3 el modelo sobrestima la VCD tardia).
 
 **Receta estatica frente a lazo cerrado** (2.0 L, DO 30 %, enriquecimiento con O2; concentraciones identicas a 0.25 L):
 
@@ -202,8 +227,9 @@ Todas las variables cumplen el criterio. Limitaciones que se reportan sin ajusta
 - Con enriquecimiento el controlador sostiene 30 y 85 % sin saturarse (y_O2 requerido maximo 0.298 y 0.414) y la biologia es identica: no hay hipoxia falsa.
 - Solo con aire, a DO 85 % el controlador se satura desde el dia 2.5 y el DO real pasa por 55-75 % (dias 3.4-4.6) con f_do = 1.0. La hipoxia real aparece cuando Xv supera 17.85e6 cel/mL, el limite fisico de transferencia con aire a kLa 10 h^-1 (antes de v1.4.0, DO_eff = DO * ratio penalizaba dos veces y fijaba un techo artificial de 14.7e6 cel/mL a DO 30 %).
 - A DO 5 % la hipoxia es real (f_do 0.846, efecto Pasteur, muerte hipoxica) y el titulo baja 52 %. Los parametros de hipoxia son supuestos no calibrados.
+- El slider de DO del tablero cubre 5-90 %; su minimo se lee del limite de validacion de `ProcessDescription` (5-100 %).
 
-**Verificacion numerica:** RK45 (1e-6) frente a RK45 y Radau (1e-9): error maximo 1.24e-6; el Euler de v1.3.2 (dt 0.1 d) tenia 8.4e-2. Barrido de 256 esquinas de los sliders: sin NaN/Inf ni valores negativos, 5.1 ms de media y 15.8 ms de maximo.
+**Verificacion numerica:** RK45 (1e-6) frente a RK45 y Radau (1e-9): error maximo 1.24e-6; el Euler de v1.3.2 (dt 0.1 d) tenia 8.4e-2. Barrido de 256 esquinas de los sliders (DO 5-90 %): sin NaN/Inf ni valores negativos, 4.8 ms de media y 16.0 ms de maximo. Sensibilidad direccional verificada: sparge 0.25 frente a 0.10 vvm baja titulo y viabilidad, 21 frente a 14 d sube NH3 y baja viabilidad, y enfriar el dia 4 frente al dia 10 baja la VCD pico.
 
 **Escalamiento (pestana 2):** los presets son las columnas de A-Mab Tabla 3.22 y usan su kLa medido (2 L 10, 500 L 8, 1,000 L 10, 5,000 L 10, 15,000 L 20, 25,000 L Future 20 h^-1). Con aire, a VCC 15e6 cel/mL y DO 30 % el OTR es 1.47 / 1.18 / 1.47 / 1.47 / 2.94 / 2.94 mmol/L/h frente a OUR 1.50, asi que 2, 500, 1,000 y 5,000 L muestran el aviso de oxigeno del modelo, que ahora indica tambien el OTR con O2 puro. En 15,000 L la correlacion (Vs = 0.015 m/s, P/V = 26 W/m3) y el valor medido coinciden en **20.00 h^-1** (**OTR = 2.94 mmol/L/h** con DO = 30 %).
 

@@ -111,7 +111,21 @@ y sin intervención del operador (temperature-shift / hipotermia leve para produ
 **escalón** (sin rampa) en el día 7.0, y, cuando se le pasa un logger de Audit Trail, registrar el
 evento en el Audit Trail. El perfil sigue a Bionova (Ref. 2, NISTCHO, CHO-K1); ver la nota de URS-01
 sobre el Design Space de A-Mab.
-- *Categoría GAMP:* 5 — *Riesgo de proceso:* High — *Módulo:* `bioreactor_twin.py` — *OQ:* `test_oq_02_automated_day7_temperature_shift`
+
+*Efecto de la temperatura en el modelo calibrado (auditoría v1.4.0):* el ajuste sobre Bionova da
+qp(36.5 °C) = 0.01501 > qp(34.0 °C) = 0.00888 g/(1e9 cél·d). La razón es empírica: en NISTCHO
+(Bionova, Fig. 4) la producción se desacelera al final del cultivo. El título ganado por IVCD es
+0.0118 (días 0–8), 0.0108 (8–10), 0.0084 (10–12) y 0.0028 g/(1e9 cél·d) (12–14), valores
+digitalizados y sin corregir por dilución. La hipotermia de 34 °C moderó el crecimiento y el NH3 y
+sostuvo la viabilidad; no subió el qp instantáneo. Con una sola corrida y un solo día de cambio, las
+anclas de temperatura son el único término que puede absorber esa desaceleración, así que el efecto
+de la temperatura sobre qp queda confundido con la edad del cultivo y con nutrientes no modelados.
+Barrido del día de cambio con el protocolo Bionova (sección 11 del documento 03): adelantar el
+cambio baja la VCD pico y el NH3 y sube la viabilidad (día 4: 20.09e6 cél/mL, 8.80 mM, 92.89 %; día 7:
+23.96e6, 11.68 mM, 88.22 %), pero también baja el título (1.342 frente a 1.992 g/L). Con estas anclas,
+retrasar el cambio siempre da más título (día 14: 3.457 g/L); eso es una extrapolación que ninguna
+corrida de Bionova probó, y el gemelo no debe usarse para elegir el día de cambio.
+- *Categoría GAMP:* 5 — *Riesgo de proceso:* High — *Módulo:* `bioreactor_twin.py` — *OQ:* `test_oq_02_automated_day7_temperature_shift`, `test_oq_03h_slider_domain_physical_stability` (sensibilidad direccional)
 
 ### 5.2 Lazo de control de pH (split-range con dead-band)
 
@@ -152,7 +166,7 @@ O2. Cuando OTR < OUR con aire, THE SYSTEM muestra un aviso del modelo: el défic
 C* = 0.210 mmol/L (solo aire) y qO2 = 0.10 pmol/cél/h, supuestos sin fuente, mientras A-Mab Tabla 3.23
 (p.106) demostró operación a 18–30e6 cél/mL en 2 L; el aviso indica además el OTR con O2 puro. El
 set-point de DO es configurable (por defecto 30 %; `ProcessDescription.do_setpoint_pct`, límites de
-validación 5–100 % desde v1.4.0) y entra en la fuerza impulsora: OTR = kLa × (C*_gas − C*_aire × DO/100),
+validación 5–100 % desde v1.4.0; el slider del tablero cubre 5–90 %) y entra en la fuerza impulsora: OTR = kLa × (C*_gas − C*_aire × DO/100),
 con C*_gas = C*_aire × y_O2 / 0.2095 (ley de Henry; `o2_mole_fraction`, por defecto aire, con lo que
 OTR = kLa × C* × (1 − DO/100) y a 30 % de DO la fuerza impulsora es 0.147 mmol/L). A mayor set-point
 de DO, menor OTR disponible.
@@ -178,18 +192,22 @@ Bionova, Ref. 2) está **por debajo de 2.0 g/L**,
 **THE SYSTEM SHALL** disparar una reposición de glucosa en bolo que lleve la glucosa exactamente al
 objetivo de **5.0 g/L** después del bolo base, sin sobrepasar ese objetivo, y no disparar la
 reposición cuando el bolo base ya alcanza el objetivo. Entre días de alimentación no se evalúa el
-disparo. La regla aplica en los modos `bionova_baseline` (protocolo exacto de Bionova: bolos fijos
-de 4.62 % de V0 más esta regla) y `closed_loop` (además, modulación de Ark de los bolos de los días 8
-y 10); el modo `static` no tiene retroalimentación de glucosa. El bolo base de Cell Boost aporta
+disparo. `mode` es binario (`static` / `closed_loop`). La regla aplica en `closed_loop` (que además
+modula los bolos de los días 8 y 10 según Ark) y en `static` solo si `glucose_feedback_in_static` es
+True; el protocolo exacto de Bionova es `mode="static"` con `glucose_feedback_in_static=True` (bolos
+fijos de 4.62 % de V0 más esta regla). Sin la bandera, `static` no tiene retroalimentación de
+glucosa. El bolo base de Cell Boost aporta
 glucosa por sí mismo (G_BOOST_CONC calibrado en 76.44 g/L), así que la glucosa post-bolo puede
 superar 5.0 g/L sin intervención del controlador (Bionova midió 8.1 g/L el día 3).
 
-*Hallazgo v1.4.0:* con la glucosa calibrada del Cell Boost, las corridas por defecto mantienen la
-glucosa pre-feed ≥ 2.0 g/L en todos los días de alimentación, así que la reposición no llega a
-dispararse con la regla 2 → 5 g/L (en los datos de Bionova la glucosa pre-feed de los días 10 y 12,
-1.2 y 1.9 g/L, queda bajo el disparo; el modelo consume menos glucosa al final del cultivo que lo
-medido). La lógica se verifica evento por evento
-con la regla por defecto y con un disparo validado más alto (6.0 → 9.0 g/L), donde sí se activa.
+*Hallazgo v1.4.0:* con la calibración vigente (escenario A: m_G fijo en 0.05), la glucosa pre-feed
+mínima en día de alimentación es 2.007 g/L (día 12), así que la reposición no se dispara con la regla
+2 → 5 g/L; en los datos de Bionova la glucosa pre-feed de los días 10 y 12 (1.2 y 1.9 g/L) queda bajo
+el disparo. En el experimento de auditoría con m_G libre (escenario B, documento 03, sección 11) el
+mínimo baja a 1.757 g/L y la regla se dispara el día 12 (no el día 10, con 2.52 g/L); B no se adoptó
+porque no cumple los criterios de adopción, y la elección queda pendiente del auditor. La lógica se
+verifica evento por evento con la regla por defecto y con un disparo validado más alto
+(6.0 → 9.0 g/L), donde sí se activa.
 - *Categoría GAMP:* 5 — *Riesgo de proceso:* High — *Módulo:* `bioreactor_twin.py` — *OQ:* `test_oq_03_closed_loop_vs_static_titer_gain`
 
 #### URS-08 — Comparación del lazo cerrado frente a la receta estática
@@ -302,7 +320,10 @@ cotas, si quedó en una cota (`AT_BOUND` / `NEAR_BOUND`) y su identificabilidad 
 singulares del Jacobiano escalado, cond(J), pares colineales |r| > 0.90, error estándar relativo), y
 **SHALL** reportar R², RMSE, NRMSE y el error del día 14 dentro de muestra (Bionova Stratyx 30 W/m³)
 y fuera de muestra (Stratyx 19 W/m³, nunca usado en la calibración), comparando con el estado pre-feed
-del gemelo (`daily_pre_feed`), que coincide con el momento del muestreo de Bionova.
+del gemelo (`daily_pre_feed`), que coincide con el momento del muestreo de Bionova. Un cambio del
+conjunto de parámetros libres guiado por identificabilidad solo se adopta si mejora cond(J),
+mantiene o mejora R² y RMSE dentro y fuera de muestra y no deja parámetros en cota
+(`compare_k_i_l_m_g_swap`).
 
 *Criterio de credibilidad (fijado para este contexto de uso):* RMSE ≤ 2 × la incertidumbre declarada
 de cada variable dentro de muestra y para la serie de VCD fuera de muestra, y cada punto de 19 W/m³
@@ -322,7 +343,7 @@ validación del modelo biológico es esta URS.
 | NFR-03 | El subsistema de procesamiento de señales debe respetar el criterio de Nyquist en el muestreo (ver `test_oq_07`). |
 | NFR-04 | El sistema debe degradarse de forma segura: ante una entrada inválida lanza un error validado en lugar de producir silenciosamente una salida incorrecta. |
 | NFR-05 | Las alarmas e interlocks que se registran en el Audit Trail (cuando se pasa un logger) llevan marca de tiempo ISO-8601 en UTC. Sin logger, THE SYSTEM solo devuelve los indicadores y no registra nada. |
-| NFR-06 | Estabilidad numérica en todo el dominio de los sliders del tablero (P/V 2–100 W/m³, sparge 0–1 vvm, día de cambio térmico 1–14 d, DO 10–90 %, volumen 0.25–35,000 L, duración 5–21 d, con y sin enriquecimiento de O2): sin NaN ni Inf, concentraciones ≥ 0, viabilidad en [0, 100] % y V(t) ≤ volumen del recipiente (`test_oq_03h`). Integración RK45 (rtol 1e-6, atol 1e-9) con cambio automático a Radau, con error frente a la referencia rtol 1e-9 < 1e-4 (`test_oq_03f`). |
+| NFR-06 | Estabilidad numérica en todo el dominio de los sliders del tablero (P/V 2–100 W/m³, sparge 0–1 vvm, día de cambio térmico 1–14 d, DO 5–90 %, volumen 0.25–35,000 L, duración 5–21 d, con y sin enriquecimiento de O2): sin NaN ni Inf, concentraciones ≥ 0, viabilidad en [0, 100] % y V(t) ≤ volumen del recipiente, y sensibilidad direccional coherente con las ecuaciones (sparge, duración y día de cambio térmico) (`test_oq_03h`). Integración RK45 (rtol 1e-6, atol 1e-9) con cambio automático a Radau, con error frente a la referencia rtol 1e-9 < 1e-4 (`test_oq_03f`). |
 | NFR-07 | Desempeño interactivo: una corrida de 14 d del gemelo tarda en promedio < 80 ms y ninguna esquina del dominio de los sliders tarda ≥ 0.25 s (`test_oq_03h`). |
 
 ## 7. Trazabilidad
@@ -348,6 +369,6 @@ Historial de versiones del documento. Las versiones son las del software (`src/_
 | 1.3.0 | 2026-11-11 | 664efca: traducción al español. 6d8c509: URS-09 con compuerta OR; URS-06 con fuerza impulsora del DO configurable. |
 | 1.3.1 | 2026-11-11 | fd01ad7: URS-06 describe el acople del DO con la cinética del gemelo. |
 | 1.3.2 | 2026-11-14 | b0fa17d y 99116f9 (Bloques 1 y 2): textos alineados con el código y la evidencia bibliográfica; versión del documento alineada con el software; historial añadido. cb5a484 (Bloque 3): sin cambios en este documento. 9c9ab7d (Bloque 4): URS-06 con el kLa medido por escala de A-Mab Tabla 3.22 y el proxy de 2 L por debajo de 2 L. |
-| 1.4.0 | 2026-11-20 | Modelo mecanístico calibrado de 6 estados (rama `feat/v1.4.0-mechanistic-validation`, Draft PR). URS-06: DO real, enriquecimiento con O2 y saturación del controlador sin hipoxia falsa; límite inferior de DO 5 %. URS-07: modo `bionova_baseline` y hallazgo de que la regla 2 → 5 g/L no se dispara con la glucosa calibrada. URS-08 revisado bajo control de cambios (ventaja en masa y viabilidad; g/L reportado). URS-09: desacople alarma–cinética. URS-15: estabilidad I-MR y TOST + Levene. Nuevos URS-16 (credibilidad ASME V&V 40), NFR-06 y NFR-07. |
+| 1.4.0 | 2026-11-20 | Modelo mecanístico calibrado de 6 estados (rama `feat/v1.4.0-mechanistic-validation`, Draft PR). URS-06: DO real, enriquecimiento con O2 y saturación del controlador sin hipoxia falsa; límite inferior de DO 5 %. URS-07: protocolo Bionova y hallazgo de que la regla 2 → 5 g/L no se dispara con la glucosa calibrada. URS-08 revisado bajo control de cambios (ventaja en masa y viabilidad; g/L reportado). URS-09: desacople alarma–cinética. URS-15: estabilidad I-MR y TOST + Levene. Nuevos URS-16 (credibilidad ASME V&V 40), NFR-06 y NFR-07. Ajustes de auditoría (PR #5): `mode` vuelve a ser binario con `glucose_feedback_in_static` (URS-07); URS-02 con la razón empírica de qp(36.5) > qp(34.0) y el barrido del día de cambio; experimento K_I,L fijo → m_G libre documentado y no adoptado (URS-07, URS-16); DO 5–90 % en el tablero (URS-06, NFR-06). |
 
 *Fin del documento URS-BRX-001.*

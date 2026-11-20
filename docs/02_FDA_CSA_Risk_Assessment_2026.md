@@ -231,7 +231,7 @@ separa dos actividades que este paquete mantiene separadas:
 
 | Elemento | Definición para este gemelo |
 |----------|-----------------------------|
-| Pregunta de interés | ¿Qué estrategia de alimentación (static, bionova_baseline, closed_loop) y qué set-points conviene probar primero en el laboratorio? |
+| Pregunta de interés | ¿Qué estrategia de alimentación (static, static con regla de glucosa como en Bionova, closed_loop) y qué set-points conviene probar primero en el laboratorio? |
 | Contexto de uso | Cribado en desarrollo de proceso con NISTCHO (CHO-K1) en fed-batch de 14 d; los resultados se confirman siempre con un experimento. No se usa para liberar lotes ni para fijar especificaciones. |
 | Influencia del modelo | Baja: la decisión final se toma con datos experimentales. |
 | Consecuencia de una decisión errónea | Media: un mal cribado cuesta corridas de laboratorio; no llega al paciente. |
@@ -244,9 +244,11 @@ separa dos actividades que este paquete mantiene separadas:
 |--------------------|-----------|--------|
 | Verificación del código | Balance de masa exacto de Xv, Xd, G, L, NH3 y título en cada bolo; regla de glucosa evento por evento; balance de O2 cuasi estacionario; desacople alarma–cinética. | `test_oq_03b`, `test_oq_03`, `test_oq_06b`, `test_oq_04b` |
 | Verificación del cálculo | RK45 (rtol 1e-6) frente a RK45 y Radau con rtol 1e-9: error máximo 1.24e-6 relativo a la magnitud de cada serie; RK45 1e-9 frente a Radau 1e-9: 8.4e-9; el cambio automático a Radau reproduce RK45; el Euler de v1.3.2 (dt 0.1 d) tiene error 8.4e-2 (lactato). | `test_oq_03f` |
-| Robustez en el dominio de uso | 256 esquinas del dominio de los sliders: sin NaN ni Inf, concentraciones ≥ 0, viabilidad en [0, 100] %, V(t) ≤ recipiente; 5.1 ms de media y 15.8 ms de máximo por corrida. | `test_oq_03h` |
+| Robustez en el dominio de uso | 256 esquinas del dominio de los sliders (DO 5–90 %): sin NaN ni Inf, concentraciones ≥ 0, viabilidad en [0, 100] %, V(t) ≤ recipiente; 4.8 ms de media y 16.0 ms de máximo por corrida. | `test_oq_03h` |
 | Validación: comparador | Bionova Stratyx 30 W/m³ (calibración, 60 puntos pre-feed) y 19 W/m³ (fuera de muestra). | `test_oq_03g` |
 | Validación: calibración e identificabilidad | 10 parámetros libres por `least_squares` (TRF); las constantes del código reproducen una calibración nueva desde el prior documentado; K_I_L no identificable. | `test_oq_03g` |
+| Validación: cambio guiado por identificabilidad | Experimento controlado `compare_k_i_l_m_g_swap` (K_I,L fijo en 10 g/L, m_G libre en [0.03, 0.25]): cond(J) 398.8 → 45.2 y sin pares colineales, pero μmax(34) queda AT_BOUND (0.35) y empeoran el lactato dentro de muestra y el lactato y el título del día 14 fuera de muestra. No cumple la regla de adopción; se mantiene la calibración vigente y la decisión queda al auditor (documento 03, sección 11). | `test_oq_03g` |
+| Sensibilidad direccional | sparge 0.25 frente a 0.10 vvm baja título y viabilidad; 21 frente a 14 d sube NH3 y baja viabilidad; cambio térmico en el día 4 frente al día 10 baja la VCD pico. | `test_oq_03h` |
 | Aplicabilidad | El comparador cubre NISTCHO, 0.25 L Stratyx, 14 d, DO 30 %, P/V 19–30 W/m³. Escalas, duraciones y set-points fuera de ese rango son extrapolación del modelo. | — |
 
 ### 9.3 Resultado frente a la meta de credibilidad
@@ -264,6 +266,14 @@ glucosa 1.36, lactato 1.04, NH3 1.22, título 1.17). Fuera de muestra (19 W/m³)
   el consumo tardío de glucosa también, por lo que la regla 2 → 5 g/L no se dispara en el modelo.
 - Los parámetros de hipoxia, cizalla por burbujeo, inanición, lisis, rendimientos fijos y K_I_NH3 son
   supuestos no calibrados (no hay datos en la bibliografía del proyecto que los activen).
+- qp(36.5 °C) > qp(34.0 °C) refleja la desaceleración tardía de la producción en NISTCHO (título por
+  IVCD de 0.0118 a 0.0028 g/(1e9 cél·d) entre los días 0–8 y 12–14). Con un solo día de cambio, el
+  efecto de la temperatura queda confundido con la edad del cultivo; el modelo predice más título
+  cuanto más tarde se enfría, una extrapolación no probada. El gemelo no debe usarse para elegir el
+  día de cambio.
+- μmax(34 °C) depende del punto digitalizado de VCD del día 7 (17.8e6): la subida a 23.5e6 el día 8
+  implica crecer más rápido a 34 °C que a 36.5 °C. Sin ese punto, μmax(34) queda en el interior en
+  ambos escenarios (0.296 y 0.308 1/d); con él, el escenario con K_I,L = 10 lo lleva a la cota 0.35.
 - Sin aminoácidos ni otros nutrientes, los bolos extra de Ark solo diluyen y aportan glucosa no
   limitante; el modelo no reproduce el +43 % de Ark.
 
@@ -278,6 +288,6 @@ Historial de versiones del documento. Las versiones son las del software (`src/_
 | 1.3.0 | 2026-11-11 | 664efca: traducción al español. 6d8c509: compuerta OR de cizalla y pruebas nuevas. |
 | 1.3.1 | 2026-11-11 | fd01ad7: lista de pruebas OQ actualizada (20 pruebas). |
 | 1.3.2 | 2026-11-14 | b0fa17d y 99116f9 (Bloques 1 y 2): textos alineados con el código y la evidencia bibliográfica; versión del documento alineada con el software; historial añadido. cb5a484 (Bloque 3): casos negativos y de frontera de `test_oq_04` (ya no pendientes). 9c9ab7d (Bloque 4): 21 CFR Part 820 de QSR a QMSR. |
-| 1.4.0 | 2026-11-20 | Fila 6b (gemelo calibrado y su validación) y SPC con estabilidad I-MR y TOST + Levene. Nueva sección 9: credibilidad del modelo según ASME V&V 40 (por analogía) junto a FDA CSA, con contexto de uso, riesgo del modelo, verificación, validación y limitaciones. Lista de pruebas: 24 (21 scripted, 3 exploratorias). |
+| 1.4.0 | 2026-11-20 | Fila 6b (gemelo calibrado y su validación) y SPC con estabilidad I-MR y TOST + Levene. Nueva sección 9: credibilidad del modelo según ASME V&V 40 (por analogía) junto a FDA CSA, con contexto de uso, riesgo del modelo, verificación, validación y limitaciones. Lista de pruebas: 24 (21 scripted, 3 exploratorias). Ajustes de auditoría (PR #5): experimento K_I,L → m_G y sensibilidad direccional en la sección 9.2; confusión temperatura–edad del cultivo y dependencia de μmax(34) del punto de VCD del día 7 en la sección 9.4. |
 
 *Fin del documento CSA-RA-2026-001.*

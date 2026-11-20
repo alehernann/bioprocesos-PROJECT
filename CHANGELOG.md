@@ -30,7 +30,8 @@ sliders, con el marco ASME V&V 40 / FDA CSA. `evaluate_amab_design_space`, el pa
 - `src/model_validation.py`: `load_bionova_reference_dataset`, `bionova_process_description`,
   `run_parameter_calibration` (`least_squares` TRF, 10 parámetros libres, 60 puntos),
   `compute_validation_metrics` (R², RMSE, NRMSE, error del día 14), `compute_jacobian_identifiability`
-  (valores singulares, cond(J), pares |r| > 0.90, RSE) y `check_numerical_convergence`.
+  (valores singulares, cond(J), pares |r| > 0.90, RSE), `compare_k_i_l_m_g_swap` (experimento
+  controlado K_I,L fijo → m_G libre con su regla de adopción) y `check_numerical_convergence`.
 - Gemelo de 6 estados (Xv, Xd, G, L, NH3, título) más volumen, integrado por tramos entre eventos con
   `solve_ivp` RK45 (rtol 1e-6, atol 1e-9) y respaldo automático Radau; `daily_pre_feed` (estado
   exacto antes de cada bolo), series de NH3, células muertas, DO real, saturación del controlador y
@@ -43,7 +44,9 @@ sliders, con el marco ASME V&V 40 / FDA CSA. `evaluate_amab_design_space`, el pa
   `compute_scale_up_engineering`, con las claves `o2_mole_fraction` y `c_star_gas_mmol_L`.
 - `ProcessDescription`: validadores cruzados (`glucose_min_threshold_g_L < glucose_refill_target_g_L`,
   `temp_shift_day <= duration_days`), `initial_fill_fraction` (0.70 por defecto, 0.20–0.95),
-  `o2_enrichment_enabled` (True), `max_o2_mole_fraction` (1.0) y el modo `bionova_baseline`.
+  `o2_enrichment_enabled` (True), `max_o2_mole_fraction` (1.0) y `glucose_feedback_in_static`
+  (False). `mode` mantiene su contrato binario (`static` / `closed_loop`); el protocolo exacto de
+  Bionova es `mode="static"` con `glucose_feedback_in_static=True`.
 - `spc_six_sigma.py`: `n_out_of_control_points`, `in_statistical_control` y
   `capability_assumptions_met` en `compute_process_capability`; `compare_bioreactor_equivalence_tost`
   (TOST de Schuirmann con Welch, IC 90 %, Levene).
@@ -64,8 +67,24 @@ sliders, con el marco ASME V&V 40 / FDA CSA. `evaluate_amab_design_space`, el pa
 - Nota documental en `VTB_CALIBRATION_TABLE` sobre la anomalía física del rótulo "300 mL (Bulk)"
   (tau ≈ 35.2 h frente a ≈ 2.2 h de "600 mL"); valores y lógica sin cambios.
 
+### Ajustes de auditoría (Draft PR #5, antes del merge)
+- Ajuste 1: se retiró el modo `bionova_baseline`; `mode` vuelve a `Literal["static", "closed_loop"]`
+  y la regla de glucosa se arma con `mode == "closed_loop" or glucose_feedback_in_static`. La
+  calibración vigente se reproduce bit a bit (costo 34.406880773658735).
+- Ajuste 2: experimento K_I,L = 10 g/L fijo y m_G libre en [0.03, 0.25] (10 libres): cond(J) 398.8 →
+  45.2 y sin pares |r| > 0.90; m_G = 0.0610 (RSE 17.1 %); la glucosa pre-feed mínima baja a 1.757 g/L
+  y la regla repone el día 12. Pero μmax(34) queda AT_BOUND (0.35) y empeoran el lactato dentro de
+  muestra (R² 0.854 → 0.827) y el lactato y el título del día 14 fuera de muestra. No cumple la regla
+  de adopción: las constantes siguen siendo las del escenario A y la elección queda al auditor.
+- Ajuste 3: barrido del día de cambio (4, 7, 10, 14), razón empírica de qp(36.5) > qp(34.0) en
+  `bioreactor_twin.py`, URS-02 y README, sensibilidad direccional en `test_oq_03h`, slider de DO
+  desde 5 % (leído del esquema) y verificación de 6 bolos en 14 d (`test_oq_03b`).
+- Ajuste 4: docs/01, 02, 03, README, CHANGELOG y el cuerpo del PR sincronizados.
+
 ### Changed
 - `__version__` pasa a `1.4.0`; docs/01, 02, 03 y 05 a la versión 1.4.0 con su historial.
+- Cotas de m_G para el cribado y el experimento: [0.03, 0.25] g/(1e9 cél·d).
+- Tablero: el slider de DO cubre 5–90 % (antes 10–90 %).
 - Parámetros calibrados (antes supuestos): μmax(36.5) 0.832867 1/d, μmax(34.0) 0.322098 1/d,
   K_I_L 5.01088 g/L (antes 2.5), G_BOOST_CONC 76.4406 g/L (antes 12), X_max 42.6493e6 cél/mL,
   q_L,max 0.2856, q_NH3 0.058243, kd_NH3 0.0177939, qp(36.5) 0.015013, qp(34.0) 0.00888312.
@@ -100,9 +119,15 @@ sliders, con el marco ASME V&V 40 / FDA CSA. `evaluate_amab_design_space`, el pa
 ### Hallazgos reportados sin maquillar ecuaciones
 - A 14 d el lazo cerrado no supera a la receta estática en g/L (−3.37 %), por dilución; sí en masa
   (+2.29 %) y viabilidad (+0.76 puntos). A 21 d: +9.30 % en g/L y +15.70 % en masa.
-- Con la regla 2 → 5 g/L la reposición de glucosa no llega a dispararse en el modelo (la glucosa
-  pre-feed mínima en día de alimentación es 2.007 g/L); en Bionova la glucosa pre-feed de los días
-  10 y 12 (1.2 y 1.9 g/L) queda bajo el disparo.
+- Con la regla 2 → 5 g/L la reposición de glucosa no llega a dispararse con la calibración vigente
+  (la glucosa pre-feed mínima en día de alimentación es 2.007 g/L); en Bionova la glucosa pre-feed
+  de los días 10 y 12 (1.2 y 1.9 g/L) queda bajo el disparo. Con m_G libre (escenario B, no
+  adoptado) la mínima es 1.757 g/L y repone el día 12.
+- qp(36.5 °C) > qp(34.0 °C): absorbe la desaceleración tardía de la producción de NISTCHO (título por
+  IVCD de 0.0118 a 0.0028 g/(1e9 cél·d)); el efecto de la temperatura queda confundido con la edad
+  del cultivo y el barrido del día de cambio es una extrapolación (día 4: 1.342 g/L; día 14: 3.457 g/L).
+- μmax(34 °C) depende del punto digitalizado de VCD del día 7: sin él, ambos escenarios quedan con
+  todos sus parámetros en el interior.
 - K_I_L no es identificable (RSE 65.5 %, cerca de su cota inferior). μmax(36.5), K_I_L, X_max y
   q_L,max son colineales (|r| 0.94–0.98).
 - El modelo no tiene efecto de P/V entre 19 y 30 W/m³ y sobrestima la VCD tardía a 19 W/m³
