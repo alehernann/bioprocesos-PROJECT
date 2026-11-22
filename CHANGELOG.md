@@ -14,10 +14,10 @@ retoman los tags anotados. Entre 1.1.2 y 1.3.1 `__version__` no se actualizó y 
 
 ## [Unreleased]
 
-## [1.4.0] - 2026-11-20
+## [1.4.0] - 2026-11-22
 
-Candidato de release en la rama `feat/v1.4.0-mechanistic-validation` (Draft PR hacia `main`). El tag
-`v1.4.0` se crea solo después de la auditoría externa. Modelo mecanístico calibrado contra Bionova
+Liberada y etiquetada: tras la aprobación de la auditoría, el PR #5 se integró en `main` con el
+merge commit `91fb662`, que lleva el tag anotado `v1.4.0`. Modelo mecanístico calibrado contra Bionova
 NISTCHO (2026), validado fuera de muestra y verificado numéricamente en todo el dominio de los
 sliders, con el marco ASME V&V 40 / FDA CSA. `evaluate_amab_design_space`, el payload SHA-256 de
 `audit_trail_part11.py` y las ecuaciones de `thermal_vtb_mkt.py` no cambian.
@@ -368,8 +368,8 @@ constancia de lo que no describen bien:
   calibrados contra datos experimentales. `Y_LG_GROWTH` = 0.18 se eligió para que el pico de
   lactato quedara en una banda objetivo, no por ajuste a mediciones.
 
-[Unreleased]: https://github.com/alehernann/bioprocesos-PROJECT/compare/v1.3.2...main
-[1.4.0]: https://github.com/alehernann/bioprocesos-PROJECT/compare/v1.3.2...feat/v1.4.0-mechanistic-validation
+[Unreleased]: https://github.com/alehernann/bioprocesos-PROJECT/compare/v1.4.0...main
+[1.4.0]: https://github.com/alehernann/bioprocesos-PROJECT/compare/v1.3.2...v1.4.0
 [1.3.2]: https://github.com/alehernann/bioprocesos-PROJECT/releases/tag/v1.3.2
 [1.3.1]: https://github.com/alehernann/bioprocesos-PROJECT/commit/14cdd5984aab64df489fc8a920b0e71bb5bf7661
 [1.3.0]: https://github.com/alehernann/bioprocesos-PROJECT/commit/6d8c509bb10fab29cdde5543e3fa96853a08e2e6
