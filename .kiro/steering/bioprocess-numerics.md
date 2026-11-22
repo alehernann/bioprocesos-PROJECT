@@ -41,7 +41,8 @@ Una recalibración o un cambio del conjunto de parámetros libres solo se propon
 ## Pruebas de propiedades (tests_pbt/)
 
 - Hypothesis con `@settings(max_examples=60, deadline=None, derandomize=True)`; la suite completa
-  corre en < 20 s y no escribe archivos (`derandomize` desactiva la base de ejemplos).
+  corre en < 20 s. `derandomize` desactiva la base de ejemplos fallidos; Hypothesis solo deja
+  cachés en `.hypothesis/` (ignorado por git).
 - Cada propiedad prueba un invariante físico o regulatorio real, trazado a URS/NFR, y debe matar al
   menos un mutante en memoria (`python scripts/mutation_check_pbt.py`).
 - Las tolerancias se fijan antes de correr y se justifican (redondeo de la salida, cota de error de

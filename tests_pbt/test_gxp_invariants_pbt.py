@@ -3,7 +3,8 @@
 Kept OUTSIDE tests/ on purpose, like tests_app/: tests/conftest.py writes the FDA CSA OQ log
 (docs/04) for the qualified OQ tests in tests/, and this suite must not change that record.
 Every property runs with ``@settings(max_examples=60, deadline=None, derandomize=True)``:
-the examples are deterministic in CI and no example database (.hypothesis/) is written.
+the examples are deterministic in CI and no failing example is saved to an example database.
+Hypothesis still caches Unicode tables and literal constants in .hypothesis/ (git-ignored).
 
 Seven properties, each traced to the EARS requirements of docs/01 and to the NFRs. Each one
 kills at least one in-memory mutant of the code under test (scripts/mutation_check_pbt.py).

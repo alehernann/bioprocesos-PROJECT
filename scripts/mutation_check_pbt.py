@@ -4,8 +4,8 @@ Each mutant runs in a fresh Python process that imports the target module, rewri
 function's source in memory (``inspect.getsource``, exact-once text replacement, ``exec`` in
 the module namespace) and runs the targeted property with pytest. A mutant is KILLED when the
 property fails with an AssertionError and a Hypothesis falsifying example. The baseline run
-of the whole suite on the unmutated code must pass first. No file is written: the SHA-256 of
-every file under src/ is compared before and after the run.
+of the whole suite on the unmutated code must pass first. Nothing under src/ is written: the
+SHA-256 of every file under src/ is compared before and after the run.
 
 Every property must kill at least one mutant; M1-M3 are the three faults of the task
 specification (pH exclusivity, Part 11 payload field, vessel capacity clamp).
