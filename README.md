@@ -94,7 +94,7 @@ flowchart TD
 
 Nota: docs/04_Automated_OQ_Execution_Log.md se mantiene en inglés porque se regenera automáticamente en cada ejecución de pytest tests/.
 
-Version del software: **1.4.0** (`src/__init__.py`), candidato en revision en un Draft PR; el tag `v1.4.0` se crea despues de la auditoria externa. El historial de cambios esta en [`CHANGELOG.md`](CHANGELOG.md).
+Version del software: **1.4.0** (`src/__init__.py`), liberada en `main`: el tag anotado `v1.4.0` apunta al merge commit `91fb662` (PR #5). El historial de cambios esta en [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Instalacion
 
