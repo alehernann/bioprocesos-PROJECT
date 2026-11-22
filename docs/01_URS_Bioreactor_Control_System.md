@@ -112,19 +112,26 @@ y sin intervención del operador (temperature-shift / hipotermia leve para produ
 evento en el Audit Trail. El perfil sigue a Bionova (Ref. 2, NISTCHO, CHO-K1); ver la nota de URS-01
 sobre el Design Space de A-Mab.
 
-*Efecto de la temperatura en el modelo calibrado (auditoría v1.4.0):* el ajuste sobre Bionova da
-qp(36.5 °C) = 0.01501 > qp(34.0 °C) = 0.00888 g/(1e9 cél·d). La razón es empírica: en NISTCHO
-(Bionova, Fig. 4) la producción se desacelera al final del cultivo. El título ganado por IVCD es
-0.0118 (días 0–8), 0.0108 (8–10), 0.0084 (10–12) y 0.0028 g/(1e9 cél·d) (12–14), valores
-digitalizados y sin corregir por dilución. La hipotermia de 34 °C moderó el crecimiento y el NH3 y
-sostuvo la viabilidad; no subió el qp instantáneo. Con una sola corrida y un solo día de cambio, las
-anclas de temperatura son el único término que puede absorber esa desaceleración, así que el efecto
-de la temperatura sobre qp queda confundido con la edad del cultivo y con nutrientes no modelados.
-Barrido del día de cambio con el protocolo Bionova (sección 11 del documento 03): adelantar el
-cambio baja la VCD pico y el NH3 y sube la viabilidad (día 4: 20.09e6 cél/mL, 8.80 mM, 92.89 %; día 7:
-23.96e6, 11.68 mM, 88.22 %), pero también baja el título (1.342 frente a 1.992 g/L). Con estas anclas,
-retrasar el cambio siempre da más título (día 14: 3.457 g/L); eso es una extrapolación que ninguna
-corrida de Bionova probó, y el gemelo no debe usarse para elegir el día de cambio.
+*Efecto de la temperatura en el modelo calibrado (auditoría v1.4.0, limitación documentada):* la
+calibración adoptada (B9_base) fija μmax(34.0 °C) en 0.35 1/d (documento 02, sección 9) y da
+qp(36.5 °C) = 0.01486 > qp(34.0 °C) = 0.00900 g/(1e9 cél·d). Esa diferencia es una confusión causal
+entre temperatura y edad del cultivo. En NISTCHO (Bionova, Fig. 4) el título ganado por IVCD es
+0.0118 g/(1e9 cél·d) en los días 0–8 y todavía 0.0108 en los días 8–10, ya a 34 °C; cae a 0.0084
+(días 10–12) y 0.0028 (días 12–14) cuando el NH3 llega a 10.2–10.5 mM (valores digitalizados, sin
+corregir por dilución). La desaceleración sigue a la edad del cultivo y al NH3, no al escalón de
+34 °C. Con una sola corrida y un solo día de cambio, las dos anclas de temperatura de qp son el único
+término que puede absorberla, y el ajuste le atribuye a los 34 °C la senescencia tardía.
+
+Barrido del día de cambio con el protocolo Bionova (documento 03, sección 11.2): adelantar el cambio
+baja la VCD pico y el NH3 y sube la viabilidad (día 4: 20.37e6 cél/mL, 9.14 mM, 92.66 %; día 7:
+23.70e6, 11.66 mM, 88.75 %), pero también baja el título (1.405 frente a 1.997 g/L), y sin cambio el
+título llega a 3.302 g/L, +65.3 % sobre el día 7. Es un artefacto de extrapolación, no una
+predicción: invierte A-Mab Tabla 3.12 (p. 73), donde la temperatura más baja dio mayor productividad
+específica, un cultivo más largo y mayor título. La variante causal B9_causal (qp sin efecto de la
+temperatura e inhibido por NH3) reduce esa diferencia a +4.8 %, pero no se adoptó porque su cond(J)
+es 72.7 (> 60). El gemelo no debe usarse para elegir el día de cambio. Trabajo futuro (v1.5.0): un
+retardo τ_T de la respuesta del ciclo celular a la temperatura, con corridas con cambio temprano
+(días 3–4) y pulsos de lactato de 2–6 g/L.
 - *Categoría GAMP:* 5 — *Riesgo de proceso:* High — *Módulo:* `bioreactor_twin.py` — *OQ:* `test_oq_02_automated_day7_temperature_shift`, `test_oq_03h_slider_domain_physical_stability` (sensibilidad direccional)
 
 ### 5.2 Lazo de control de pH (split-range con dead-band)
@@ -197,17 +204,17 @@ modula los bolos de los días 8 y 10 según Ark) y en `static` solo si `glucose_
 True; el protocolo exacto de Bionova es `mode="static"` con `glucose_feedback_in_static=True` (bolos
 fijos de 4.62 % de V0 más esta regla). Sin la bandera, `static` no tiene retroalimentación de
 glucosa. El bolo base de Cell Boost aporta
-glucosa por sí mismo (G_BOOST_CONC calibrado en 76.44 g/L), así que la glucosa post-bolo puede
+glucosa por sí mismo (G_BOOST_CONC calibrado en 82.22 g/L), así que la glucosa post-bolo puede
 superar 5.0 g/L sin intervención del controlador (Bionova midió 8.1 g/L el día 3).
 
-*Hallazgo v1.4.0:* con la calibración vigente (escenario A: m_G fijo en 0.05), la glucosa pre-feed
-mínima en día de alimentación es 2.007 g/L (día 12), así que la reposición no se dispara con la regla
-2 → 5 g/L; en los datos de Bionova la glucosa pre-feed de los días 10 y 12 (1.2 y 1.9 g/L) queda bajo
-el disparo. En el experimento de auditoría con m_G libre (escenario B, documento 03, sección 11) el
-mínimo baja a 1.757 g/L y la regla se dispara el día 12 (no el día 10, con 2.52 g/L); B no se adoptó
-porque no cumple los criterios de adopción, y la elección queda pendiente del auditor. La lógica se
-verifica evento por evento con la regla por defecto y con un disparo validado más alto
-(6.0 → 9.0 g/L), donde sí se activa.
+*Hallazgo v1.4.0:* con la calibración adoptada (B9_base, m_G calibrado en 0.0610), la glucosa
+pre-feed del protocolo Bionova baja a 1.757 g/L el día 12 y la regla 2 → 5 g/L se dispara sola ese
+día (0.16 mL de stock de 500 g/L); el día 10 queda en 2.52 g/L y no repone. En los datos de Bionova
+la glucosa pre-feed de los días 10 y 12 (1.2 y 1.9 g/L) queda bajo el disparo, así que el modelo
+subestima el consumo del día 10. En `closed_loop` por defecto la regla no se dispara: los bolos de
+Ark de los días 8 y 10 mantienen la glucosa pre-feed en 3.41 g/L o más. La lógica se verifica evento
+por evento con la regla por defecto (disparo natural del día 12) y con un disparo validado más alto
+(6.0 → 9.0 g/L), que también la activa en `closed_loop`.
 - *Categoría GAMP:* 5 — *Riesgo de proceso:* High — *Módulo:* `bioreactor_twin.py` — *OQ:* `test_oq_03_closed_loop_vs_static_titer_gain`
 
 #### URS-08 — Comparación del lazo cerrado frente a la receta estática
@@ -219,10 +226,10 @@ masa: mayor masa cosechada y mayor viabilidad final con el mayor volumen de alim
 diferencia de título en g/L se reporta tal cual, sin restringirla a una banda ni a un signo.
 
 *Control de cambios v1.4.0:* hasta v1.3.2 este requisito exigía un aumento del título en g/L. Con la
-cinética calibrada contra Bionova, a 14 d la glucosa no limita en ninguno de los dos modos y los bolos
-extra de Ark (×1.80 el día 8 y ×1.82 el día 10) diluyen el título: −3.37 % en g/L, +2.29 % de masa
-cosechada y +0.76 puntos de viabilidad (NH3 final 11.32 frente a 11.68 mM). A 21 d, sin alimentación
-después del día 12, la glucosa extra retrasa el agotamiento: +9.30 % en g/L, +15.70 % de masa y +5.45
+cinética calibrada contra Bionova (B9_base), a 14 d la glucosa no se agota en ningún modo y los bolos
+extra de Ark (×1.80 el día 8 y ×1.82 el día 10) diluyen el título: −3.32 % en g/L, +2.35 % de masa
+cosechada y +0.75 puntos de viabilidad (NH3 final 11.30 frente a 11.66 mM). A 21 d, sin alimentación
+después del día 12, la glucosa extra retrasa el agotamiento: +9.50 % en g/L, +15.91 % de masa y +2.98
 puntos de viabilidad. El gemelo no tiene aminoácidos ni otros nutrientes que los bolos extra
 podrían aportar, por lo que no puede reproducir el +43 % de Ark (dato de literatura).
 - *Categoría GAMP:* 5 — *Riesgo de proceso:* High — *Módulo:* `bioreactor_twin.py` — *OQ:* `test_oq_03_closed_loop_vs_static_titer_gain`
@@ -321,9 +328,16 @@ singulares del Jacobiano escalado, cond(J), pares colineales |r| > 0.90, error e
 **SHALL** reportar R², RMSE, NRMSE y el error del día 14 dentro de muestra (Bionova Stratyx 30 W/m³)
 y fuera de muestra (Stratyx 19 W/m³, nunca usado en la calibración), comparando con el estado pre-feed
 del gemelo (`daily_pre_feed`), que coincide con el momento del muestreo de Bionova. Un cambio del
-conjunto de parámetros libres guiado por identificabilidad solo se adopta si mejora cond(J),
-mantiene o mejora R² y RMSE dentro y fuera de muestra y no deja parámetros en cota
-(`compare_k_i_l_m_g_swap`).
+conjunto de parámetros libres o de la estructura cinética solo se adopta con una regla fijada antes
+de calibrar y evaluada en código (`compare_calibration_variants`): todos los parámetros libres en el
+interior (sin `AT_BOUND` ni `NEAR_BOUND`), cond(J) bajo el umbral fijado y ningún par con |r| > 0.90,
+y RMSE ≤ 2 × la incertidumbre declarada dentro y fuera de muestra. Un parámetro que el dataset no
+identifica se fija en un valor de literatura, con su rango y el motivo documentados.
+
+*Control de cambios (auditoría del Draft PR #5):* el criterio anterior exigía mantener cada R² y RMSE
+dentro de una tolerancia del 1 %; se reemplazó por el criterio basado en la incertidumbre de medición
+y la identificabilidad. Con él se adoptó B9_base: K_I,L = 10 g/L y μmax(34.0) = 0.35 1/d fijos y 9
+parámetros libres (documento 03, sección 11.1).
 
 *Criterio de credibilidad (fijado para este contexto de uso):* RMSE ≤ 2 × la incertidumbre declarada
 de cada variable dentro de muestra y para la serie de VCD fuera de muestra, y cada punto de 19 W/m³
@@ -369,6 +383,6 @@ Historial de versiones del documento. Las versiones son las del software (`src/_
 | 1.3.0 | 2026-11-11 | 664efca: traducción al español. 6d8c509: URS-09 con compuerta OR; URS-06 con fuerza impulsora del DO configurable. |
 | 1.3.1 | 2026-11-11 | fd01ad7: URS-06 describe el acople del DO con la cinética del gemelo. |
 | 1.3.2 | 2026-11-14 | b0fa17d y 99116f9 (Bloques 1 y 2): textos alineados con el código y la evidencia bibliográfica; versión del documento alineada con el software; historial añadido. cb5a484 (Bloque 3): sin cambios en este documento. 9c9ab7d (Bloque 4): URS-06 con el kLa medido por escala de A-Mab Tabla 3.22 y el proxy de 2 L por debajo de 2 L. |
-| 1.4.0 | 2026-11-20 | Modelo mecanístico calibrado de 6 estados (rama `feat/v1.4.0-mechanistic-validation`, Draft PR). URS-06: DO real, enriquecimiento con O2 y saturación del controlador sin hipoxia falsa; límite inferior de DO 5 %. URS-07: protocolo Bionova y hallazgo de que la regla 2 → 5 g/L no se dispara con la glucosa calibrada. URS-08 revisado bajo control de cambios (ventaja en masa y viabilidad; g/L reportado). URS-09: desacople alarma–cinética. URS-15: estabilidad I-MR y TOST + Levene. Nuevos URS-16 (credibilidad ASME V&V 40), NFR-06 y NFR-07. Ajustes de auditoría (PR #5): `mode` vuelve a ser binario con `glucose_feedback_in_static` (URS-07); URS-02 con la razón empírica de qp(36.5) > qp(34.0) y el barrido del día de cambio; experimento K_I,L fijo → m_G libre documentado y no adoptado (URS-07, URS-16); DO 5–90 % en el tablero (URS-06, NFR-06). |
+| 1.4.0 | 2026-11-20 | Modelo mecanístico calibrado de 6 estados (rama `feat/v1.4.0-mechanistic-validation`, Draft PR). URS-06: DO real, enriquecimiento con O2 y saturación del controlador sin hipoxia falsa; límite inferior de DO 5 %. URS-07: protocolo Bionova y regla de glucosa. URS-08 revisado bajo control de cambios (ventaja en masa y viabilidad; g/L reportado). URS-09: desacople alarma–cinética. URS-15: estabilidad I-MR y TOST + Levene. Nuevos URS-16 (credibilidad ASME V&V 40), NFR-06 y NFR-07. Ajustes de auditoría (PR #5): `mode` vuelve a ser binario con `glucose_feedback_in_static` (URS-07); DO 5–90 % en el tablero (URS-06, NFR-06); calibración B9_base adoptada (K_I,L = 10 g/L y μmax(34.0) = 0.35 1/d fijos, 9 libres), con la que la regla 2 → 5 g/L se dispara sola el día 12 en el protocolo Bionova (URS-07) y con valores nuevos de URS-08; URS-02 con la confusión causal temperatura–edad de qp(T), el barrido del día de cambio y el trabajo futuro de v1.5.0; URS-16 con la regla de adopción basada en incertidumbre de medición e identificabilidad. |
 
 *Fin del documento URS-BRX-001.*

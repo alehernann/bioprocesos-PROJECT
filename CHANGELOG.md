@@ -28,10 +28,15 @@ sliders, con el marco ASME V&V 40 / FDA CSA. `evaluate_amab_design_space`, el pa
   incertidumbre declarada) para Stratyx 30 W/m³ (calibración) y 19 W/m³ (validación fuera de
   muestra), y muestreo `pre_feed_daily`.
 - `src/model_validation.py`: `load_bionova_reference_dataset`, `bionova_process_description`,
-  `run_parameter_calibration` (`least_squares` TRF, 10 parámetros libres, 60 puntos),
-  `compute_validation_metrics` (R², RMSE, NRMSE, error del día 14), `compute_jacobian_identifiability`
-  (valores singulares, cond(J), pares |r| > 0.90, RSE), `compare_k_i_l_m_g_swap` (experimento
-  controlado K_I,L fijo → m_G libre con su regla de adopción) y `check_numerical_convergence`.
+  `run_parameter_calibration` (`least_squares` TRF, 9 parámetros libres de la variante B9_base, 60
+  puntos), `compute_validation_metrics` (R², RMSE, NRMSE, error del día 14),
+  `compute_jacobian_identifiability` (valores singulares, cond(J), pares |r| > 0.90, RSE),
+  `compare_calibration_variants` (A, B9_base y B9_causal con la regla de adopción de la auditoría),
+  `run_multistart_calibration`, `profile_mu_max_34_0`, `shift_day_sweep` y
+  `check_numerical_convergence`.
+- Término de inhibición de qp por NH3, qp / (1 + k_p_NH3 · max(0, NH3 − 5)²), con k_p_NH3 = 0 en la
+  calibración adoptada; el nombre de calibración `qp_0` fija las dos anclas de temperatura de qp a un
+  mismo valor (`TIED_PARAMETERS`). Los dos solo se usan en la variante B9_causal.
 - Gemelo de 6 estados (Xv, Xd, G, L, NH3, título) más volumen, integrado por tramos entre eventos con
   `solve_ivp` RK45 (rtol 1e-6, atol 1e-9) y respaldo automático Radau; `daily_pre_feed` (estado
   exacto antes de cada bolo), series de NH3, células muertas, DO real, saturación del controlador y
@@ -70,27 +75,40 @@ sliders, con el marco ASME V&V 40 / FDA CSA. `evaluate_amab_design_space`, el pa
 ### Ajustes de auditoría (Draft PR #5, antes del merge)
 - Ajuste 1: se retiró el modo `bionova_baseline`; `mode` vuelve a `Literal["static", "closed_loop"]`
   y la regla de glucosa se arma con `mode == "closed_loop" or glucose_feedback_in_static`. La
-  calibración vigente se reproduce bit a bit (costo 34.406880773658735).
-- Ajuste 2: experimento K_I,L = 10 g/L fijo y m_G libre en [0.03, 0.25] (10 libres): cond(J) 398.8 →
-  45.2 y sin pares |r| > 0.90; m_G = 0.0610 (RSE 17.1 %); la glucosa pre-feed mínima baja a 1.757 g/L
-  y la regla repone el día 12. Pero μmax(34) queda AT_BOUND (0.35) y empeoran el lactato dentro de
-  muestra (R² 0.854 → 0.827) y el lactato y el título del día 14 fuera de muestra. No cumple la regla
-  de adopción: las constantes siguen siendo las del escenario A y la elección queda al auditor.
-- Ajuste 3: barrido del día de cambio (4, 7, 10, 14), razón empírica de qp(36.5) > qp(34.0) en
+  calibración de entonces (A) se reprodujo bit a bit (costo 34.406880773658735).
+- Ajuste 2: experimento K_I,L = 10 g/L fijo y m_G libre en [0.03, 0.25] (escenario B, 10 libres):
+  cond(J) 398.8 → 45.2 y sin pares |r| > 0.90, pero μmax(34) quedó AT_BOUND (0.35) y la regla de
+  entonces (cada R² y RMSE dentro de un 1 %) falló en tres métricas. No se adoptó.
+- Ajuste 3: barrido del día de cambio (4, 7, 10, 14), explicación de qp(36.5) > qp(34.0) en
   `bioreactor_twin.py`, URS-02 y README, sensibilidad direccional en `test_oq_03h`, slider de DO
   desde 5 % (leído del esquema) y verificación de 6 bolos en 14 d (`test_oq_03b`).
 - Ajuste 4: docs/01, 02, 03, README, CHANGELOG y el cuerpo del PR sincronizados.
+- Escenario B' (cota de μmax(34) en 0.55): μmax(34) llegó a la cota desde 14 arranques; con la cota en
+  1.50 también. No se adoptó y no se cambió código.
+- Cierre técnico (decisión de la auditoría): el punto de VCD del día 7 se confirmó contra la Figura 1
+  original de Bionova y no se modificó. El perfil de verosimilitud de μmax(34.0) es plano por encima
+  de 0.35 (SSR(0.35) − mínimo = 2.94 < χ²(1, 0.95) = 3.84), así que K_I,L se fija en 10.0 g/L y
+  μmax(34.0) en 0.35 1/d, con 9 parámetros libres. Entre B9_base (qp(T)) y B9_causal (qp sin efecto
+  de la temperatura e inhibido por NH3), B9_causal ajusta mejor el título (RMSE 0.027 frente a
+  0.093 g/L) pero falla cond(J) < 60 (72.7; k_p_NH3 con RSE 64 %), así que la regla adopta B9_base.
+  Sus 9 parámetros quedan en el interior, cond(J) 28.5, máximo |r| 0.886, todo RMSE ≤ 2σ y la regla
+  2 → 5 g/L se dispara sola el día 12 en el protocolo Bionova. La confusión causal temperatura–edad de
+  qp(T) queda documentada en el código, URS-02, docs/02 (9.4), docs/03 (11.2), README y la leyenda
+  del día de cambio del tablero. `test_oq_03`, `03g` y `03h` y dos pruebas de `tests_app` se
+  actualizaron (docs/03, sección 10).
 
 ### Changed
 - `__version__` pasa a `1.4.0`; docs/01, 02, 03 y 05 a la versión 1.4.0 con su historial.
-- Cotas de m_G para el cribado y el experimento: [0.03, 0.25] g/(1e9 cél·d).
-- Tablero: el slider de DO cubre 5–90 % (antes 10–90 %).
-- Parámetros calibrados (antes supuestos): μmax(36.5) 0.832867 1/d, μmax(34.0) 0.322098 1/d,
-  K_I_L 5.01088 g/L (antes 2.5), G_BOOST_CONC 76.4406 g/L (antes 12), X_max 42.6493e6 cél/mL,
-  q_L,max 0.2856, q_NH3 0.058243, kd_NH3 0.0177939, qp(36.5) 0.015013, qp(34.0) 0.00888312.
+- Cotas de m_G: [0.03, 0.25] g/(1e9 cél·d).
+- Tablero: el slider de DO cubre 5–90 % (antes 10–90 %); la leyenda del día de cambio advierte que
+  fuera del día 7 el título es extrapolación.
+- Parámetros calibrados (B9_base; antes supuestos): μmax(36.5) 0.802235 1/d, G_BOOST_CONC 82.2171 g/L
+  (antes 12), X_max 38.1368e6 cél/mL, q_L,max 0.304419, q_NH3 0.0584053, kd_NH3 0.0167158,
+  qp(36.5) 0.0148635, qp(34.0) 0.00900473 y m_G 0.0610218 (antes 0.05 fijo). Fijados por la
+  auditoría: K_I_L 10.0 g/L (antes 2.5) y μmax(34.0) 0.35 1/d.
 - Lactato: producción de desborde ligada al flujo glucolítico de crecimiento y consumo reprimido por
   la fracción de crecimiento máximo; el pico pasa del día 7 (escalón térmico) al día 5 y el lactato
-  baja a 0.53 g/L el día 7, también con el cambio térmico en los días 10 o 14.
+  baja a 0.38 g/L el día 7, también con el cambio térmico en los días 10 o 14.
 - Oxígeno: se eliminó DO_eff = DO × ratio y la doble penalización por ratio. El DO real sale de
   C_L = min(C_sp, max(0, C*_max − OUR/kLa)) con enriquecimiento de O2; f_do depende solo del DO
   real (exactamente 1.0 desde 15 %, K_DO 1.5 %), con efecto Pasteur bajo 15 % y muerte hipóxica bajo
@@ -113,26 +131,29 @@ sliders, con el marco ASME V&V 40 / FDA CSA. `evaluate_amab_design_space`, el pa
 - Techo artificial de 14.7e6 cél/mL a DO 30 % por la fuerza impulsora solo con aire.
 - `P/V` de 50–60 W/m³ ya no recorta qp (v1.3.2: −24 % de título a 60 W/m³).
 - Integrador: el Euler explícito de v1.3.2 (dt 0.1 d, con recorte de positividad) se reemplazó por
-  RK45/Radau; aplicado al modelo nuevo, ese Euler tiene un error máximo de 8.4 % frente a la
-  referencia (lactato), y RK45 de 1.24e-6.
+  RK45/Radau; aplicado al modelo nuevo, ese Euler tiene un error máximo de 10.4 % frente a la
+  referencia (lactato), y RK45 de 1.94e-6.
 
 ### Hallazgos reportados sin maquillar ecuaciones
-- A 14 d el lazo cerrado no supera a la receta estática en g/L (−3.37 %), por dilución; sí en masa
-  (+2.29 %) y viabilidad (+0.76 puntos). A 21 d: +9.30 % en g/L y +15.70 % en masa.
-- Con la regla 2 → 5 g/L la reposición de glucosa no llega a dispararse con la calibración vigente
-  (la glucosa pre-feed mínima en día de alimentación es 2.007 g/L); en Bionova la glucosa pre-feed
-  de los días 10 y 12 (1.2 y 1.9 g/L) queda bajo el disparo. Con m_G libre (escenario B, no
-  adoptado) la mínima es 1.757 g/L y repone el día 12.
-- qp(36.5 °C) > qp(34.0 °C): absorbe la desaceleración tardía de la producción de NISTCHO (título por
-  IVCD de 0.0118 a 0.0028 g/(1e9 cél·d)); el efecto de la temperatura queda confundido con la edad
-  del cultivo y el barrido del día de cambio es una extrapolación (día 4: 1.342 g/L; día 14: 3.457 g/L).
-- μmax(34 °C) depende del punto digitalizado de VCD del día 7: sin él, ambos escenarios quedan con
-  todos sus parámetros en el interior.
-- K_I_L no es identificable (RSE 65.5 %, cerca de su cota inferior). μmax(36.5), K_I_L, X_max y
-  q_L,max son colineales (|r| 0.94–0.98).
+- A 14 d el lazo cerrado no supera a la receta estática en g/L (−3.32 %), por dilución; sí en masa
+  (+2.35 %) y viabilidad (+0.75 puntos). A 21 d: +9.50 % en g/L y +15.91 % en masa.
+- Con la regla 2 → 5 g/L la reposición de glucosa se dispara sola el día 12 en el protocolo Bionova
+  (glucosa pre-feed 1.757 g/L), pero no el día 10 (2.52 g/L), donde Bionova ya midió 1.2 g/L. En
+  closed_loop por defecto no se dispara: los bolos de Ark mantienen la glucosa pre-feed en 3.41 g/L o
+  más.
+- Confusión causal temperatura–edad de qp(T): qp(36.5 °C) > qp(34.0 °C) absorbe la desaceleración
+  tardía de la producción de NISTCHO (título por IVCD de 0.0118 a 0.0028 g/(1e9 cél·d)), que sigue a
+  la edad del cultivo y al NH3. En el barrido del día de cambio, no enfriar da +65.3 % de título sobre
+  el día 7, al revés que A-Mab Tabla 3.12 (p. 73); es un artefacto de extrapolación. La variante
+  B9_causal lo reduce a +4.8 %, pero no cumple cond(J) < 60. Trabajo futuro para v1.5.0: retardo τ_T
+  de la respuesta del ciclo celular, con corridas con cambio en los días 3–4 y pulsos de lactato de
+  2–6 g/L.
+- K_I_L y μmax(34.0) no son identificables con una sola corrida (libres, quedaban en sus cotas:
+  K_I_L con RSE 65.5 % y cond(J) 398.8; μmax(34.0) en toda cota superior probada); se fijaron en
+  valores de literatura.
 - El modelo no tiene efecto de P/V entre 19 y 30 W/m³ y sobrestima la VCD tardía a 19 W/m³
-  (+3.48e6 cél/mL el día 14), dentro del criterio de 2σ para la serie.
-- Lactato tardío por debajo de lo medido (0.03 frente a 0.2–0.3 g/L).
+  (+3.33e6 cél/mL el día 14), dentro del criterio de 2σ para la serie.
+- Lactato tardío por debajo de lo medido (0.02 frente a 0.2–0.3 g/L).
 - No se encontró mojibake ni BOM: todos los archivos versionados (y la historia de git) son UTF-8
   válido sin BOM. Lo que se ve como mojibake es UTF-8 correcto leído como Windows-1252 (por ejemplo,
   la «ó» se guarda como los bytes C3 B3 y un visor en Windows-1252 los muestra como dos caracteres).

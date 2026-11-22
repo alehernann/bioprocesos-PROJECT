@@ -243,39 +243,52 @@ separa dos actividades que este paquete mantiene separadas:
 | Actividad (V&V 40) | Evidencia | Prueba |
 |--------------------|-----------|--------|
 | Verificación del código | Balance de masa exacto de Xv, Xd, G, L, NH3 y título en cada bolo; regla de glucosa evento por evento; balance de O2 cuasi estacionario; desacople alarma–cinética. | `test_oq_03b`, `test_oq_03`, `test_oq_06b`, `test_oq_04b` |
-| Verificación del cálculo | RK45 (rtol 1e-6) frente a RK45 y Radau con rtol 1e-9: error máximo 1.24e-6 relativo a la magnitud de cada serie; RK45 1e-9 frente a Radau 1e-9: 8.4e-9; el cambio automático a Radau reproduce RK45; el Euler de v1.3.2 (dt 0.1 d) tiene error 8.4e-2 (lactato). | `test_oq_03f` |
-| Robustez en el dominio de uso | 256 esquinas del dominio de los sliders (DO 5–90 %): sin NaN ni Inf, concentraciones ≥ 0, viabilidad en [0, 100] %, V(t) ≤ recipiente; 4.8 ms de media y 16.0 ms de máximo por corrida. | `test_oq_03h` |
+| Verificación del cálculo | RK45 (rtol 1e-6) frente a RK45 y Radau con rtol 1e-9: error máximo 1.94e-6 relativo a la magnitud de cada serie; RK45 1e-9 frente a Radau 1e-9: 1.47e-8; el cambio automático a Radau reproduce RK45; el Euler de v1.3.2 (dt 0.1 d) tiene error 1.04e-1 (lactato). | `test_oq_03f` |
+| Robustez en el dominio de uso | 256 esquinas del dominio de los sliders (DO 5–90 %): sin NaN ni Inf, concentraciones ≥ 0, viabilidad en [0, 100] %, V(t) ≤ recipiente; 4.4 ms de media y 13.8 ms de máximo por corrida. | `test_oq_03h` |
 | Validación: comparador | Bionova Stratyx 30 W/m³ (calibración, 60 puntos pre-feed) y 19 W/m³ (fuera de muestra). | `test_oq_03g` |
-| Validación: calibración e identificabilidad | 10 parámetros libres por `least_squares` (TRF); las constantes del código reproducen una calibración nueva desde el prior documentado; K_I_L no identificable. | `test_oq_03g` |
-| Validación: cambio guiado por identificabilidad | Experimento controlado `compare_k_i_l_m_g_swap` (K_I,L fijo en 10 g/L, m_G libre en [0.03, 0.25]): cond(J) 398.8 → 45.2 y sin pares colineales, pero μmax(34) queda AT_BOUND (0.35) y empeoran el lactato dentro de muestra y el lactato y el título del día 14 fuera de muestra. No cumple la regla de adopción; se mantiene la calibración vigente y la decisión queda al auditor (documento 03, sección 11). | `test_oq_03g` |
-| Sensibilidad direccional | sparge 0.25 frente a 0.10 vvm baja título y viabilidad; 21 frente a 14 d sube NH3 y baja viabilidad; cambio térmico en el día 4 frente al día 10 baja la VCD pico. | `test_oq_03h` |
+| Validación: calibración e identificabilidad | 9 parámetros libres por `least_squares` (TRF), todos en el interior e identificables (RSE de 3.0 a 23.9 %); cond(J) 28.5 y ningún par con \|r\| > 0.90 (máximo 0.886). El prior documentado y 8 arranques aleatorios llegan al mismo óptimo, y las constantes del código reproducen una calibración nueva. | `test_oq_03g` |
+| Validación: constantes fijadas por falta de identificabilidad | K_I,L = 10.0 g/L: punto medio del rango CHO de literatura de 5–15 g/L (cotas de la especificación v1.4.0). Bionova no pasa de 1.4 g/L de lactato y, libre, K_I,L quedaba en la cota de 5 g/L (RSE 65.5 %, \|r\| hasta 0.979, cond(J) 398.8). μmax(34.0) = 0.35 1/d: extremo superior del rango de la especificación [0.10, 0.35], 44 % de μmax(36.5) (hipotermia leve). Con un solo día de cambio, el perfil de verosimilitud es plano por encima de 0.35 (SSR(0.35) − mínimo = 2.94 < χ²(1, 0.95) = 3.84) y, libre, llegaba a toda cota superior probada (0.35, 0.55 y 1.50). Los dos se fijaron por decisión de la auditoría del Draft PR #5; el resto de los supuestos fijos está en el documento 03, sección 11. | `test_oq_03g` |
+| Validación: selección entre variantes | `compare_calibration_variants` evalúa, desde el mismo prior, A (primer candidato, 10 libres), B9_base y B9_causal (9 libres; qp sin efecto de la temperatura e inhibido por NH3) con una regla fijada antes de calibrar: 9 parámetros en el interior, cond(J) < 60 sin pares con \|r\| > 0.90, RMSE ≤ 2σ con RMSE de título no peor que B9_base, y reposición natural de glucosa en Bionova. B9_causal ajusta mejor el título (RMSE 0.027 frente a 0.093 g/L) pero falla cond(J) (72.7; k_p,NH3 con RSE 64 %), así que se adoptó B9_base (documento 03, sección 11.1). | `test_oq_03g` |
+| Sensibilidad direccional | sparge 0.25 frente a 0.10 vvm baja título y viabilidad; 21 frente a 14 d sube NH3 y baja viabilidad; cambio térmico en el día 4 frente al día 10 baja la VCD pico. Limitación documentada: con qp(36.5) > qp(34.0), el título sube con el día de cambio (sección 9.4). | `test_oq_03h` |
 | Aplicabilidad | El comparador cubre NISTCHO, 0.25 L Stratyx, 14 d, DO 30 %, P/V 19–30 W/m³. Escalas, duraciones y set-points fuera de ese rango son extrapolación del modelo. | — |
 
 ### 9.3 Resultado frente a la meta de credibilidad
 
-Dentro de muestra (30 W/m³) las seis variables cumplen la meta (RMSE/σ: VCD 0.77, viabilidad 0.71,
-glucosa 1.36, lactato 1.04, NH3 1.22, título 1.17). Fuera de muestra (19 W/m³) la serie de VCD cumple
-(RMSE/σ 1.84) y los cinco puntos quedan dentro de 2σ. El detalle está en el documento 03, sección 11.
+Dentro de muestra (30 W/m³) las seis variables cumplen la meta (RMSE/σ: VCD 0.78, viabilidad 0.63,
+glucosa 1.37, lactato 1.13, NH3 1.21, título 1.16). Fuera de muestra (19 W/m³) la serie de VCD cumple
+(RMSE/σ 1.71) y los cinco puntos quedan dentro de 2σ (el mayor, título del día 14, a 1.47σ). En el
+protocolo Bionova la regla 2 → 5 g/L se dispara sola el día 12. El detalle está en el documento 03,
+sección 11.
 
 ### 9.4 Limitaciones conocidas (se reportan, no se corrigen ajustando ecuaciones)
 
-- K_I_L no es identificable con lactato ≤ 1.4 g/L (RSE 65.5 %, cerca de la cota inferior de 5 g/L).
+- K_I,L y μmax(34.0) no son identificables con una sola corrida de Bionova (lactato ≤ 1.4 g/L y un
+  solo día de cambio); están fijos en 10.0 g/L y 0.35 1/d (sección 9.2). μmax(34.0) responde sobre
+  todo al salto de VCD entre los días 7 y 8 (17.8 → 23.5e6 cél/mL); la auditoría confirmó ese punto
+  contra la Figura 1 original de Bionova (p. 6) y no se modificó.
+- **Confusión causal temperatura–edad de qp(T).** qp(36.5 °C) = 0.01486 > qp(34.0 °C) = 0.00900
+  g/(1e9 cél·d) no es un efecto térmico medido: en NISTCHO el título por IVCD sigue en 0.0108 en los
+  días 8–10, ya a 34 °C, y cae a 0.0028 en los días 12–14 con el NH3 en 10.2–10.5 mM. Con una sola
+  corrida y un solo día de cambio, las anclas de temperatura absorben la senescencia tardía. En el
+  barrido del día de cambio, no enfriar da +65.3 % de título sobre el día 7, al revés que A-Mab Tabla
+  3.12 (p. 73), donde la temperatura más baja dio mayor productividad específica y mayor título. Es un
+  artefacto de extrapolación y el gemelo no debe usarse para elegir el día de cambio. La variante
+  causal B9_causal reduce la diferencia a +4.8 % y ajusta mejor el título, pero no se adoptó porque
+  su cond(J) es 72.7 (> 60) y k_p,NH3 queda con RSE 64 % (4 puntos de título).
 - El modelo no tiene un efecto de P/V entre 19 y 30 W/m³: a 19 W/m³ predice la misma curva que a
-  30 W/m³ y sobrestima la VCD tardía (+3.5e6 cél/mL el día 14).
-- El lactato tardío queda por debajo de lo medido (0.03 frente a 0.2–0.3 g/L entre los días 8 y 14) y
-  el consumo tardío de glucosa también, por lo que la regla 2 → 5 g/L no se dispara en el modelo.
+  30 W/m³ y sobrestima la VCD tardía (+3.3e6 cél/mL el día 14).
+- El lactato tardío queda por debajo de lo medido (0.02 frente a 0.2–0.3 g/L entre los días 8 y 14).
+  La regla 2 → 5 g/L se dispara el día 12 en el modelo, pero no el día 10, donde Bionova ya midió
+  1.2 g/L.
 - Los parámetros de hipoxia, cizalla por burbujeo, inanición, lisis, rendimientos fijos y K_I_NH3 son
   supuestos no calibrados (no hay datos en la bibliografía del proyecto que los activen).
-- qp(36.5 °C) > qp(34.0 °C) refleja la desaceleración tardía de la producción en NISTCHO (título por
-  IVCD de 0.0118 a 0.0028 g/(1e9 cél·d) entre los días 0–8 y 12–14). Con un solo día de cambio, el
-  efecto de la temperatura queda confundido con la edad del cultivo; el modelo predice más título
-  cuanto más tarde se enfría, una extrapolación no probada. El gemelo no debe usarse para elegir el
-  día de cambio.
-- μmax(34 °C) depende del punto digitalizado de VCD del día 7 (17.8e6): la subida a 23.5e6 el día 8
-  implica crecer más rápido a 34 °C que a 36.5 °C. Sin ese punto, μmax(34) queda en el interior en
-  ambos escenarios (0.296 y 0.308 1/d); con él, el escenario con K_I,L = 10 lo lleva a la cota 0.35.
 - Sin aminoácidos ni otros nutrientes, los bolos extra de Ark solo diluyen y aportan glucosa no
   limitante; el modelo no reproduce el +43 % de Ark.
+
+**Trabajo futuro (v1.5.0, decisión de la auditoría):** un retardo τ_T de la respuesta del ciclo
+celular a la temperatura, con el diseño experimental que lo identifica: corridas con cambio temprano
+(días 3–4) y pulsos de lactato de 2–6 g/L (para K_I,L). Con pulsos de NH4Cl y título diario, la
+estructura B9_causal podría reevaluarse con k_p,NH3 identificable.
 
 ## Historial de versiones
 
@@ -288,6 +301,6 @@ Historial de versiones del documento. Las versiones son las del software (`src/_
 | 1.3.0 | 2026-11-11 | 664efca: traducción al español. 6d8c509: compuerta OR de cizalla y pruebas nuevas. |
 | 1.3.1 | 2026-11-11 | fd01ad7: lista de pruebas OQ actualizada (20 pruebas). |
 | 1.3.2 | 2026-11-14 | b0fa17d y 99116f9 (Bloques 1 y 2): textos alineados con el código y la evidencia bibliográfica; versión del documento alineada con el software; historial añadido. cb5a484 (Bloque 3): casos negativos y de frontera de `test_oq_04` (ya no pendientes). 9c9ab7d (Bloque 4): 21 CFR Part 820 de QSR a QMSR. |
-| 1.4.0 | 2026-11-20 | Fila 6b (gemelo calibrado y su validación) y SPC con estabilidad I-MR y TOST + Levene. Nueva sección 9: credibilidad del modelo según ASME V&V 40 (por analogía) junto a FDA CSA, con contexto de uso, riesgo del modelo, verificación, validación y limitaciones. Lista de pruebas: 24 (21 scripted, 3 exploratorias). Ajustes de auditoría (PR #5): experimento K_I,L → m_G y sensibilidad direccional en la sección 9.2; confusión temperatura–edad del cultivo y dependencia de μmax(34) del punto de VCD del día 7 en la sección 9.4. |
+| 1.4.0 | 2026-11-20 | Fila 6b (gemelo calibrado y su validación) y SPC con estabilidad I-MR y TOST + Levene. Nueva sección 9: credibilidad del modelo según ASME V&V 40 (por analogía) junto a FDA CSA, con contexto de uso, riesgo del modelo, verificación, validación y limitaciones. Lista de pruebas: 24 (21 scripted, 3 exploratorias). Ajustes de auditoría (PR #5): sensibilidad direccional en la sección 9.2. Cierre técnico: calibración B9_base adoptada (9 libres, K_I,L = 10 g/L y μmax(34.0) = 0.35 1/d fijos) con la trazabilidad de las constantes fijadas y la regla de selección entre variantes (9.2), metas de credibilidad con los valores nuevos (9.3), confusión causal temperatura–edad de qp(T) y trabajo futuro de v1.5.0 (9.4). |
 
 *Fin del documento CSA-RA-2026-001.*
