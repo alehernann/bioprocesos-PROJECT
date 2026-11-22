@@ -170,11 +170,13 @@ def test_oq_03_closed_loop_vs_static_titer_gain():
     v1.4.0 change control. The rule is armed in closed_loop and in static with
     glucose_feedback_in_static=True (the Bionova protocol; mode stays binary). A top-up
     fires exactly when the pre-feed (or post-bolus) glucose is below the trigger and the
-    bolus alone does not reach the target, and it lands exactly on the target. With the calibrated feed glucose (G_BOOST_CONC 76.44 g/L)
-    the default runs keep G >= 2.0 g/L on every feed day, so the rule is also exercised
-    with a validated higher trigger (6.0 -> 9.0 g/L). URS-08 is directional on harvested
-    mass and final viability; the g/L titer difference is emergent and only reported,
-    because the larger Ark feed volume dilutes the titer.
+    bolus alone does not reach the target, and it lands exactly on the target. With the
+    calibrated constants (B9_base) the rule fires by itself in the Bionova recipe (static
+    with glucose_feedback_in_static): pre-feed G falls below 2.0 g/L on day 12. In
+    closed_loop the Ark boluses of days 8 and 10 keep pre-feed G above the trigger, so the
+    rule is also exercised there with a validated higher trigger (6.0 -> 9.0 g/L). URS-08
+    is directional on harvested mass and final viability; the g/L titer difference is
+    emergent and only reported, because the larger Ark feed volume dilutes the titer.
     """
     feed_days = [2.0, 4.0, 6.0, 8.0, 10.0, 12.0]
     static = simulate_cho_fed_batch(ProcessDescription(mode="static"))
@@ -183,13 +185,18 @@ def test_oq_03_closed_loop_vs_static_titer_gain():
     baseline = simulate_cho_fed_batch(ProcessDescription(mode="static", glucose_feedback_in_static=True))
 
     # URS-07 with the default 2.0 -> 5.0 g/L rule.
-    for res in (closed, baseline):
+    fired = {}
+    for name, res in (("closed_loop", closed), ("bionova_recipe", baseline)):
         assert [ev["day"] for ev in res["feed_events"]] == feed_days
-        _assert_glucose_rule(res, 2.0, 5.0)
+        fired[name] = _assert_glucose_rule(res, 2.0, 5.0)
         glucose, time_days = res["glucose_g_L"], res["time_days"]
         for fd in feed_days:
             assert glucose[time_days.index(fd)] >= 2.0
     assert all(ev["v_gluc_L"] == 0.0 for ev in static["feed_events"])
+    # Natural trigger in the Bionova recipe (day 12, pre-feed G < 2.0 g/L); none in closed_loop.
+    topups = [ev for ev in baseline["feed_events"] if ev["v_gluc_L"] > 0.0]
+    assert fired == {"closed_loop": 0, "bionova_recipe": 1}
+    assert [ev["day"] for ev in topups] == [12.0] and topups[0]["pre"]["G"] < 2.0
 
     # URS-07 exercised with a validated higher trigger (6.0 -> 9.0 g/L).
     high = dict(glucose_min_threshold_g_L=6.0, glucose_refill_target_g_L=9.0)
@@ -372,11 +379,14 @@ def test_oq_03g_bionova_validation_fit_and_oos():
     """Calibration reproducibility, in-sample fit (30 W/m3) and out-of-sample prediction (19 W/m3).
 
     ASME V&V 40 model validation against data/bionova_nistcho_2026.json (pre-feed daily
-    sampling). The shipped constants are at least as good as a fresh calibration from the
-    documented prior (10 free parameters, 60 points). Credibility criterion for the context
-    of use (feeding-strategy screening): RMSE <= 2 x declared uncertainty for every
-    in-sample variable and for the 19 W/m3 VCD series, and every 19 W/m3 point within
-    2 x its uncertainty. K_I_L is reported as not identifiable.
+    sampling). The shipped constants are the adopted audit variant B9_base: K_I_L = 10 g/L
+    and mu_max(34.0) = 0.35 1/d fixed at literature values, 9 free parameters, and they are
+    at least as good as a fresh calibration from the documented prior (60 points). The 9
+    parameters are interior (no AT_BOUND or NEAR_BOUND) and identifiable, cond(J) < 60 and
+    no pair has |r| > 0.90. Credibility criterion for the context of use
+    (feeding-strategy screening): RMSE <= 2 x declared uncertainty for every in-sample
+    variable and for the 19 W/m3 VCD series, and every 19 W/m3 point within 2 x its
+    uncertainty. The Bionova protocol fires the < 2.0 g/L glucose top-up by itself.
     """
     ds = mv.load_bionova_reference_dataset()
     assert ds["sampling_timing"] == "pre_feed_daily"
@@ -387,22 +397,34 @@ def test_oq_03g_bionova_validation_fit_and_oos():
     assert cfg.vessel_volume_L * cfg.initial_fill_fraction == pytest.approx(0.190, abs=1e-12)
     assert mv.bionova_process_description("stratyx_19_W_m3", ds).power_density_W_m3 == 19.0
 
+    # Shipped constants = adopted variant B9_base (fixed values and free set).
+    assert twin.CALIBRATED_PARAMETER_NAMES == mv.CALIBRATION_VARIANTS["B9_base"]["free"]
+    for name, value in mv.CALIBRATION_VARIANTS["B9_base"]["fixed"].items():
+        assert getattr(CALIBRATED_KINETICS, name) == value, name
+    assert (CALIBRATED_KINETICS.k_i_lactate, CALIBRATED_KINETICS.mu_max_34_0) == (10.0, 0.35)
+
     cal = mv.run_parameter_calibration(dataset=ds)
     assert cal["success"] is True
-    assert cal["n_parameters"] == 10 and cal["n_observations"] == 60
+    assert cal["n_parameters"] == 9 and cal["n_observations"] == 60
     assert mv.calibration_cost(dataset=ds) <= cal["cost"] * 1.01
     for row in cal["parameter_table"]:
-        assert row["lower_bound"] <= row["value"] <= row["upper_bound"], row
+        assert row["lower_bound"] < row["value"] < row["upper_bound"], row
+        assert row["status"] == "interior", row
     ident = mv.compute_jacobian_identifiability(cal["opt_result"], cal["param_names"])
     sv = ident["singular_values"]
     assert all(a >= b for a, b in zip(sv, sv[1:])) and sv[-1] > 0.0
-    assert 1.0 < ident["condition_number"] < 1e6
-    assert "k_i_lactate" in ident["not_identifiable"]
-    assert len(ident["identifiable"]) >= 8
-    k_il = {row["parameter"]: row for row in cal["parameter_table"]}["k_i_lactate"]
-    assert k_il["value"] - k_il["lower_bound"] <= 0.05 * (k_il["upper_bound"] - k_il["lower_bound"])
+    assert 1.0 < ident["condition_number"] < 60.0
+    assert ident["collinear_pairs"] == []
+    assert ident["at_bound"] == [] and ident["not_identifiable"] == []
+    assert len(ident["identifiable"]) == 9
 
     sim30 = mv.simulate_bionova_condition("stratyx_30_W_m3", dataset=ds)
+    # URS-07 in the Bionova protocol: the calibrated glucose uptake brings pre-feed G
+    # below 2.0 g/L on day 12 and the rule tops up to exactly 5.0 g/L (no forced trigger).
+    assert _assert_glucose_rule(sim30, 2.0, 5.0) == 1
+    topups = [ev for ev in sim30["feed_events"] if ev["v_gluc_L"] > 0.0]
+    assert [ev["day"] for ev in topups] == [12.0]
+    assert topups[0]["pre"]["G"] < 2.0
     m30 = mv.compute_validation_metrics(sim30, ds, "stratyx_30_W_m3")
     assert set(m30["variables"]) == {
         "vcd_1e6_mL", "viability_pct", "glucose_g_L", "lactate_g_L", "nh3_mmol_L", "titer_g_L"}
@@ -446,7 +468,12 @@ def test_oq_03g_bionova_validation_fit_and_oos():
         assert variant["g_pre_feed_min"] < 2.0 and variant["glucose_topup_days"] == [12.0]
     assert a["params_at_or_near_bound"] == ["k_i_lactate"] and a["glucose_topup_days"] == []
     assert a["identifiability"]["condition_number"] > b9_base["identifiability"]["condition_number"]
-    assert a["cost"] == pytest.approx(cal["cost"], rel=1e-9)
+    assert b9_base["cost"] == pytest.approx(cal["cost"], rel=1e-9)
+    # Documented T/age confounding of qp(T) (audit criterion 5, reported in docs/03): in
+    # the Bionova protocol, no shift (day 14) gives more titer than the day-7 shift in
+    # every variant, and B9_causal shrinks that inversion the most.
+    ratio = cmp["titer_shift14_over_shift7"]
+    assert ratio["A"] > ratio["B9_base"] > ratio["B9_causal"] > 1.0
     # mu_max(34.0) = 0.35 lies inside the profile-likelihood 95 % interval (declared sigmas).
     profile = mv.profile_mu_max_34_0(values=(1.50,), dataset=ds)
     assert 0.0 < profile["delta_ssr_fixed_vs_min"] < profile["delta_ssr_95"]
@@ -464,10 +491,13 @@ def test_oq_03h_slider_domain_physical_stability():
     concentrations >= 0, viability in [0, 100], V(t) <= vessel, wall time < 0.25 s per
     run, and mean wall time of the default 14-day run < 80 ms (Streamlit budget).
 
-    Directional sensitivity of the calibrated equations (no numeric bands), in both
+    Directional sensitivity of the adopted B9_base equations (no numeric bands), in both
     modes: sparge 0.25 vs 0.10 vvm lowers titer and viability; 21 vs 14 days raises NH3
     and lowers viability (real decline, no synthetic immortality); a shift on day 4 vs
-    day 10 gives a lower peak VCD (mu_max(34) < mu_max(36.5)).
+    day 10 gives a lower peak VCD (mu_max(34.0) = 0.35 < mu_max(36.5)). Documented
+    limitation, asserted so that it stays traceable: because qp(36.5) > qp(34.0) (T/age
+    confounding of qp(T), docs/03 section 11), the final titer rises with the shift day
+    4 < 7 < 10 < 14; this is an extrapolation artifact, not a requirement.
     """
     keys_nonneg = ("vcd", "dead_cell_density", "glucose_g_L", "lactate_g_L", "nh3_mmol_L",
                    "titer_g_L", "volume_L", "do_real_pct")
@@ -521,6 +551,10 @@ def test_oq_03h_slider_domain_physical_stability():
         assert d21["final_viability_pct"] < d14["final_viability_pct"], mode
         early, late = run(temp_shift_day=4.0), run(temp_shift_day=10.0)
         assert early["peak_vcd"] < late["peak_vcd"], mode
+        # Documented T/age confounding (not a requirement): titer rises with the shift day.
+        assert CALIBRATED_KINETICS.qp_36_5 > CALIBRATED_KINETICS.qp_34_0
+        titers = [run(temp_shift_day=day)["final_titer_g_L"] for day in (4.0, 7.0, 10.0, 14.0)]
+        assert all(a < b for a, b in zip(titers, titers[1:])), (mode, titers)
 
 
 def test_oq_04_safety_shear_and_cip_sip_interlocks():

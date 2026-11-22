@@ -16,9 +16,10 @@ This module provides:
    titer P) plus the liquid volume V, integrated piecewise with
    ``scipy.integrate.solve_ivp`` (RK45, rtol 1e-6, atol 1e-9, automatic Radau
    fallback) between the discrete events (feed boluses and temperature shift).
-   Ten kinetic parameters are calibrated against the Bionova Stratyx NISTCHO
+   Nine kinetic parameters are calibrated against the Bionova Stratyx NISTCHO
    30 W/m3 run (``src/model_validation.py``) and fixed here as documented
-   constants. The closed-loop adaptive feed follows the Ark Biotech & Culture
+   constants; K_I_L and mu_max(34.0), which that single run cannot identify, are
+   fixed at literature values. The closed-loop adaptive feed follows the Ark Biotech & Culture
    Biosciences technical bulletin (Quint et al., 2026), which reports a +43 %
    titer gain (literature value); this model is not calibrated to that value.
 
@@ -346,39 +347,64 @@ def compute_hydrodynamic_stress(power_density_W_m3: float, sparge_vvm: float) ->
 # Units: Xv, Xd in 1e6 cells/mL (= 1e9 cells/L); specific rates per 1e9 cells, so
 # q [g/(1e9 cell*d)] * Xv [1e9 cell/L] = g/(L*d) with no extra factor.
 #
-# CALIBRATED (10 free parameters, scipy.optimize.least_squares "trf" against the
-# Bionova Stratyx 30 W/m3 daily pre-feed data; src/model_validation.py,
-# run_parameter_calibration). Values are the optimiser output; the bounds and
-# AT_BOUND flags are in PARAMETER_BOUNDS and docs/03.
-MU_MAX_36_5_PER_D = 0.832867   # 1/d, bounds [0.65, 0.95]
-MU_MAX_34_0_PER_D = 0.322098   # 1/d, bounds [0.10, 0.35]
-K_I_L = 5.01088                # g/L lactate inhibition on growth, bounds [5, 15] (near lower bound)
-G_BOOST_CONC = 76.4406         # g/L glucose in the Cell Boost 7a/7b feed, bounds [55, 85]
-X_MAX_1E6_ML = 42.6493         # 1e6 cells/mL logistic carrying capacity
-Q_LAC_MAX = 0.285600           # g/(1e9 cell*d) maximum lactate uptake
-Q_NH3 = 0.0582430              # mmol/(1e9 cell*d) ammonium production
-KD_NH3 = 0.0177939             # 1/d per mM of NH3 above NH3_DEATH_ONSET_MM
-QP_36_5 = 0.0150130            # g/(1e9 cell*d) specific productivity at 36.5 C
-QP_34_0 = 0.00888312           # g/(1e9 cell*d) specific productivity at 34.0 C
-# WHY qp(36.5 C) > qp(34.0 C) (empirical, v1.4.0 audit). Bionova Fig. 4 shows production
-# slowing late in the run: titer gained per IVCD is 0.0118 (days 0-8), 0.0108 (8-10),
-# 0.0084 (10-12) and 0.0028 g/(1e9 cell*d) (12-14) (digitized, no dilution correction).
-# In NISTCHO the 34 C phase moderated growth and NH3 and sustained viability; it did
-# not raise the instantaneous qp. With one run and one shift day, the temperature
-# anchors are the only term that can absorb that late slowdown, so the temperature
-# effect on qp is confounded with culture age and unmodeled nutrient depletion. A
-# shift-day sweep is therefore an extrapolation: with these anchors a later shift
-# always gives more titer, which no Bionova run has tested.
+# CALIBRATED (9 free parameters, variant B9_base of the v1.4.0 audit, Draft PR #5;
+# scipy.optimize.least_squares "trf" against the Bionova Stratyx 30 W/m3 daily
+# pre-feed data; src/model_validation.py, run_parameter_calibration). Values are the
+# optimiser output from the documented prior, rounded to 6 significant digits; the
+# prior and 8 random starts reach the same optimum. All 9 are interior (no AT_BOUND
+# or NEAR_BOUND), cond(J) 28.5, max |r| 0.886; bounds in PARAMETER_BOUNDS, docs/03.
+MU_MAX_36_5_PER_D = 0.802235   # 1/d, bounds [0.65, 0.95]
+G_BOOST_CONC = 82.2171         # g/L glucose in the Cell Boost 7a/7b feed, bounds [55, 85]
+X_MAX_1E6_ML = 38.1368         # 1e6 cells/mL logistic carrying capacity, bounds [20, 60]
+Q_LAC_MAX = 0.304419           # g/(1e9 cell*d) maximum lactate uptake, bounds [0, 1]
+Q_NH3 = 0.0584053              # mmol/(1e9 cell*d) ammonium production, bounds [0, 0.3]
+KD_NH3 = 0.0167158             # 1/d per mM of NH3 above NH3_DEATH_ONSET_MM, bounds [0, 0.2]
+QP_36_5 = 0.0148635            # g/(1e9 cell*d) specific productivity at 36.5 C, bounds [0, 0.05]
+QP_34_0 = 0.00900473           # g/(1e9 cell*d) specific productivity at 34.0 C, bounds [0, 0.05]
+M_G = 0.0610218                # g/(1e9 cell*d) maintenance glucose uptake, bounds [0.03, 0.25]
+# WHY qp(36.5 C) > qp(34.0 C): CAUSAL CONFOUNDING OF TEMPERATURE AND CULTURE AGE
+# (documented limitation, v1.4.0 audit). Bionova Fig. 4 (digitized, no dilution
+# correction): titer gained per IVCD is 0.0118 g/(1e9 cell*d) on days 0-8, still 0.0108
+# on days 8-10 (already at 34 C, NH3 4.5 -> 7.5 mM), then 0.0084 on days 10-12 and
+# 0.0028 on days 12-14 as NH3 reaches 10.2-10.5 mM. The late slowdown follows culture
+# age and NH3, not the 34 C step. qp depends only on T here, and with one run and one
+# shift day the two temperature anchors are the only term that can absorb it, so the
+# fit charges the late senescence to 34 C. Consequence in the temp_shift_day sweep
+# (Bionova protocol): no shift (day 14) gives 3.3024 g/L, +65.3 % over the day-7
+# shift (1.9973 g/L). This is an extrapolation artifact, not a prediction: it inverts
+# A-Mab Table 3.12 (p. 73), where the lower temperature gave higher specific
+# productivity, a longer culture and higher titer. The causal alternative B9_causal
+# (qp without a temperature effect, divided by 1 + k_p_nh3 * max(0, NH3 - 5)^2) cuts
+# that difference to +4.8 % and the 30 W/m3 titer RMSE from 0.093 to 0.027 g/L, but
+# fails the audit rule: cond(J) 72.7 > 60, with k_p_nh3 at RSE 64 % (four titer
+# points). It was not adopted (src/model_validation.py, compare_calibration_variants).
+# Planned for v1.5.0 (audit decision): a lag tau_T for the temperature response of the
+# cell cycle, with the data it needs (runs shifted early, on day 3-4, and lactate
+# pulses of 2-6 g/L); NH4Cl pulses with daily titer samples would identify k_p_nh3.
+
+# FIXED BY THE v1.4.0 AUDIT (Draft PR #5): literature values that the single Bionova
+# run cannot identify (docs/02 section 9 and docs/03 section 11).
+K_I_L = 10.0                 # g/L lactate inhibition on growth. Midpoint of the CHO
+                             # literature range 5-15 g/L (bounds of the v1.4.0
+                             # specification). Bionova lactate never exceeds 1.4 g/L:
+                             # when free it ran to the 5 g/L bound (RSE 65 %, |r| up to
+                             # 0.979 with mu_max(36.5); cond(J) 398.8).
+MU_MAX_34_0_PER_D = 0.35     # 1/d, upper end of the specification range [0.10, 0.35],
+                             # 44 % of mu_max(36.5) (mild hypothermia). The likelihood
+                             # profile is flat above 0.35: SSR(0.35) - min SSR = 2.94
+                             # (minimum near 1.50 1/d) < chi2(1, 0.95) = 3.84, so the data
+                             # cannot bound it from above; the day 7 -> 8 VCD jump
+                             # (17.8 -> 23.5e6 cells/mL) pushes it up. Free with K_I_L =
+                             # 10 g/L, it ran to every upper bound tested (0.35, 0.55, 1.50).
 
 # FIXED MODELING ASSUMPTIONS (NOT CALIBRATED). Either not identifiable from the
 # Bionova data (normoxic, glucose > 1 g/L, no shear or sparge excursions) or fixed
-# at round values in the CHO-typical range to keep the calibration at 10 free
+# at round values in the CHO-typical range to keep the calibration at 9 free
 # parameters; see docs/03 (identifiability) for the data each one would need.
 K_S_G = 0.5                  # g/L glucose half-saturation (growth and maintenance)
 K_I_NH3 = 20.0               # mM ammonium inhibition constant on growth
 NH3_DEATH_ONSET_MM = 5.0     # mM, lower end of the ~5-8 mM physiological window
 Y_X_G = 3.0                  # (1e6 cells/mL) per (g/L) glucose = 3.0e9 cells/g
-M_G = 0.05                   # g/(1e9 cell*d) maintenance glucose uptake
 Y_L_G = 0.80                 # g lactate / g growth-associated glucose (stoich. max 1.0)
 K_L = 0.30                   # g/L half-saturation of lactate uptake
 KD_BASAL = 0.03              # 1/d basal death rate
@@ -390,7 +416,8 @@ PASTEUR_FRACTION = 0.8       # max fraction of maintenance glucose fermented at 
 KD_SHEAR = 0.03              # 1/d extra death per unit of sigma_total
 ALPHA_SHEAR_QP = 1.0         # qp / (1 + ALPHA_SHEAR_QP * sigma_total)
 # NH3 inhibition of qp: qp / (1 + K_P_NH3 * max(0, NH3 - NH3_DEATH_ONSET_MM)^2), C1 at
-# the 5 mM onset shared with kd_NH3. 0 = no NH3 effect on qp (v1.4.0 audit B9 experiment).
+# the 5 mM onset shared with kd_NH3. 0 in the adopted B9_base (no NH3 effect on qp);
+# free only in the B9_causal variant, which was evaluated and not adopted.
 K_P_NH3 = 0.0                # mM^-2
 
 T_ANCHORS_C = (34.0, 36.5)   # mu_max(T) and qp(T) are linear between the anchors
@@ -438,12 +465,13 @@ class CHOKineticParameters:
 
 CALIBRATED_KINETICS = CHOKineticParameters()
 
-# Free parameters of run_parameter_calibration and their bounds. The first four
-# bounds are the literature bounds of the v1.4.0 specification; the others are
-# physical sign/magnitude limits.
+# Free parameters of run_parameter_calibration (the adopted B9_base variant) and the
+# bounds of every calibratable name. The first four bounds are the literature bounds
+# of the v1.4.0 specification (mu_max_34_0 and k_i_lactate are free only in variant A,
+# src/model_validation.py); the others are physical sign/magnitude limits.
 CALIBRATED_PARAMETER_NAMES = (
-    "mu_max_36_5", "mu_max_34_0", "k_i_lactate", "g_boost_conc", "x_max",
-    "q_lac_max", "q_nh3", "kd_nh3", "qp_36_5", "qp_34_0",
+    "mu_max_36_5", "g_boost_conc", "x_max", "q_lac_max", "q_nh3", "kd_nh3",
+    "qp_36_5", "qp_34_0", "m_glucose",
 )
 PARAMETER_BOUNDS = {
     "mu_max_36_5": (0.65, 0.95),
@@ -456,10 +484,10 @@ PARAMETER_BOUNDS = {
     "kd_nh3": (0.0, 0.2),
     "qp_36_5": (0.0, 0.05),
     "qp_34_0": (0.0, 0.05),
-    # Extended screening and the K_I,L -> m_G swap experiment only (fixed in the
-    # shipped calibration). m_G bounds: CHO physiological range (v1.4.0 audit).
-    "y_x_glucose": (0.5, 6.0),
+    # m_G: CHO physiological range (v1.4.0 audit); calibrated in B9_base.
     "m_glucose": (0.03, 0.25),
+    # Extended screening only (fixed in the shipped calibration).
+    "y_x_glucose": (0.5, 6.0),
     "y_lac_glucose": (0.0, 1.0),
     "kd_basal": (0.0, 0.1),
     "k_lysis": (0.0, 3.0),
@@ -731,18 +759,19 @@ def simulate_cho_fed_batch(
     integer day 0..duration, the timing of the Bionova sampling), DO diagnostics,
     feed events, solver diagnostics and summary metrics.
 
-    MEASURED VALUES (v1.4.0, calibrated constants, DO 30 %, O2 enrichment on, 0.70
-    fill; concentrations are identical at 0.25 L and 2.0 L):
-        - static, 14 d:      titer 1.9915 g/L, viability 88.22 %, peak VCD 23.96,
-                             NH3 11.68 mM, lactate peak 1.341 g/L on day 5.0;
-        - closed_loop, 14 d: titer 1.9243 g/L, viability 88.98 %, peak VCD 23.68,
-                             NH3 11.32 mM; titer -3.37 % (dilution by the Ark
-                             boluses), harvested mass +2.29 %, viability +0.76 pp;
-        - 21 d (no feed after day 12): static 2.4946 g/L / 34.41 %, closed_loop
-          2.7265 g/L / 39.86 % (NH3 14.98 / 16.58 mM).
-        With the default 2 -> 5 g/L rule no top-up fires: the calibrated Cell
-        Boost glucose keeps pre-feed G >= 2 g/L on every feed day. These are model
-        outputs, not targets.
+    MEASURED VALUES (v1.4.0, calibrated B9_base constants, DO 30 %, O2 enrichment on,
+    0.70 fill; concentrations are identical at 0.25 L and 2.0 L):
+        - static, 14 d:      titer 1.9982 g/L, viability 88.70 %, peak VCD 23.70,
+                             NH3 11.66 mM, lactate peak 1.449 g/L on day 5.0;
+        - closed_loop, 14 d: titer 1.9319 g/L, viability 89.45 %, peak VCD 23.44,
+                             NH3 11.30 mM; titer -3.32 % (dilution by the Ark
+                             boluses), harvested mass +2.35 %, viability +0.75 pp;
+        - 21 d (no feed after day 12): static 2.4548 g/L / 35.03 %, closed_loop
+          2.6879 g/L / 38.01 % (NH3 14.62 / 16.21 mM).
+        With the default 2 -> 5 g/L rule the Bionova recipe (static with
+        glucose_feedback_in_static) tops up on day 12 by itself (pre-feed G
+        1.76 g/L); closed_loop does not (the Ark boluses keep pre-feed G >= 3.41
+        g/L). These are model outputs, not targets.
     """
     kp = CALIBRATED_KINETICS if kinetics is None else kinetics
     if method not in ("RK45", "Radau", "Euler"):

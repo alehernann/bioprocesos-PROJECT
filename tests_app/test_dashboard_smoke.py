@@ -21,7 +21,7 @@ from streamlit.testing.v1 import AppTest
 
 from src.models import ProcessDescription
 from src.amab_design_space import AMAB_MEASURED_KLA_H_INV, compute_scale_up_engineering
-from src.bioreactor_twin import simulate_cho_fed_batch
+from src.bioreactor_twin import CALIBRATED_PARAMETER_NAMES, simulate_cho_fed_batch
 from src.model_validation import (
     compute_validation_metrics,
     load_bionova_reference_dataset,
@@ -434,6 +434,9 @@ def test_bionova_validation_block_matches_model_validation(at):
     assert "Bionova 19 W/m3 (fuera de muestra)" in names
     digitized = vcd["data"][names.index("Bionova 30 W/m3 (digitalizado)")]
     assert digitized["error_y"]["value"] == ds["calibration_set"]["series"]["vcd_1e6_mL"]["uncertainty_abs"]
+    # The caption reports the adopted calibration (B9_base: 9 free parameters).
+    assert len(CALIBRATED_PARAMETER_NAMES) == 9
+    assert any("Se calibraron 9 parametros con 30 W/m3" in c.value for c in at.caption)
 
 
 def test_duration_slider_and_shift_clamp(at):
@@ -451,6 +454,9 @@ def test_duration_slider_and_shift_clamp(at):
         assert _metric_values(at, "Titulo final (g/L)") == [f"{r['final_titer_g_L']:.4f}" for r in expected]
         clamp = [c.value for c in at.caption if "Dia del cambio termico ajustado" in c.value]
         assert (len(clamp) == 1) is (days == 5)
+    # The shift-day legend states the documented T/age confounding of qp(T).
+    notes = [m.value for m in at.markdown if "qp(36.5 C) > qp(34.0 C)" in m.value]
+    assert len(notes) == 1 and "edad del cultivo" in notes[0] and "extrapolacion" in notes[0]
 
 
 def test_tost_levene_section_and_stability_chips(at):

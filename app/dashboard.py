@@ -566,7 +566,13 @@ with tab1:
                 step=0.5,
                 help="Bounds temp_shift_day [1, 14] d.",
             )
-            _leyenda("A la izquierda el cultivo pasa antes a la temperatura de produccion y crece mas lento. A la derecha crece mas tiempo a la temperatura inicial.")
+            _leyenda(
+                "A la izquierda el cultivo pasa antes a la temperatura de produccion y crece mas lento. "
+                "A la derecha crece mas tiempo a la temperatura inicial. Fuera del dia 7 el titulo es "
+                "extrapolacion: con una sola corrida de Bionova, qp(36.5 C) > qp(34.0 C) mezcla el efecto "
+                "de la temperatura con la edad del cultivo, y un cambio tardio da mas titulo sin datos "
+                "que lo respalden."
+            )
         with g3:
             sparge_vvm = st.slider(
                 "Flujo de burbujeo sparge (vvm)",
