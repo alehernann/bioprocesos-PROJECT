@@ -425,20 +425,32 @@ def test_oq_03g_bionova_validation_fit_and_oos():
     for key, point in m19["points"].items():
         assert point["within_2sigma"], (key, point["abs_error"])
 
-    # Identifiability-guided swap (audit Ajuste 2): K_I_L fixed at 10 g/L, m_G free in
-    # [0.03, 0.25]. The documented outcome is evaluated, not forced: B improves cond(J)
-    # and triggers the < 2 g/L rule on day 12, but pushes mu_max(34) onto its upper
-    # bound and worsens the lactate fit, so the adoption rule keeps scenario A.
-    swap = mv.compare_k_i_l_m_g_swap(dataset=ds)
-    a, b = swap["scenario_a"], swap["scenario_b"]
-    assert b["identifiability"]["condition_number"] < a["identifiability"]["condition_number"]
-    assert "m_glucose" in b["identifiability"]["identifiable"]
-    assert b["params_at_or_near_bound"] == ["mu_max_34_0"]
-    assert a["g_pre_feed_min"] >= 2.0 and a["glucose_topup_days"] == []
-    assert b["g_pre_feed_min"] < 2.0 and b["glucose_topup_days"] == [12.0]
-    assert ("stratyx_30_W_m3", "lactate_g_L") in swap["metrics_worsened"]
-    assert swap["adopt_scenario_b"] is False
+    # Audit calibration variants (Draft PR #5), all from the documented prior. The outcome
+    # is evaluated, not forced: B9_causal (qp_0 / (1 + k_p_nh3 (NH3 - 5)^2), no temperature
+    # effect on qp) fits the titer better but fails cond(J) < 60 (k_p_nh3 is poorly
+    # determined by four titer points), so the rule adopts B9_base (K_I_L = 10 g/L and
+    # mu_max(34.0) = 0.35 1/d fixed, m_G free).
+    cmp = mv.compare_calibration_variants(dataset=ds)
+    a, b9_base, b9_causal = (cmp["variants"][k] for k in ("A", "B9_base", "B9_causal"))
+    assert cmp["b9_causal_criteria"] == {
+        "all_parameters_interior": True,
+        "cond_below_60_and_no_collinear_pair": False,
+        "rmse_within_2sigma_and_titer_not_worse": True,
+        "bionova_natural_glucose_topup": True,
+    }
+    assert cmp["adopted"] == "B9_base"
+    assert b9_causal["identifiability"]["condition_number"] >= mv.B9_CAUSAL_COND_MAX
+    assert "k_p_nh3" in b9_causal["identifiability"]["not_identifiable"]
+    assert b9_causal["titer_rmse_30"] < b9_base["titer_rmse_30"]
+    for variant in (b9_base, b9_causal):
+        assert variant["g_pre_feed_min"] < 2.0 and variant["glucose_topup_days"] == [12.0]
+    assert a["params_at_or_near_bound"] == ["k_i_lactate"] and a["glucose_topup_days"] == []
+    assert a["identifiability"]["condition_number"] > b9_base["identifiability"]["condition_number"]
     assert a["cost"] == pytest.approx(cal["cost"], rel=1e-9)
+    # mu_max(34.0) = 0.35 lies inside the profile-likelihood 95 % interval (declared sigmas).
+    profile = mv.profile_mu_max_34_0(values=(1.50,), dataset=ds)
+    assert 0.0 < profile["delta_ssr_fixed_vs_min"] < profile["delta_ssr_95"]
+    assert profile["fixed_value_inside_95"] is True
 
 
 def test_oq_03h_slider_domain_physical_stability():

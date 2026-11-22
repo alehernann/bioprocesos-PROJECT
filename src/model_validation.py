@@ -28,6 +28,7 @@ from pathlib import Path
 
 import numpy as np
 from scipy.optimize import least_squares
+from scipy.stats import chi2
 
 from src.bioreactor_twin import (
     CALIBRATED_KINETICS,
@@ -276,37 +277,88 @@ def run_parameter_calibration(
 
 
 # ---------------------------------------------------------------------------
-# Identifiability-guided swap experiment (v1.4.0 audit, "Ajuste 2").
+# Calibration variants of the v1.4.0 audit (Draft PR #5) and the mu_max(34.0) profile.
 # ---------------------------------------------------------------------------
-# Scenario A is the shipped calibration (K_I_L free, m_G fixed at 0.05). Scenario B
-# fixes K_I_L at 10.0 g/L, the midpoint of the CHO literature range 5-15 g/L (no
-# lactate excitation above 1.5 g/L in Bionova), and frees m_G in [0.03, 0.25]. B is
-# adopted only if (1) cond(J) improves, (2) every R2/RMSE (in-sample 30 W/m3 and
-# out-of-sample 19 W/m3) is maintained or improved, within the tolerances below,
-# and (3) no B parameter is AT_BOUND or NEAR_BOUND.
-SWAP_K_I_L_FIXED_G_L = 10.0
-SWAP_SCENARIO_B_FREE = (
-    "mu_max_36_5", "mu_max_34_0", "g_boost_conc", "x_max", "q_lac_max",
-    "q_nh3", "kd_nh3", "qp_36_5", "qp_34_0", "m_glucose",
-)
-SWAP_R2_MAINTAIN_TOL = 0.005        # an R2 may drop by at most this much
-SWAP_RMSE_MAINTAIN_REL_TOL = 0.01   # an RMSE or point error may grow by at most 1 %
+# Same data (60 pre-feed points), objective, solver and prior for every variant.
+#   A (first v1.4.0 candidate, superseded): 10 free; K_I_L and mu_max(34.0) free,
+#     m_G fixed at 0.05, qp(T) with two temperature anchors.
+#   B9_base: K_I_L = 10.0 g/L and mu_max(34.0) = 0.35 1/d fixed, m_G free, qp(T) with
+#     two temperature anchors; 9 free.
+#   B9_causal: the same fixed values; qp without a temperature effect and with NH3
+#     inhibition qp_0 / (1 + k_p_nh3 * max(0, NH3 - 5)^2); 9 free.
+# Audit adoption rule, evaluated here and not forced: B9_causal is adopted only if
+# (1) its 9 parameters are interior (no AT_BOUND or NEAR_BOUND), (2) cond(J) < 60 and
+# no pair with |r| > 0.90, (3) every RMSE <= 2 sigma at 30 and 19 W/m3 (the 19 W/m3
+# single points included) and its 30 W/m3 titer RMSE <= that of B9_base, and (4) the
+# Bionova protocol fires the < 2.0 g/L glucose top-up (V_gluc > 0). If any of the four
+# fails, B9_base is adopted. The temp_shift_day sweep (audit criterion 5, no numeric
+# threshold) is reported by shift_day_sweep, not encoded.
+AUDIT_FIXED_VALUES = {"k_i_lactate": 10.0, "mu_max_34_0": 0.35}
+CALIBRATION_VARIANTS = {
+    "A": {
+        "free": ("mu_max_36_5", "mu_max_34_0", "k_i_lactate", "g_boost_conc", "x_max",
+                 "q_lac_max", "q_nh3", "kd_nh3", "qp_36_5", "qp_34_0"),
+        "fixed": {"m_glucose": 0.05, "k_p_nh3": 0.0},
+    },
+    "B9_base": {
+        "free": ("mu_max_36_5", "g_boost_conc", "x_max", "q_lac_max", "q_nh3", "kd_nh3",
+                 "qp_36_5", "qp_34_0", "m_glucose"),
+        "fixed": {**AUDIT_FIXED_VALUES, "k_p_nh3": 0.0},
+    },
+    "B9_causal": {
+        "free": ("mu_max_36_5", "g_boost_conc", "x_max", "q_lac_max", "q_nh3", "kd_nh3",
+                 "qp_0", "k_p_nh3", "m_glucose"),
+        "fixed": dict(AUDIT_FIXED_VALUES),
+    },
+}
+B9_CAUSAL_COND_MAX = 60.0
+SHIFT_SWEEP_DAYS = (4.0, 7.0, 10.0, 14.0)
+MU_MAX_34_0_PROFILE_VALUES = (0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.45, 0.55, 0.75, 0.95,
+                              1.20, 1.50, 2.00, 3.00, 5.00)
+# Likelihood-ratio threshold for one parameter (chi2(1, 0.95) = 3.84), valid when the
+# declared measurement/digitization uncertainties are the residual standard deviations.
+PROFILE_DELTA_SSR_95 = float(chi2.ppf(0.95, 1))
 
 
-def _scenario_summary(cal: dict, ds: dict) -> dict:
+def variant_base_kinetics(variant: str) -> CHOKineticParameters:
+    """Shipped constants with the fixed values of one audit variant."""
+    return replace(CALIBRATED_KINETICS, **CALIBRATION_VARIANTS[variant]["fixed"])
+
+
+def calibrate_variant(variant: str, dataset: dict | None = None, initial_guess: dict | None = None) -> dict:
+    """``run_parameter_calibration`` with the free set and fixed values of one audit variant."""
+    spec = CALIBRATION_VARIANTS[variant]
+    return run_parameter_calibration(spec["free"], initial_guess=initial_guess, dataset=dataset,
+                                     base_kinetics=variant_base_kinetics(variant))
+
+
+def summarize_calibration(cal: dict, dataset: dict | None = None) -> dict:
+    """Identifiability, 30/19 W/m3 metrics and the Bionova glucose rule of one calibration."""
+    ds = dataset or load_bionova_reference_dataset()
     ident = compute_jacobian_identifiability(cal["opt_result"], cal["param_names"])
     kin = cal["calibrated_kinetics"]
     s30 = simulate_bionova_condition("stratyx_30_W_m3", kin, ds)
     s19 = simulate_bionova_condition("stratyx_19_W_m3", kin, ds)
+    m30 = compute_validation_metrics(s30, ds, "stratyx_30_W_m3")
+    m19 = compute_validation_metrics(s19, ds, "stratyx_19_W_m3")
+    corr = np.asarray(ident["correlation_matrix"], dtype=float)
+    upper = np.abs(corr[np.triu_indices(len(cal["param_names"]), 1)])
+    finite = upper[np.isfinite(upper)]
     g_pre = {float(ev["day"]): float(ev["pre"]["G"]) for ev in s30["feed_events"]}
+    within = [v["meets_credibility_criterion"] for v in m30["variables"].values()]
+    within += [v["meets_credibility_criterion"] for v in m19["variables"].values()]
+    within += [p["within_2sigma"] for p in m19["points"].values()]
     return {
         "param_names": cal["param_names"],
         "parameter_table": cal["parameter_table"],
         "cost": cal["cost"],
         "ssr_weighted": cal["ssr_weighted"],
         "identifiability": ident,
-        "metrics30": compute_validation_metrics(s30, ds, "stratyx_30_W_m3"),
-        "metrics19": compute_validation_metrics(s19, ds, "stratyx_19_W_m3"),
+        "max_abs_r": float(finite.max()) if finite.size else float("nan"),
+        "metrics30": m30,
+        "metrics19": m19,
+        "all_rmse_within_2sigma": bool(all(within)),
+        "titer_rmse_30": float(m30["variables"]["titer_g_L"]["RMSE"]),
         "g_pre_feed_by_feed_day": g_pre,
         "g_pre_feed_min": min(g_pre.values()),
         "glucose_topup_days": [float(ev["day"]) for ev in s30["feed_events"] if ev["v_gluc_L"] > 0.0],
@@ -315,46 +367,128 @@ def _scenario_summary(cal: dict, ds: dict) -> dict:
     }
 
 
-def compare_k_i_l_m_g_swap(dataset: dict | None = None) -> dict:
-    """Controlled recalibration: scenario A (shipped) vs B (K_I_L = 10 fixed, m_G free).
+def shift_day_sweep(kinetics: CHOKineticParameters | None = None, days=SHIFT_SWEEP_DAYS,
+                    dataset: dict | None = None) -> list:
+    """Bionova protocol (30 W/m3) with the temperature shift moved to each of ``days``."""
+    ds = dataset or load_bionova_reference_dataset()
+    base_cfg = bionova_process_description("stratyx_30_W_m3", ds).model_dump()
+    rows = []
+    for day in days:
+        res = simulate_cho_fed_batch(ProcessDescription(**{**base_cfg, "temp_shift_day": float(day)}),
+                                     kinetics=kinetics)
+        rows.append({
+            "temp_shift_day": float(day),
+            "peak_vcd": res["peak_vcd"],
+            "final_viability_pct": res["final_viability_pct"],
+            "final_nh3_mmol_L": res["final_nh3_mmol_L"],
+            "final_titer_g_L": res["final_titer_g_L"],
+            "harvested_mass_g": res["harvested_mass_g"],
+        })
+    return rows
 
-    Both keep 10 free parameters and the same data, objective and solver. Returns
-    both scenario summaries, the per-metric comparison and the three adoption
-    criteria; ``adopt_scenario_b`` is True only when all three hold.
+
+def compare_calibration_variants(dataset: dict | None = None) -> dict:
+    """A vs B9_base vs B9_causal from the documented prior, and the audit adoption rule.
+
+    Returns each variant's ``summarize_calibration``, the four B9_causal criteria, the
+    temp_shift_day sweep of every variant with titer(shift 14) / titer(shift 7), and
+    ``adopted`` ("B9_causal" only if all four criteria hold, else "B9_base").
     """
     ds = dataset or load_bionova_reference_dataset()
-    a = _scenario_summary(run_parameter_calibration(CALIBRATED_PARAMETER_NAMES, dataset=ds), ds)
-    b = _scenario_summary(run_parameter_calibration(
-        SWAP_SCENARIO_B_FREE, dataset=ds,
-        base_kinetics=replace(CALIBRATED_KINETICS, k_i_lactate=SWAP_K_I_L_FIXED_G_L),
-    ), ds)
-    rows = []
-    for cond in ("metrics30", "metrics19"):
-        for key, va in a[cond]["variables"].items():
-            vb = b[cond]["variables"][key]
-            r2_ok = va["R2"] is None or vb["R2"] >= va["R2"] - SWAP_R2_MAINTAIN_TOL
-            rmse_ok = vb["RMSE"] <= va["RMSE"] * (1.0 + SWAP_RMSE_MAINTAIN_REL_TOL)
-            rows.append({"condition": a[cond]["condition"], "variable": key,
-                         "R2_A": va["R2"], "R2_B": vb["R2"], "RMSE_A": va["RMSE"], "RMSE_B": vb["RMSE"],
-                         "maintained_or_improved": bool(r2_ok and rmse_ok)})
-        for key, pa in a[cond]["points"].items():
-            pb = b[cond]["points"][key]
-            ok = abs(pb["abs_error"]) <= abs(pa["abs_error"]) * (1.0 + SWAP_RMSE_MAINTAIN_REL_TOL)
-            rows.append({"condition": a[cond]["condition"], "variable": key,
-                         "R2_A": None, "R2_B": None, "RMSE_A": abs(pa["abs_error"]), "RMSE_B": abs(pb["abs_error"]),
-                         "maintained_or_improved": bool(ok)})
+    summaries = {name: summarize_calibration(calibrate_variant(name, ds), ds) for name in CALIBRATION_VARIANTS}
+    base, causal = summaries["B9_base"], summaries["B9_causal"]
     criteria = {
-        "cond_improves": bool(b["identifiability"]["condition_number"] < a["identifiability"]["condition_number"]),
-        "metrics_maintained_or_improved": all(r["maintained_or_improved"] for r in rows),
-        "no_parameter_at_or_near_bound": not b["params_at_or_near_bound"],
+        "all_parameters_interior": not causal["params_at_or_near_bound"],
+        "cond_below_60_and_no_collinear_pair": bool(
+            causal["identifiability"]["condition_number"] < B9_CAUSAL_COND_MAX
+            and not causal["identifiability"]["collinear_pairs"]),
+        "rmse_within_2sigma_and_titer_not_worse": bool(
+            causal["all_rmse_within_2sigma"] and causal["titer_rmse_30"] <= base["titer_rmse_30"]),
+        "bionova_natural_glucose_topup": bool(causal["glucose_topup_days"]),
     }
+    sweeps = {name: shift_day_sweep(s["calibrated_kinetics"], dataset=ds) for name, s in summaries.items()}
+    by_day = {name: {row["temp_shift_day"]: row for row in rows} for name, rows in sweeps.items()}
     return {
-        "scenario_a": a,
-        "scenario_b": b,
-        "metric_comparison": rows,
-        "metrics_worsened": [(r["condition"], r["variable"]) for r in rows if not r["maintained_or_improved"]],
-        "criteria": criteria,
-        "adopt_scenario_b": all(criteria.values()),
+        "variants": summaries,
+        "b9_causal_criteria": criteria,
+        "adopted": "B9_causal" if all(criteria.values()) else "B9_base",
+        "shift_day_sweeps": sweeps,
+        "titer_shift14_over_shift7": {
+            name: rows[14.0]["final_titer_g_L"] / rows[7.0]["final_titer_g_L"] for name, rows in by_day.items()},
+    }
+
+
+def run_multistart_calibration(variant: str, dataset: dict | None = None, n_random: int = 8,
+                               seed: int = 20261121) -> dict:
+    """Convergence check of one variant: the documented prior plus ``n_random`` starts.
+
+    Random starts are drawn uniformly in the central 80 % of each bound (fixed seed,
+    reproducible). Returns every start's SSR and parameter vector, the best start, the
+    SSR spread and the largest parameter spread as a fraction of its bound span.
+    """
+    ds = dataset or load_bionova_reference_dataset()
+    free = CALIBRATION_VARIANTS[variant]["free"]
+    rng = np.random.default_rng(seed)
+    starts = {"prior": {}}
+    for i in range(n_random):
+        guess = {}
+        for name in free:
+            lo, hi = PARAMETER_BOUNDS[name]
+            guess[name] = float(lo + (0.1 + 0.8 * rng.random()) * (hi - lo))
+        starts[f"random_{i}"] = guess
+    runs = []
+    for label, guess in starts.items():
+        cal = calibrate_variant(variant, ds, initial_guess=guess)
+        runs.append({"start": label, "ssr_weighted": cal["ssr_weighted"], "x": cal["x"].copy(),
+                     "params_at_or_near_bound": [r["parameter"] for r in cal["parameter_table"]
+                                                 if r["status"] != "interior"]})
+    best = min(runs, key=lambda r: r["ssr_weighted"])
+    span = np.array([PARAMETER_BOUNDS[n][1] - PARAMETER_BOUNDS[n][0] for n in free], dtype=float)
+    return {
+        "variant": variant,
+        "n_starts": len(runs),
+        "runs": runs,
+        "best_start": best["start"],
+        "ssr_best": best["ssr_weighted"],
+        "ssr_spread": max(r["ssr_weighted"] for r in runs) - best["ssr_weighted"],
+        "max_param_spread_frac": max(float(np.max(np.abs(r["x"] - best["x"]) / span)) for r in runs),
+    }
+
+
+def profile_mu_max_34_0(values=MU_MAX_34_0_PROFILE_VALUES, dataset: dict | None = None) -> dict:
+    """Profile likelihood of mu_max(34.0) in the B9_base structure.
+
+    For each value, mu_max(34.0) is fixed and the nine B9_base parameters are
+    re-optimised, warm-started from the B9_base optimum. delta_ssr is relative to the
+    fixed audit value (0.35 1/d); the value lies inside the approximate 95 % interval
+    when SSR(0.35) - min SSR <= chi2(1, 0.95) = 3.84 (declared sigmas).
+    """
+    ds = dataset or load_bionova_reference_dataset()
+    fixed = AUDIT_FIXED_VALUES["mu_max_34_0"]
+    free = CALIBRATION_VARIANTS["B9_base"]["free"]
+    base = variant_base_kinetics("B9_base")
+    warm = calibrate_variant("B9_base", ds)
+    guess = {row["parameter"]: row["value"] for row in warm["parameter_table"]}
+    grid = sorted(set(float(v) for v in values) | {fixed})
+    rows = []
+    for value in grid:
+        cal = run_parameter_calibration(free, initial_guess=guess, dataset=ds,
+                                        base_kinetics=replace(base, mu_max_34_0=value))
+        rows.append({"mu_max_34_0": value, "ssr_weighted": cal["ssr_weighted"],
+                     "params_at_or_near_bound": [r["parameter"] for r in cal["parameter_table"]
+                                                 if r["status"] != "interior"]})
+    ssr_fixed = next(r["ssr_weighted"] for r in rows if r["mu_max_34_0"] == fixed)
+    for r in rows:
+        r["delta_ssr_vs_fixed"] = r["ssr_weighted"] - ssr_fixed
+    best = min(rows, key=lambda r: r["ssr_weighted"])
+    return {
+        "rows": rows,
+        "fixed_value": fixed,
+        "ssr_at_fixed": ssr_fixed,
+        "grid_minimum": {"mu_max_34_0": best["mu_max_34_0"], "ssr_weighted": best["ssr_weighted"]},
+        "delta_ssr_fixed_vs_min": ssr_fixed - best["ssr_weighted"],
+        "delta_ssr_95": PROFILE_DELTA_SSR_95,
+        "fixed_value_inside_95": bool(ssr_fixed - best["ssr_weighted"] <= PROFILE_DELTA_SSR_95),
     }
 
 
