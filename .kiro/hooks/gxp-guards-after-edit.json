@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "GxP guards after edits in src/ or docs/",
+      "description": "Runs the read-only static guards (< 2 s) after each agent file write. --hook reads the event JSON on stdin and skips writes outside src/, docs/, data/ and .kiro/. PostToolUse with the built-in 'write' tool category runs in Kiro IDE, CLI V3 and Web (Web has no file triggers).",
+      "trigger": "PostToolUse",
+      "matcher": "write",
+      "action": {
+        "type": "command",
+        "command": "python scripts/verify_gxp_guards.py --hook"
+      },
+      "timeout": 30
+    }
+  ]
+}

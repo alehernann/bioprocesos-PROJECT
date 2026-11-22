@@ -118,7 +118,21 @@ Correr la prueba de humo del tablero (Streamlit AppTest, 17 pruebas, con `Deprec
 python -m pytest -v tests_app
 ```
 
-La CI de GitHub Actions (`.github/workflows/csa_validation.yml`) ejecuta Python 3.11 y corre las dos suites en cada push y pull request a `main`. No se ha verificado la compatibilidad con otras versiones de Python. La CI no publica `docs/04_Automated_OQ_Execution_Log.md`: el log versionado se genera localmente al ejecutar `python -m pytest -v`, y la CI vuelve a correr las pruebas de forma independiente.
+Correr la suite de propiedades (Hypothesis, 7 propiedades con 60 ejemplos deterministas cada una, unos 3 s, con `DeprecationWarning` tratado como error). Vive en `tests_pbt/`, fuera de `tests/`, igual que `tests_app/`: asi no reescribe `docs/04_Automated_OQ_Execution_Log.md`, que queda como el registro determinista de la OQ. Con `tests/` y `tests_app/` son 48 pruebas:
+
+```bash
+python -m pytest -v tests_pbt/
+```
+
+Correr las guardas estaticas GxP (menos de 2 s, solo biblioteca estandar, no escriben archivos) y la verificacion de mutantes de la suite de propiedades (11 fallas inyectadas en memoria, sin tocar `src/`):
+
+```bash
+python scripts/verify_gxp_guards.py
+python scripts/verify_gxp_guards.py --frozen-base v1.4.0
+python scripts/mutation_check_pbt.py
+```
+
+La CI de GitHub Actions (`.github/workflows/csa_validation.yml`) ejecuta Python 3.11 y, en cada push y pull request a `main`, corre `scripts/verify_gxp_guards.py` y las tres suites (`tests/`, `tests_app/` y `tests_pbt/`). No se ha verificado la compatibilidad con otras versiones de Python. La CI no publica `docs/04_Automated_OQ_Execution_Log.md`: el log versionado se genera localmente al ejecutar `python -m pytest -v`, y la CI vuelve a correr las pruebas de forma independiente.
 
 Reproducir la calibracion (fuera de linea; el tablero nunca la ejecuta) y la verificacion numerica:
 
@@ -134,6 +148,35 @@ Lanzar el tablero interactivo:
 ```bash
 streamlit run app/dashboard.py
 ```
+
+## Arnes de ingenieria GxP (`.kiro/`, guardas y pruebas de propiedades)
+
+Kiro (IDE, CLI V3 y Web) lee los archivos de `.kiro/` desde la raiz del repositorio cuando el espacio de trabajo es de confianza. No forman parte del software validado: guian y verifican el trabajo de los agentes en este repositorio.
+
+| Archivo | Funcion |
+| --- | --- |
+| `.kiro/steering/gxp-scientific-integrity.md` | Siempre incluido. Honestidad cientifica (KPI medidos, `config.mode` fuera de la cinetica, criterios pre-registrados), tipos de dato (`printed_exact`, `digitized_figure_approx`, supuestos de modelado), modulos congelados, politica de Git y E/S UTF-8 con `pathlib`. |
+| `.kiro/steering/bioprocess-numerics.md` | Incluido al trabajar en `src/` y `tests_pbt/`. Integracion por tramos RK45/Radau, RHS continuo y positivo, balance de masa exacto por bolo, evidencia minima de una recalibracion y presupuesto de latencia. |
+| `.kiro/steering/gxp-docs-traceability.md` | Incluido al trabajar en `docs/`, `tests/` y `CHANGELOG.md`. EARS, marco regulatorio, RTM bidireccional y docs/04 generado. |
+| `.kiro/agents/gxp-auditor.md` | Agente auditor de solo lectura (sin escritura de archivos). Audita un cambio con un checklist de 10 puntos y emite PASS, PASS WITH OBSERVATIONS o BLOCK con archivo y linea. En Kiro Web se usa como sub-agente. |
+| `.kiro/hooks/gxp-guards-after-edit.json` | Despues de cada escritura de archivos del agente (PostToolUse) corre `python scripts/verify_gxp_guards.py --hook`, que solo verifica si la edicion cae en `src/`, `docs/`, `data/` o `.kiro/`. |
+| `.kiro/hooks/gxp-checklist-on-stop.json` | Al cerrar el turno del agente (Stop) pide el checklist GxP de cierre. |
+
+`scripts/verify_gxp_guards.py` verifica que `src/` compile y no tenga NaN/Inf en sus constantes, que `config.mode` y `glucose_feedback_in_static` no lleguen a `_build_rhs` ni a las funciones cineticas (AST con analisis de flujo de datos y de control), que los `.py`, `.md`, `.json` y `.yml` sean UTF-8 sin BOM, que los JSON de `.kiro/` y `data/` sean JSON estricto y que hooks, steering y agentes tengan un formato valido. Con `--frozen-base <ref>` compara ademas el AST (sin docstrings) de `evaluate_amab_design_space`, `AuditTrailLogger` y `src/thermal_vtb_mkt.py` con esa referencia.
+
+Propiedades de `tests_pbt/test_gxp_invariants_pbt.py` (cada una mata al menos un mutante de `scripts/mutation_check_pbt.py`):
+
+| Prueba | Requisitos | Invariante |
+| --- | --- | --- |
+| `test_pbt_01_fedbatch_positivity_capacity_and_mass_conservation` | URS-07, NFR-01, NFR-04, NFR-06 | Cualquier `ProcessDescription` valida: sin NaN/Inf, concentraciones >= 0, viabilidad en [0, 100] %, 0 < V(t) <= volumen del recipiente, resultados identicos al repetir, cambio termico posterior al fin rechazado y masa de las 6 especies conservada en cada bolo. |
+| `test_pbt_02_ph_split_range_universal_exclusivity_and_bounds` | URS-03, URS-04, URS-05 | Nunca ambos actuadores activos, salidas en [0, 100] %, reposo en la banda muerta, actuacion fuera de ella y monotonia en pH. |
+| `test_pbt_03_oxygen_scaleup_monotonicity_and_enrichment` | URS-06 | OTR >= 0, no crece con el DO, no baja con el enriquecimiento de O2, y `oxygen_sufficient` coincide con OTR >= OUR. |
+| `test_pbt_04_amab_design_space_bounds_gate` | URS-13 | `design_space_holds` exige `in_bounds` y z1..z4 >= 4.60 (con el redondeo de la funcion); fuera de la caja de A-Mab nunca es True. |
+| `test_pbt_05_mkt_arrhenius_jensen_and_vtb_contraction` | URS-14, NFR-03 | min(T) <= media <= MKT <= max(T) (Jensen), el VTB no sale del rango de la traza y conserva trazas constantes (hasta la cota de redondeo), y el alias plegado queda en [0, f_Nyquist]. |
+| `test_pbt_06_part11_audit_chain_any_field_tamper_detection` | URS-15 (Part 11, Annex 22) | La cadena SHA-256 verifica; alterar cualquiera de los 9 campos de cualquier registro la rompe; sin aprobacion humana no se registra nada. |
+| `test_pbt_07_spc_tost_symmetry_and_capability_ordering` | URS-15 (SPC) | Ppk <= Pp, Cpk <= Cp, TOST simetrico y, con grupos identicos, equivalencia exactamente cuando el margen supera t(0.95, 2(n-1)) por el error estandar. |
+
+Los casos de borde de v1.4.0 que encontro esta suite (sin cambios en `src/`) estan en `CHANGELOG.md`, seccion `[Unreleased]`.
 
 ## Nota de calibracion del gemelo digital (v1.4.0)
 
@@ -248,7 +291,7 @@ Trabajo futuro (v1.5.0, decision de la auditoria): un retardo tau_T de la respue
 
 **Six Sigma** (Gorsky Tabla 6.2, n=30, lb/in; unidad impresa asi en Gorsky, Tabla 6-2; dimensionalmente un torque se expresaria en lbf·in, observacion del repo, no de la fuente): **Ppk 0.51**, **Cpk(within) 0.43**, **Shapiro-Wilk p = 0.243**, **0 puntos fuera de control** (regla 1 I-MR, supuestos de capacidad cumplidos); intervalo de tolerancia ISO 16269-6 (Tabla 6.1, n=10, kp) con **k_factor 3.394**. La pestana 4 incluye TOST + Levene editable.
 
-**Calificacion operacional:** **24/24 pruebas OQ** y 17/17 pruebas de humo del tablero.
+**Calificacion operacional:** **24/24 pruebas OQ** y 17/17 pruebas de humo del tablero. Fuera de la OQ, 7/7 propiedades de Hypothesis (`tests_pbt/`).
 
 Las paginas de A-Mab v2.1 que cita el repo para el espacio de diseno (pp. 90-92 y 100-106) respaldan las ecuaciones de N-glicanos (`evaluate_amab_design_space`), no la cinetica del gemelo. Para transferencia de oxigeno el repo cita A-Mab Ec. 4 (p.101), Fig. 3.11 (p.102), Fig. 3.12 (enriquecimiento con O2) y Tabla 3.22.
 

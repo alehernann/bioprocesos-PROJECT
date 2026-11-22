@@ -1,0 +1,14 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "GxP close-out checklist",
+      "description": "Before the agent ends its turn, asks for the GxP close-out checklist. A turn without file changes answers in one line. Runs in Kiro IDE, CLI V3 and Web.",
+      "trigger": "Stop",
+      "action": {
+        "type": "agent",
+        "prompt": "Checklist GxP de cierre (bioprocesos-PROJECT). Si este turno no modificó archivos, responde solo 'Checklist GxP: sin cambios' y termina. Si los modificó, antes de cerrar: (1) corre `python scripts/verify_gxp_guards.py` y reporta el resultado; (2) con `git status --short` y `git diff --stat`, confirma que no hay cambios en src/, app/, data/ ni tests/ sin control de cambios aprobado y que docs/04_Automated_OQ_Execution_Log.md no se editó a mano (si solo cambiaron la marca de tiempo y las duraciones tras `python -m pytest -v tests/`, restáuralo con `git restore`); (3) confirma que no se relajó ningún criterio ni tolerancia y que ningún KPI quedó escrito a mano; (4) confirma que README.md, CHANGELOG.md ([Unreleased]) y docs/01-03 siguen alineados con el cambio; (5) lista los comandos corridos con su resultado. Para una revisión completa antes de un commit o PR, delega en el agente gxp-auditor (.kiro/agents/gxp-auditor.md)."
+      }
+    }
+  ]
+}

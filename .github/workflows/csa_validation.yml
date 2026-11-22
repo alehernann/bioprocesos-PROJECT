@@ -23,8 +23,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Run GxP static guards
+        run: python scripts/verify_gxp_guards.py
+
       - name: Run OQ validation suite
         run: python -m pytest -v tests/
 
       - name: Run dashboard smoke tests
         run: python -m pytest -v tests_app/
+
+      - name: Run Property-Based Testing (Hypothesis invariants)
+        run: python -m pytest -v tests_pbt/
