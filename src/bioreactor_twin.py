@@ -389,6 +389,9 @@ KD_HYPOXIA = 0.1             # 1/d extra death at DO_real = 0
 PASTEUR_FRACTION = 0.8       # max fraction of maintenance glucose fermented at DO_real = 0
 KD_SHEAR = 0.03              # 1/d extra death per unit of sigma_total
 ALPHA_SHEAR_QP = 1.0         # qp / (1 + ALPHA_SHEAR_QP * sigma_total)
+# NH3 inhibition of qp: qp / (1 + K_P_NH3 * max(0, NH3 - NH3_DEATH_ONSET_MM)^2), C1 at
+# the 5 mM onset shared with kd_NH3. 0 = no NH3 effect on qp (v1.4.0 audit B9 experiment).
+K_P_NH3 = 0.0                # mM^-2
 
 T_ANCHORS_C = (34.0, 36.5)   # mu_max(T) and qp(T) are linear between the anchors
 
@@ -412,6 +415,7 @@ class CHOKineticParameters:
     kd_nh3: float = KD_NH3
     qp_36_5: float = QP_36_5
     qp_34_0: float = QP_34_0
+    k_p_nh3: float = K_P_NH3
     k_s_glucose: float = K_S_G
     k_i_nh3: float = K_I_NH3
     nh3_death_onset: float = NH3_DEATH_ONSET_MM
@@ -460,6 +464,10 @@ PARAMETER_BOUNDS = {
     "kd_basal": (0.0, 0.1),
     "k_lysis": (0.0, 3.0),
     "k_i_nh3": (2.0, 60.0),
+    # B9_causal productivity (v1.4.0 audit): qp_0 sets qp_36_5 = qp_34_0 (no T effect
+    # on qp; tied in src/model_validation.py) and k_p_nh3 the NH3 inhibition of qp.
+    "qp_0": (0.005, 0.030),
+    "k_p_nh3": (0.0, 0.5),
 }
 
 # ---------------------------------------------------------------------------
@@ -533,6 +541,7 @@ def _build_rhs(kp: CHOKineticParameters, temp_C: float, do_setpoint_pct: float,
     k_l = kp.k_lac_uptake
     q_n = kp.q_nh3
     qp_eff = qp / (1.0 + kp.alpha_shear_qp * sigma_shear)
+    k_pn = kp.k_p_nh3
     # Oxygen balance constants (see compute_dissolved_oxygen_state).
     c_max = C_STAR_O2_MMOL_L * y_o2_max / Y_O2_AIR
     c_sp = C_STAR_O2_MMOL_L * do_setpoint_pct / 100.0
@@ -582,7 +591,7 @@ def _build_rhs(kp: CHOKineticParameters, temp_C: float, do_setpoint_pct: float,
             -(growth_glc + maint_glc) * xv,
             (q_lac_prod - q_lac_cons) * xv,
             q_n * xv,
-            qp_eff * f_do * xv,
+            qp_eff / (1.0 + k_pn * nh3_excess * nh3_excess) * f_do * xv,
         ]
 
     return rhs
@@ -677,7 +686,8 @@ def simulate_cho_fed_batch(
         q_Lc   = Q_LAC_MAX * (1 - mu/mu_max(36.5)) * L/(K_L+L) * f_do(DO_real)
         dL/dt  = (q_Lp - q_Lc) * Xv
         dNH3/dt = Q_NH3 * Xv
-        dP/dt  = qp(T) * f_do(DO_real) / (1 + ALPHA_SHEAR_QP * sigma_total) * Xv
+        dP/dt  = qp(T) / (1 + K_P_NH3 * max(0, NH3-NH3_crit)^2) * f_do(DO_real)
+                 / (1 + ALPHA_SHEAR_QP * sigma_total) * Xv
 
     Lactate switch: production follows the growth-associated glycolytic flux
     (overflow, Y_L_G of mu/Y_X_G) and uptake is repressed in proportion to the

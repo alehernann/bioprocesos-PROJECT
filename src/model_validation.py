@@ -71,7 +71,14 @@ CALIBRATION_INITIAL_GUESS = {
     "kd_basal": 0.03,
     "k_lysis": 1.0,
     "k_i_nh3": 20.0,
+    "qp_0": 0.012,
+    "k_p_nh3": 0.05,
 }
+
+# Calibration names that set several CHOKineticParameters fields to one value.
+# qp_0 ties both temperature anchors of qp (qp_36_5 = qp_34_0): qp without a
+# temperature effect (B9_causal productivity, v1.4.0 audit).
+TIED_PARAMETERS = {"qp_0": ("qp_36_5", "qp_34_0")}
 
 # Data that would make each parameter identifiable when the Bionova run cannot.
 ADDITIONAL_DATA_NEEDED = {
@@ -91,6 +98,8 @@ ADDITIONAL_DATA_NEEDED = {
     "kd_basal": "dead-cell (not only viability) counts in the growth phase",
     "k_lysis": "total-cell and LDH measurements to quantify lysis",
     "k_i_nh3": "NH4Cl spiking experiments in the growth phase",
+    "qp_0": "titer samples before day 8 and an isothermal 36.5 C control run",
+    "k_p_nh3": "NH4Cl spiking (5-15 mM) at constant temperature with daily titer samples",
 }
 
 # Credibility acceptance criteria (ASME V&V 40, context of use: decision support for
@@ -172,7 +181,11 @@ def calibration_residuals(sim_res: dict, dataset: dict) -> np.ndarray:
 
 
 def _kinetics_from_vector(names, x, base: CHOKineticParameters) -> CHOKineticParameters:
-    return replace(base, **{n: float(v) for n, v in zip(names, x)})
+    updates = {}
+    for n, v in zip(names, x):
+        for field_name in TIED_PARAMETERS.get(n, (n,)):
+            updates[field_name] = float(v)
+    return replace(base, **updates)
 
 
 def run_parameter_calibration(
