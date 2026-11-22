@@ -13,21 +13,42 @@ category:
 Floating-point assertions use ``pytest.approx`` with engineering tolerances. All
 expected numeric values were verified against the ACTUAL function outputs before
 being written (honesty constraint: equations/tests are not altered to force a pass).
+
+v1.4.0 change control (CHANGELOG 1.4.0, docs/03 section 10): test_oq_03, 03b, 03c,
+03d, 03e, 04b and 06b were revised for the calibrated six-state model, and
+test_oq_03f, 03g, 03h and 08b are new. ASME V&V 40 split: software verification
+(OQ: balances, positivity, convergence, slider-domain stability) versus model
+validation against Bionova NISTCHO 2026 (test_oq_03g).
 """
+
+import itertools
+import time
+from dataclasses import replace
 
 import numpy as np
 import pydantic
 import pytest
+from scipy import stats
 
+from src import model_validation as mv
 from src.amab_design_space import (
     AMAB_MEASURED_KLA_H_INV,
+    C_STAR_O2_MMOL_L,
+    C_STAR_PURE_O2_MMOL_L,
+    Y_O2_AIR,
     compute_scale_up_engineering,
     evaluate_amab_design_space,
     measured_kla_for_volume,
 )
 from src.audit_trail_part11 import AuditTrailLogger
+import src.bioreactor_twin as twin
 from src.bioreactor_twin import (
+    CALIBRATED_KINETICS,
+    G_BOOST_CONC,
+    NH3_DEATH_ONSET_MM,
     check_safety_interlocks,
+    compute_dissolved_oxygen_state,
+    compute_hydrodynamic_stress,
     compute_split_range_ph_actuators,
     get_temperature_setpoint,
     do_hypoxia_factor,
@@ -37,6 +58,7 @@ from src.models import ProcessDescription
 from src.spc_six_sigma import (
     GORSKY_TABLE_6_1_TORQUE_N10,
     GORSKY_TABLE_6_2_TORQUE_N30,
+    compare_bioreactor_equivalence_tost,
     compare_bioreactor_equivalence_ttest,
     compute_iso16269_tolerance_interval,
     compute_process_capability,
@@ -124,141 +146,416 @@ def test_oq_02_automated_day7_temperature_shift():
     assert logger.verify_chain_integrity() is True
 
 
-def test_oq_03_closed_loop_vs_static_titer_gain():
-    """Adaptive glucose feed: real top-ups, lactate consumption, directional gain.
+def _assert_glucose_rule(res, g_min, g_target):
+    """Event-by-event check of the URS-07 pre-feed rule; returns the number of top-ups."""
+    fired = 0
+    for ev in res["feed_events"]:
+        v_old, v_basal = ev["V_old_L"], ev["v_basal_L"]
+        g_pre = ev["pre"]["G"]
+        g_actual = (g_pre * v_old + v_basal * G_BOOST_CONC) / (v_old + v_basal)
+        needed = (g_pre < g_min or g_actual < g_min) and g_actual < g_target
+        if needed:
+            fired += 1
+            assert ev["v_gluc_L"] > 0.0, ev["day"]
+            assert ev["post"]["G"] == pytest.approx(g_target, abs=1e-9), ev["day"]
+        else:
+            assert ev["v_gluc_L"] == 0.0, ev["day"]
+        assert ev["post"]["G"] >= g_min, ev["day"]
+    return fired
 
-    The titer gain is NOT asserted against a fixed band: it must emerge from the
-    model equations, so only the direction (closed_loop > static) is required.
+
+def test_oq_03_closed_loop_vs_static_titer_gain():
+    """URS-07 pre-feed glucose rule event by event and URS-08 emergent closed_loop vs static comparison.
+
+    v1.4.0 change control. The rule is armed in closed_loop and in static with
+    glucose_feedback_in_static=True (the Bionova protocol; mode stays binary). A top-up
+    fires exactly when the pre-feed (or post-bolus) glucose is below the trigger and the
+    bolus alone does not reach the target, and it lands exactly on the target. With the
+    calibrated constants (B9_base) the rule fires by itself in the Bionova recipe (static
+    with glucose_feedback_in_static): pre-feed G falls below 2.0 g/L on day 12. In
+    closed_loop the Ark boluses of days 8 and 10 keep pre-feed G above the trigger, so the
+    rule is also exercised there with a validated higher trigger (6.0 -> 9.0 g/L). URS-08
+    is directional on harvested mass and final viability; the g/L titer difference is
+    emergent and only reported, because the larger Ark feed volume dilutes the titer.
     """
+    feed_days = [2.0, 4.0, 6.0, 8.0, 10.0, 12.0]
     static = simulate_cho_fed_batch(ProcessDescription(mode="static"))
     closed = simulate_cho_fed_batch(ProcessDescription(mode="closed_loop"))
-    feed_days = (2.0, 4.0, 6.0, 8.0, 10.0, 12.0)
+    # Bionova protocol: static recipe with the pre-feed glucose rule armed.
+    baseline = simulate_cho_fed_batch(ProcessDescription(mode="static", glucose_feedback_in_static=True))
 
-    # URS-07: glucose actually falls below the 2.0 g/L trigger and is never
-    # overfed above 6.5 g/L.
-    glucose = closed["glucose_g_L"]
-    assert min(glucose) < 2.0
-    assert max(glucose) <= 6.5
+    # URS-07 with the default 2.0 -> 5.0 g/L rule.
+    fired = {}
+    for name, res in (("closed_loop", closed), ("bionova_recipe", baseline)):
+        assert [ev["day"] for ev in res["feed_events"]] == feed_days
+        fired[name] = _assert_glucose_rule(res, 2.0, 5.0)
+        glucose, time_days = res["glucose_g_L"], res["time_days"]
+        for fd in feed_days:
+            assert glucose[time_days.index(fd)] >= 2.0
+    assert all(ev["v_gluc_L"] == 0.0 for ev in static["feed_events"])
+    # Natural trigger in the Bionova recipe (day 12, pre-feed G < 2.0 g/L); none in closed_loop.
+    topups = [ev for ev in baseline["feed_events"] if ev["v_gluc_L"] > 0.0]
+    assert fired == {"closed_loop": 0, "bionova_recipe": 1}
+    assert [ev["day"] for ev in topups] == [12.0] and topups[0]["pre"]["G"] < 2.0
 
-    # URS-07: after each feed event glucose is back at or above the trigger.
-    config = ProcessDescription(mode="closed_loop")
-    threshold = config.glucose_min_threshold_g_L
-    time_days = closed["time_days"]
-    for feed_day in feed_days:
-        idx = time_days.index(feed_day)
-        assert glucose[idx] >= threshold, (
-            f"glucose {glucose[idx]:.3f} below threshold {threshold} "
-            f"after feed day {feed_day}"
-        )
+    # URS-07 exercised with a validated higher trigger (6.0 -> 9.0 g/L).
+    high = dict(glucose_min_threshold_g_L=6.0, glucose_refill_target_g_L=9.0)
+    for cfg in (dict(mode="closed_loop"), dict(mode="static", glucose_feedback_in_static=True)):
+        res = simulate_cho_fed_batch(ProcessDescription(**cfg, **high))
+        assert _assert_glucose_rule(res, 6.0, 9.0) >= 1, cfg
+        assert res["total_feed_volume_L"] > sum(ev["v_basal_L"] for ev in res["feed_events"])
+    static_high = simulate_cho_fed_batch(ProcessDescription(mode="static", **high))
+    assert all(ev["v_gluc_L"] == 0.0 for ev in static_high["feed_events"])
+    # The flag arms the rule only: the static bolus recipe is unchanged.
+    for ev_flag, ev_plain in zip(baseline["feed_events"], static["feed_events"]):
+        assert ev_flag["v_basal_L"] == ev_plain["v_basal_L"]
 
-    # URS-07: the glucose top-up really fires (V_gluc > 0). The simulator does not
-    # return the basal-bolus volume, so it is derived from its outputs: the static
-    # run receives only basal boluses, one per feed day, so its total feed volume
-    # divided by the number of volume steps is the unscaled basal bolus. The
-    # closed_loop basal train scales that bolus by the documented Ark adaptive
-    # factors (1.80 on day 8, 1.82 on day 10, 1.0 otherwise; Ark reports +80 % /
-    # +82 % versus the day-0 plan).
-    static_steps = [
-        b - a for a, b in zip(static["volume_L"], static["volume_L"][1:]) if b > a
-    ]
-    assert len(static_steps) == len(feed_days)
-    basal_bolus_L = static["total_feed_volume_L"] / len(feed_days)
-    for step in static_steps:
-        assert step == pytest.approx(basal_bolus_L, rel=1e-3)
-    adaptive_factor = {8.0: 1.80, 10.0: 1.82}
-    closed_basal_L = sum(basal_bolus_L * adaptive_factor.get(d, 1.0) for d in feed_days)
-    assert closed["total_feed_volume_L"] > closed_basal_L
+    # Bolus train: 4.62 % of V0 on every feed day; closed_loop x1.80 on day 8 and x1.82
+    # on day 10 (Ark reports +80 % / +82 % versus the day-0 plan).
+    v0 = 0.70 * 0.25
+    for ev in static["feed_events"]:
+        assert ev["v_basal_L"] == pytest.approx(0.0462 * v0, rel=1e-12)
+    factors = {8.0: 1.80, 10.0: 1.82}
+    for ev in closed["feed_events"]:
+        assert ev["v_basal_L"] == pytest.approx(0.0462 * v0 * factors.get(ev["day"], 1.0), rel=1e-12)
 
-    # Net lactate consumption: final lactate below its peak.
-    lactate = closed["lactate_g_L"]
-    assert lactate[-1] < max(lactate)
+    # Net lactate reconsumption after the peak in both modes.
+    for res in (static, closed):
+        assert res["lactate_g_L"][-1] < res["peak_lactate_g_L"]
 
-    # URS-08: directional advantage only (emergent, no fixed gain band).
-    assert closed["final_titer_g_L"] > static["final_titer_g_L"]
+    # URS-08: directional on harvested mass and viability (emergent, no fixed band).
+    assert closed["harvested_mass_g"] > static["harvested_mass_g"]
     assert closed["final_viability_pct"] > static["final_viability_pct"]
 
 
-
 def test_oq_03b_vessel_capacity_and_bolus_mass_balance():
-    """V0 = 0.70*vessel, V(t) <= vessel and exact mass balance in every feed bolus.
+    """V0 = initial_fill_fraction * vessel, V(t) <= vessel and exact six-species balance in every bolus.
 
-    Checked at 0.25 L and 2.0 L in both modes. The mass balance is verified against
-    the recorded post-feed series: C_before*V_old + added == C_after*V_new.
+    Checked at 0.25 L and 2.0 L, for static, static with glucose feedback and closed_loop,
+    at the default fill (0.70) and at the Bionova fill (0.76 = 190/250 mL):
+    C_before*V_old + added == C_after*V_new for Xv, Xd, G, L, NH3 and titer, against the
+    event record and the recorded post-feed series. The daily_pre_feed state of a feed
+    day is the state before its bolus. No bolus falls on the harvest day: a 14-day run
+    has exactly 6 boluses (days 2-12), a 12-day run 5.
     """
-    for vessel in (0.25, 2.0):
-        for mode in ("static", "closed_loop"):
-            res = simulate_cho_fed_batch(
-                ProcessDescription(mode=mode, vessel_volume_L=vessel)
-            )
-            volume = res["volume_L"]
-            assert volume[0] == pytest.approx(0.70 * vessel, abs=1e-12)
-            assert max(volume) <= vessel + 1e-12
-            assert len(res["feed_events"]) == 6
-            for ev in res["feed_events"]:
-                k = ev["step_index_after"]
-                v_old, v_new = ev["V_old_L"], ev["V_new_L"]
-                assert 0.0 <= ev["scale_factor"] <= 1.0
-                assert v_new == pytest.approx(
-                    v_old + ev["v_basal_L"] + ev["v_gluc_L"], abs=1e-12
-                )
-                assert volume[k] == pytest.approx(v_new, abs=1e-12)
-                for key, series, added in (
-                    ("G", "glucose_g_L", ev["glucose_added_g"]),
-                    ("L", "lactate_g_L", 0.0),
-                    ("Titer", "titer_g_L", 0.0),
-                    ("Xv", "vcd", 0.0),
-                ):
-                    before = ev["pre"][key] * v_old + added
-                    after = res[series][k] * v_new
-                    assert after == pytest.approx(before, abs=1e-9), (vessel, mode, key)
+    series = {
+        "Xv": "vcd", "Xd": "dead_cell_density", "G": "glucose_g_L",
+        "L": "lactate_g_L", "NH3": "nh3_mmol_L", "Titer": "titer_g_L",
+    }
+    for fill in (0.70, 0.76):
+        for vessel in (0.25, 2.0):
+            for mode, feedback in (("static", False), ("static", True), ("closed_loop", False)):
+                res = simulate_cho_fed_batch(ProcessDescription(
+                    mode=mode, glucose_feedback_in_static=feedback,
+                    vessel_volume_L=vessel, initial_fill_fraction=fill,
+                ))
+                volume = res["volume_L"]
+                assert volume[0] == pytest.approx(fill * vessel, abs=1e-12)
+                assert max(volume) <= vessel + 1e-12
+                assert len(res["feed_events"]) == 6
+                for ev in res["feed_events"]:
+                    k = ev["step_index_after"]
+                    v_old, v_new = ev["V_old_L"], ev["V_new_L"]
+                    assert 0.0 <= ev["scale_factor"] <= 1.0
+                    assert v_new == pytest.approx(v_old + ev["v_basal_L"] + ev["v_gluc_L"], abs=1e-12)
+                    assert volume[k] == pytest.approx(v_new, abs=1e-12)
+                    for key, name in series.items():
+                        added = ev["glucose_added_g"] if key == "G" else 0.0
+                        before = ev["pre"][key] * v_old + added
+                        assert ev["post"][key] * v_new == pytest.approx(before, abs=1e-9), (fill, vessel, mode, feedback, key)
+                        assert res[name][k] * v_new == pytest.approx(before, abs=1e-9), (fill, vessel, mode, feedback, key)
+                    pre_day = res["daily_pre_feed"][int(ev["day"])]
+                    assert pre_day["G"] == pytest.approx(ev["pre"]["G"], abs=1e-12)
+                    assert pre_day["V"] == pytest.approx(v_old, abs=1e-12)
+
+    # No bolus on the harvest day: feed days 2, 4, ..., 12 strictly before the end.
+    for duration, n_boluses in ((5, 2), (12, 5), (13, 6), (14, 6), (21, 6)):
+        res = simulate_cho_fed_batch(ProcessDescription(duration_days=duration, temp_shift_day=min(7.0, duration)))
+        assert len(res["feed_events"]) == n_boluses, duration
+        assert all(ev["day"] < duration for ev in res["feed_events"])
 
 
 def test_oq_03c_lactate_reconsumption_and_nonnegativity():
-    """closed_loop reconsumes lactate after a peak past day 5; L(t) >= 0 in both modes."""
-    for mode in ("static", "closed_loop"):
-        res = simulate_cho_fed_batch(ProcessDescription(mode=mode))
-        assert min(res["lactate_g_L"]) >= 0.0
-    closed = simulate_cho_fed_batch(ProcessDescription(mode="closed_loop"))
-    lactate, time_days = closed["lactate_g_L"], closed["time_days"]
-    peak_idx = max(range(len(lactate)), key=lactate.__getitem__)
-    assert time_days[peak_idx] > 5.0
-    assert lactate[-1] < lactate[peak_idx]
+    """Lactate peaks in the growth phase (days 4-6) and is reconsumed; L(t) >= 0 in every mode.
 
-
-def test_oq_03d_lactate_profile_v131():
-    """v1.3.1 lactate profile: closed_loop reconsumes more and keeps higher viability.
-
-    Nominal (DO 30 %) at 0.25 L and 2.0 L, directional assertions only: closed_loop
-    final lactate < static, closed_loop peak > final + 0.30 g/L, closed_loop final
-    viability > 85 % and > static, and closed_loop final titer > static.
+    v1.4.0 change control: the peak now comes from the state-governed switch, not from
+    the day-7 temperature step (v1.3.x asserted a peak after day 5).
     """
-    for vessel in (0.25, 2.0):
-        static = simulate_cho_fed_batch(ProcessDescription(mode="static", vessel_volume_L=vessel))
-        closed = simulate_cho_fed_batch(
-            ProcessDescription(mode="closed_loop", vessel_volume_L=vessel)
-        )
-        lac_c = closed["lactate_g_L"]
-        assert lac_c[-1] < static["lactate_g_L"][-1], vessel
-        assert max(lac_c) > lac_c[-1] + 0.30, vessel
-        assert closed["final_viability_pct"] > 85.0, vessel
-        assert closed["final_viability_pct"] > static["final_viability_pct"], vessel
-        assert closed["final_titer_g_L"] > static["final_titer_g_L"], vessel
+    for mode, feedback in (("static", False), ("static", True), ("closed_loop", False)):
+        res = simulate_cho_fed_batch(ProcessDescription(mode=mode, glucose_feedback_in_static=feedback))
+        lactate = res["lactate_g_L"]
+        assert min(lactate) >= 0.0, (mode, feedback)
+        assert 4.0 <= res["peak_lactate_day"] <= 6.0, (mode, feedback)
+        assert lactate[-1] < res["peak_lactate_g_L"], (mode, feedback)
+        assert lactate[res["time_days"].index(8.0)] < 0.5 * res["peak_lactate_g_L"], (mode, feedback)
 
 
-def test_oq_03e_bolus_clipped_alarm(monkeypatch):
-    """Capacity clamp alarm: False at the 70 % default fill, True at 95 %; V never exceeds vessel."""
-    import src.bioreactor_twin as twin
+def test_oq_03d_lactate_switch_state_governed():
+    """Bionova protocol: lactate peaks on day 4-5 at 1.2-1.5 g/L and falls to 0.2-0.6 g/L by day 7.
 
+    Daily pre-feed samples (Bionova sampling). Moving the temperature shift from day 7 to
+    day 10 or 14 leaves the peak day, the peak value window and the day-7 reconsumption
+    unchanged: the switch is set by the state (growth slowing through Xv, L and NH3), not
+    by the temperature step. v1.4.0 change control: replaces test_oq_03d_lactate_profile_v131.
+    """
+    base = mv.bionova_process_description()
+    for shift in (7.0, 10.0, 14.0):
+        cfg = ProcessDescription(**{**base.model_dump(), "temp_shift_day": shift})
+        daily = simulate_cho_fed_batch(cfg)["daily_pre_feed"]
+        lactate = [daily[d]["L"] for d in range(15)]
+        peak_day = max(range(15), key=lactate.__getitem__)
+        assert peak_day in (4, 5), shift
+        assert 1.2 <= lactate[peak_day] <= 1.5, shift
+        assert 0.2 <= lactate[7] <= 0.6, shift
+        assert lactate[8] < 0.6, shift
+
+
+def test_oq_03e_bolus_clipped_alarm():
+    """Capacity clamp alarm: False at the 0.70 default fill, True at 0.95; V never exceeds the vessel.
+
+    v1.4.0 change control: the fill is the validated ProcessDescription.initial_fill_fraction
+    (v1.3.x monkeypatched a module constant).
+    """
     for fill, expected in ((0.70, False), (0.95, True)):
-        monkeypatch.setattr(twin, "INITIAL_FILL_FRACTION", fill)
         for vessel in (0.25, 2.0):
             for mode in ("static", "closed_loop"):
-                res = twin.simulate_cho_fed_batch(
-                    ProcessDescription(mode=mode, vessel_volume_L=vessel)
+                res = simulate_cho_fed_batch(
+                    ProcessDescription(mode=mode, vessel_volume_L=vessel, initial_fill_fraction=fill)
                 )
                 assert res["bolus_clipped_alarm"] is expected, (fill, vessel, mode)
                 assert (res["n_bolus_clipped"] > 0) is expected
                 assert max(res["volume_L"]) <= vessel + 1e-12
+
+
+def test_oq_03f_rk45_convergence_and_nh3_decline(monkeypatch):
+    """Integrator convergence, NH3 accumulation and a real viability decline over 21 days.
+
+    Calculation verification: production RK45 (rtol 1e-6, atol 1e-9) agrees with RK45 and
+    Radau at rtol 1e-9 to < 1e-4 of each series' magnitude, the two references agree to
+    < 1e-6, the automatic Radau fallback reproduces RK45, and the v1.3.2 explicit Euler
+    scheme (dt 0.1 d) has a larger error. NH3 never decreases between boluses, passes the
+    5 mM death onset by day 14 and keeps rising to day 21, where viability has fallen by
+    more than 20 points; with kd_NH3 = 0 the same runs keep a higher viability.
+    """
+    conv = mv.check_numerical_convergence()
+    assert conv["production_vs_rk45_1e9"]["overall"] < 1e-4
+    assert conv["production_vs_radau_1e9"]["overall"] < 1e-4
+    assert conv["rk45_1e9_vs_radau_1e9"]["overall"] < 1e-6
+    assert conv["euler_dt0p1_vs_rk45_1e9"]["overall"] > 10 * conv["production_vs_rk45_1e9"]["overall"]
+    assert conv["fallback_used"] is False
+
+    # Automatic Radau fallback, forced with a tiny RK45 budget, reproduces RK45.
+    reference = simulate_cho_fed_batch(ProcessDescription())
+    monkeypatch.setattr(twin, "MAX_RHS_EVALS_PER_SEGMENT", 20)
+    forced = twin.simulate_cho_fed_batch(ProcessDescription())
+    monkeypatch.undo()
+    assert forced["solver"]["fallback_used"] is True
+    assert {s["method"] for s in forced["solver"]["segments"]} == {"Radau"}
+    for key in ("vcd", "glucose_g_L", "lactate_g_L", "nh3_mmol_L", "titer_g_L"):
+        ref = np.asarray(reference[key])
+        assert np.max(np.abs(np.asarray(forced[key]) - ref)) <= 1e-4 * np.max(np.abs(ref)), key
+
+    no_nh3_death = replace(CALIBRATED_KINETICS, kd_nh3=0.0)
+    for mode in ("static", "closed_loop"):
+        r14 = simulate_cho_fed_batch(ProcessDescription(mode=mode, duration_days=14))
+        r21 = simulate_cho_fed_batch(ProcessDescription(mode=mode, duration_days=21))
+        nh3 = r21["nh3_mmol_L"]
+        bolus_steps = {ev["step_index_after"] for ev in r21["feed_events"]}
+        for i in range(1, len(nh3)):
+            if i not in bolus_steps:
+                assert nh3[i] >= nh3[i - 1] - 1e-12, (mode, i)
+        assert r14["final_nh3_mmol_L"] > NH3_DEATH_ONSET_MM
+        assert r21["final_nh3_mmol_L"] > r14["final_nh3_mmol_L"]
+        assert r21["final_viability_pct"] < r14["final_viability_pct"] - 20.0, mode
+        assert r21["vcd"][-1] < 0.5 * r21["peak_vcd"], mode
+        for duration, run in ((14, r14), (21, r21)):
+            counterfactual = simulate_cho_fed_batch(
+                ProcessDescription(mode=mode, duration_days=duration), kinetics=no_nh3_death
+            )
+            assert counterfactual["final_viability_pct"] > run["final_viability_pct"], (mode, duration)
+
+
+def test_oq_03g_bionova_validation_fit_and_oos():
+    """Calibration reproducibility, in-sample fit (30 W/m3) and out-of-sample prediction (19 W/m3).
+
+    ASME V&V 40 model validation against data/bionova_nistcho_2026.json (pre-feed daily
+    sampling). The shipped constants are the adopted audit variant B9_base: K_I_L = 10 g/L
+    and mu_max(34.0) = 0.35 1/d fixed at literature values, 9 free parameters, and they are
+    at least as good as a fresh calibration from the documented prior (60 points). The 9
+    parameters are interior (no AT_BOUND or NEAR_BOUND) and identifiable, cond(J) < 60 and
+    no pair has |r| > 0.90. Credibility criterion for the context of use
+    (feeding-strategy screening): RMSE <= 2 x declared uncertainty for every in-sample
+    variable and for the 19 W/m3 VCD series, and every 19 W/m3 point within 2 x its
+    uncertainty. The Bionova protocol fires the < 2.0 g/L glucose top-up by itself.
+    """
+    ds = mv.load_bionova_reference_dataset()
+    assert ds["sampling_timing"] == "pre_feed_daily"
+    assert set(ds["value_type_definitions"]) == {"printed_exact", "digitized_figure_approx"}
+    cfg = mv.bionova_process_description("stratyx_30_W_m3", ds)
+    assert cfg.mode == "static" and cfg.glucose_feedback_in_static is True
+    assert (cfg.initial_fill_fraction, cfg.vessel_volume_L, cfg.power_density_W_m3) == (0.76, 0.25, 30.0)
+    assert cfg.vessel_volume_L * cfg.initial_fill_fraction == pytest.approx(0.190, abs=1e-12)
+    assert mv.bionova_process_description("stratyx_19_W_m3", ds).power_density_W_m3 == 19.0
+
+    # Shipped constants = adopted variant B9_base (fixed values and free set).
+    assert twin.CALIBRATED_PARAMETER_NAMES == mv.CALIBRATION_VARIANTS["B9_base"]["free"]
+    for name, value in mv.CALIBRATION_VARIANTS["B9_base"]["fixed"].items():
+        assert getattr(CALIBRATED_KINETICS, name) == value, name
+    assert (CALIBRATED_KINETICS.k_i_lactate, CALIBRATED_KINETICS.mu_max_34_0) == (10.0, 0.35)
+
+    cal = mv.run_parameter_calibration(dataset=ds)
+    assert cal["success"] is True
+    assert cal["n_parameters"] == 9 and cal["n_observations"] == 60
+    assert mv.calibration_cost(dataset=ds) <= cal["cost"] * 1.01
+    for row in cal["parameter_table"]:
+        assert row["lower_bound"] < row["value"] < row["upper_bound"], row
+        assert row["status"] == "interior", row
+    ident = mv.compute_jacobian_identifiability(cal["opt_result"], cal["param_names"])
+    sv = ident["singular_values"]
+    assert all(a >= b for a, b in zip(sv, sv[1:])) and sv[-1] > 0.0
+    assert 1.0 < ident["condition_number"] < 60.0
+    assert ident["collinear_pairs"] == []
+    assert ident["at_bound"] == [] and ident["not_identifiable"] == []
+    assert len(ident["identifiable"]) == 9
+
+    sim30 = mv.simulate_bionova_condition("stratyx_30_W_m3", dataset=ds)
+    # URS-07 in the Bionova protocol: the calibrated glucose uptake brings pre-feed G
+    # below 2.0 g/L on day 12 and the rule tops up to exactly 5.0 g/L (no forced trigger).
+    assert _assert_glucose_rule(sim30, 2.0, 5.0) == 1
+    topups = [ev for ev in sim30["feed_events"] if ev["v_gluc_L"] > 0.0]
+    assert [ev["day"] for ev in topups] == [12.0]
+    assert topups[0]["pre"]["G"] < 2.0
+    m30 = mv.compute_validation_metrics(sim30, ds, "stratyx_30_W_m3")
+    assert set(m30["variables"]) == {
+        "vcd_1e6_mL", "viability_pct", "glucose_g_L", "lactate_g_L", "nh3_mmol_L", "titer_g_L"}
+    for key, v in m30["variables"].items():
+        assert v["meets_credibility_criterion"], (key, v["rmse_over_sigma"])
+        obs, mod = np.asarray(v["observed"]), np.asarray(v["model"])
+        assert v["RMSE"] == pytest.approx(float(np.sqrt(np.mean((mod - obs) ** 2))), rel=1e-12)
+        if v["R2"] is not None:
+            r2 = 1.0 - np.sum((mod - obs) ** 2) / np.sum((obs - obs.mean()) ** 2)
+            assert v["R2"] == pytest.approx(float(r2), rel=1e-12)
+    assert m30["variables"]["vcd_1e6_mL"]["R2"] >= 0.95
+    assert m30["variables"]["titer_g_L"]["R2"] >= 0.90
+    assert abs(m30["variables"]["viability_pct"]["day14_abs_error"]) <= 2 * 2.0
+    assert abs(m30["variables"]["titer_g_L"]["day14_abs_error"]) <= 2 * 0.08
+
+    sim19 = mv.simulate_bionova_condition("stratyx_19_W_m3", dataset=ds)
+    m19 = mv.compute_validation_metrics(sim19, ds, "stratyx_19_W_m3")
+    assert m19["role"].startswith("out-of-sample")
+    assert m19["variables"]["vcd_1e6_mL"]["meets_credibility_criterion"]
+    for key, point in m19["points"].items():
+        assert point["within_2sigma"], (key, point["abs_error"])
+
+    # Audit calibration variants (Draft PR #5), all from the documented prior. The outcome
+    # is evaluated, not forced: B9_causal (qp_0 / (1 + k_p_nh3 (NH3 - 5)^2), no temperature
+    # effect on qp) fits the titer better but fails cond(J) < 60 (k_p_nh3 is poorly
+    # determined by four titer points), so the rule adopts B9_base (K_I_L = 10 g/L and
+    # mu_max(34.0) = 0.35 1/d fixed, m_G free).
+    cmp = mv.compare_calibration_variants(dataset=ds)
+    a, b9_base, b9_causal = (cmp["variants"][k] for k in ("A", "B9_base", "B9_causal"))
+    assert cmp["b9_causal_criteria"] == {
+        "all_parameters_interior": True,
+        "cond_below_60_and_no_collinear_pair": False,
+        "rmse_within_2sigma_and_titer_not_worse": True,
+        "bionova_natural_glucose_topup": True,
+    }
+    assert cmp["adopted"] == "B9_base"
+    assert b9_causal["identifiability"]["condition_number"] >= mv.B9_CAUSAL_COND_MAX
+    assert "k_p_nh3" in b9_causal["identifiability"]["not_identifiable"]
+    assert b9_causal["titer_rmse_30"] < b9_base["titer_rmse_30"]
+    for variant in (b9_base, b9_causal):
+        assert variant["g_pre_feed_min"] < 2.0 and variant["glucose_topup_days"] == [12.0]
+    assert a["params_at_or_near_bound"] == ["k_i_lactate"] and a["glucose_topup_days"] == []
+    assert a["identifiability"]["condition_number"] > b9_base["identifiability"]["condition_number"]
+    assert b9_base["cost"] == pytest.approx(cal["cost"], rel=1e-9)
+    # Documented T/age confounding of qp(T) (audit criterion 5, reported in docs/03): in
+    # the Bionova protocol, no shift (day 14) gives more titer than the day-7 shift in
+    # every variant, and B9_causal shrinks that inversion the most.
+    ratio = cmp["titer_shift14_over_shift7"]
+    assert ratio["A"] > ratio["B9_base"] > ratio["B9_causal"] > 1.0
+    # mu_max(34.0) = 0.35 lies inside the profile-likelihood 95 % interval (declared sigmas).
+    profile = mv.profile_mu_max_34_0(values=(1.50,), dataset=ds)
+    assert 0.0 < profile["delta_ssr_fixed_vs_min"] < profile["delta_ssr_95"]
+    assert profile["fixed_value_inside_95"] is True
+
+
+def test_oq_03h_slider_domain_physical_stability():
+    """Every corner of the Streamlit slider domain integrates to a finite, physical result in < 0.25 s.
+
+    Full factorial of the slider extremes P/V {2, 100} W/m3, sparge {0, 1} vvm,
+    temp_shift_day {1, 14} d, DO {5, 90} % (the slider starts at the 5 % schema limit),
+    V {0.25, 35000} L and duration {5, 21} d, for static and closed_loop with and without
+    O2 enrichment (256 runs). A shift later than the run (14 > 5 d) is rejected by the
+    schema and run with the dashboard clamp min(shift, duration). Checks: no NaN/Inf,
+    concentrations >= 0, viability in [0, 100], V(t) <= vessel, wall time < 0.25 s per
+    run, and mean wall time of the default 14-day run < 80 ms (Streamlit budget).
+
+    Directional sensitivity of the adopted B9_base equations (no numeric bands), in both
+    modes: sparge 0.25 vs 0.10 vvm lowers titer and viability; 21 vs 14 days raises NH3
+    and lowers viability (real decline, no synthetic immortality); a shift on day 4 vs
+    day 10 gives a lower peak VCD (mu_max(34.0) = 0.35 < mu_max(36.5)). Documented
+    limitation, asserted so that it stays traceable: because qp(36.5) > qp(34.0) (T/age
+    confounding of qp(T), docs/03 section 11), the final titer rises with the shift day
+    4 < 7 < 10 < 14; this is an extrapolation artifact, not a requirement.
+    """
+    keys_nonneg = ("vcd", "dead_cell_density", "glucose_g_L", "lactate_g_L", "nh3_mmol_L",
+                   "titer_g_L", "volume_L", "do_real_pct")
+    do_min = next(m.ge for m in ProcessDescription.model_fields["do_setpoint_pct"].metadata
+                  if getattr(m, "ge", None) is not None)
+    assert do_min == 5.0
+    corners = itertools.product(
+        (2.0, 100.0), (0.0, 1.0), (1.0, 14.0), (do_min, 90.0), (0.25, 35000.0), (5, 21),
+        ("static", "closed_loop"), (True, False),
+    )
+    n_runs = 0
+    for pv, sparge, shift, do, vessel, duration, mode, enrich in corners:
+        common = dict(power_density_W_m3=pv, sparge_vvm=sparge, do_setpoint_pct=do,
+                      vessel_volume_L=vessel, duration_days=duration, mode=mode,
+                      o2_enrichment_enabled=enrich)
+        if shift > duration:
+            with pytest.raises(pydantic.ValidationError):
+                ProcessDescription(temp_shift_day=shift, **common)
+            shift = min(shift, float(duration))
+        cfg = ProcessDescription(temp_shift_day=shift, **common)
+        t0 = time.perf_counter()
+        res = simulate_cho_fed_batch(cfg)
+        elapsed = time.perf_counter() - t0
+        n_runs += 1
+        label = (pv, sparge, shift, do, vessel, duration, mode, enrich)
+        assert elapsed < 0.25, (label, elapsed)
+        for key in keys_nonneg + ("viability_pct",):
+            arr = np.asarray(res[key], dtype=float)
+            assert np.all(np.isfinite(arr)), (label, key)
+            if key in keys_nonneg:
+                assert arr.min() >= 0.0, (label, key)
+        via = np.asarray(res["viability_pct"])
+        assert via.min() >= 0.0 and via.max() <= 100.0, label
+        assert max(res["volume_L"]) <= vessel * (1.0 + 1e-12), label
+        assert len(res["time_days"]) == 10 * duration + 1
+    assert n_runs == 256
+
+    t0 = time.perf_counter()
+    for _ in range(20):
+        simulate_cho_fed_batch(ProcessDescription())
+    assert (time.perf_counter() - t0) / 20 < 0.080
+
+    for mode in ("static", "closed_loop"):
+        def run(**kw):
+            return simulate_cho_fed_batch(ProcessDescription(mode=mode, **kw))
+        low_sparge, high_sparge = run(sparge_vvm=0.10), run(sparge_vvm=0.25)
+        assert high_sparge["final_titer_g_L"] < low_sparge["final_titer_g_L"], mode
+        assert high_sparge["final_viability_pct"] < low_sparge["final_viability_pct"], mode
+        d14, d21 = run(duration_days=14), run(duration_days=21)
+        assert d21["final_nh3_mmol_L"] > d14["final_nh3_mmol_L"], mode
+        assert d21["final_viability_pct"] < d14["final_viability_pct"], mode
+        early, late = run(temp_shift_day=4.0), run(temp_shift_day=10.0)
+        assert early["peak_vcd"] < late["peak_vcd"], mode
+        # Documented T/age confounding (not a requirement): titer rises with the shift day.
+        assert CALIBRATED_KINETICS.qp_36_5 > CALIBRATED_KINETICS.qp_34_0
+        titers = [run(temp_shift_day=day)["final_titer_g_L"] for day in (4.0, 7.0, 10.0, 14.0)]
+        assert all(a < b for a, b in zip(titers, titers[1:])), (mode, titers)
+
 
 def test_oq_04_safety_shear_and_cip_sip_interlocks():
     """GxP safety indicators: shear alarm, CIP block, CIP velocity and SIP sterility (nominal, boundary, failure).
@@ -333,10 +630,14 @@ def test_oq_04_safety_shear_and_cip_sip_interlocks():
 
 
 def test_oq_04b_shear_or_gate_and_continuous_penalty():
-    """Shear alarm is P/V > 47.6 OR sparge > 0.15; each excess lowers titer and viability.
+    """Shear alarm stays P/V > 47.6 OR sparge > 0.15; the kinetic penalty is decoupled and sparge-driven.
 
-    Directional assertions only (no numeric bands): every high-shear scenario must
-    trip the alarm and reduce final titer and final viability versus nominal.
+    v1.4.0 change control. check_safety_interlocks keeps the conservative URS-09 alarm.
+    Inside the ODEs, P/V up to 100 W/m3 (the schema limit) has no kinetic effect: the
+    impeller damage onset is 476 W/m3, ten times the alarm and still below the damage
+    levels of A-Mab p.100 / Ma 2002 (A-Mab runs healthy at 60 W/m3 local). Sparge above
+    0.15 vvm (bubble stress) lowers titer and viability, and adding P/V on top of it
+    changes nothing.
     """
     common = dict(
         batch_active=False,
@@ -347,20 +648,40 @@ def test_oq_04b_shear_or_gate_and_continuous_penalty():
     for pv, sparge in ((30.0, 0.10), (47.6, 0.15)):
         out = check_safety_interlocks(power_density_W_m3=pv, sparge_vvm=sparge, **common)
         assert out["high_shear_alarm"] is False, (pv, sparge)
+    for pv, sparge in ((50.0, 0.10), (65.0, 0.10), (30.0, 0.22), (65.0, 0.22)):
+        out = check_safety_interlocks(power_density_W_m3=pv, sparge_vvm=sparge, **common)
+        assert out["high_shear_alarm"] is True, (pv, sparge)
+
+    # Kinetic stress intensity: zero for every P/V in the schema domain.
+    for pv in (2.0, 30.0, 47.6, 50.0, 60.0, 65.0, 100.0):
+        stress = compute_hydrodynamic_stress(pv, 0.10)
+        assert stress["sigma_impeller"] == 0.0 and stress["sigma_total"] == 0.0, pv
+    assert compute_hydrodynamic_stress(30.0, 0.22)["sigma_sparge"] == pytest.approx(0.07 / 0.15, rel=1e-12)
+    assert compute_hydrodynamic_stress(952.0, 0.10)["sigma_impeller"] == pytest.approx(1.0, rel=1e-12)
+
+    keys = ("final_titer_g_L", "final_viability_pct", "peak_vcd", "harvested_mass_g")
     for mode in ("static", "closed_loop"):
         nominal = simulate_cho_fed_batch(
             ProcessDescription(mode=mode, power_density_W_m3=30.0, sparge_vvm=0.10)
         )
-        for pv, sparge in ((65.0, 0.10), (30.0, 0.22), (65.0, 0.22)):
-            out = check_safety_interlocks(
-                power_density_W_m3=pv, sparge_vvm=sparge, **common
-            )
-            assert out["high_shear_alarm"] is True, (pv, sparge)
+        # Alarm on, kinetics unchanged: 50-60 W/m3 does not destroy qp (decoupling).
+        for pv in (50.0, 60.0, 65.0, 100.0):
             res = simulate_cho_fed_batch(
-                ProcessDescription(mode=mode, power_density_W_m3=pv, sparge_vvm=sparge)
+                ProcessDescription(mode=mode, power_density_W_m3=pv, sparge_vvm=0.10)
             )
-            assert res["final_titer_g_L"] < nominal["final_titer_g_L"], (mode, pv, sparge)
-            assert res["final_viability_pct"] < nominal["final_viability_pct"], (mode, pv, sparge)
+            for key in keys:
+                assert res[key] == nominal[key], (mode, pv, key)
+        sparge_only = simulate_cho_fed_batch(
+            ProcessDescription(mode=mode, power_density_W_m3=30.0, sparge_vvm=0.22)
+        )
+        both = simulate_cho_fed_batch(
+            ProcessDescription(mode=mode, power_density_W_m3=65.0, sparge_vvm=0.22)
+        )
+        assert sparge_only["final_titer_g_L"] < nominal["final_titer_g_L"], mode
+        assert sparge_only["final_viability_pct"] < nominal["final_viability_pct"], mode
+        for key in keys:
+            assert both[key] == sparge_only[key], (mode, key)
+
 
 def test_oq_05_ispe_amab_design_space_center_and_edges():
     """A-Mab design space: centre-point intercepts hold; extreme corner fails."""
@@ -431,15 +752,16 @@ def test_oq_06_mkt_and_vtb_damping():
 
 
 def test_oq_06b_do_setpoint_driving_force():
-    """URS-06: DO set-point drives OTR and the CHO response to hypoxia and O2 limitation.
+    """URS-06: DO driving force, controller saturation without false hypoxia, O2 enrichment and real hypoxia.
 
-    Scale-up: at the A-Mab 15,000 L reference (Vs = 0.015 m/s, P/V = 26 W/m3) the
-    default 30 % DO gives kLa 20.0 and OTR 2.94; OTR scales with (1 - DO/100),
-    decreases monotonically with DO, and OTR >= OUR fails at a high enough DO.
-    Twin (directional only; kLa 10 h^-1 measured/proxy at the default 0.25 L): at
-    DO 30 the supply ratio and f_do are 1.0 at every step; at DO 10 lactate (peak
-    and final) rises and titer and viability fall; at DO 85 the supply ratio drops
-    below 1 and titer falls versus DO 30.
+    v1.4.0 change control. Scale-up: the air default is unchanged (kLa 20.0, OTR 2.94 at
+    30 % DO, OTR proportional to (1 - DO/100), insufficient at high DO) and pure O2 raises
+    C*_gas to C*_air/0.2095. Twin: the biology depends only on the real liquid DO
+    (C_L = min(C_sp, C*_max - OUR/kLa)). At DO 85 % with air only the controller saturates
+    and DO_real passes through 55-75 % with f_do = 1.0 (no false hypoxia); real hypoxia
+    appears only once Xv exceeds the air-only transfer limit (17.85e6 cells/mL at kLa
+    10 h^-1). With O2 enrichment the set-point holds above 20e6 cells/mL. At DO 5 % (and
+    with air-limited transfer) hypoxia lowers growth and titer and raises lactate.
     """
     ref = compute_scale_up_engineering(0.015, 26.0)
     assert ref["kla_h_inv"] == pytest.approx(20.0, abs=1e-9)
@@ -462,28 +784,75 @@ def test_oq_06b_do_setpoint_driving_force():
         for d in do_grid
     ]
     assert flags[0] is True and flags[-1] is False
-    # Once insufficient, it stays insufficient at every higher DO.
     first_bad = flags.index(False)
     assert not any(flags[first_bad:])
 
-    # C0 continuity of the hypoxia factor at the 20 % normalisation point.
-    assert do_hypoxia_factor(20.0) == pytest.approx(1.0, abs=1e-12)
-    assert abs(do_hypoxia_factor(20.0) - do_hypoxia_factor(19.99)) < 1e-3
+    # Inlet O2 mole fraction: air is the bit-exact default; pure O2 lifts C*_gas.
+    for d in do_grid:
+        assert compute_scale_up_engineering(0.015, 26.0, do_percent=float(d)) == compute_scale_up_engineering(
+            0.015, 26.0, do_percent=float(d), o2_mole_fraction=Y_O2_AIR)
+    pure = compute_scale_up_engineering(0.015, 26.0, do_percent=85.0, o2_mole_fraction=1.0)
+    assert C_STAR_PURE_O2_MMOL_L == pytest.approx(C_STAR_O2_MMOL_L / 0.2095, rel=1e-15)
+    assert pure["c_star_gas_mmol_L"] == pytest.approx(C_STAR_PURE_O2_MMOL_L, abs=5e-5)
+    assert pure["otr_mmol_L_h"] == pytest.approx(round(20.0 * (C_STAR_PURE_O2_MMOL_L - 0.85 * C_STAR_O2_MMOL_L), 2), abs=0.011)
+    assert pure["oxygen_sufficient"] is True
 
+    # Hypoxia factor: exactly 1.0 from 15 % DO_real, C0-continuous and monotone below.
+    assert do_hypoxia_factor(15.0) == 1.0 and do_hypoxia_factor(100.0) == 1.0
+    assert abs(do_hypoxia_factor(15.0) - do_hypoxia_factor(14.99)) < 1e-3
+    assert do_hypoxia_factor(10.0) == pytest.approx((10 / 11.5) / (15 / 16.5), rel=1e-12)
+    assert do_hypoxia_factor(0.0) == 0.0
+    grid = [0.1 * k for k in range(151)]
+    values = [do_hypoxia_factor(d) for d in grid]
+    assert all(b >= a for a, b in zip(values, values[1:]))
+
+    # Quasi-steady O2 balance at Xv 5.8e6 cells/mL, kLa 10 h^-1, DO_sp 85 %.
+    air = compute_dissolved_oxygen_state(5.8, 85.0, 10.0, o2_enrichment_enabled=False)
+    assert air["c_l_actual_mmol_L"] == pytest.approx(0.210 - 0.058, rel=1e-12)
+    assert air["do_real_pct"] == pytest.approx(100 * 0.152 / 0.210, rel=1e-12)
+    assert air["do_controller_saturated"] is True and air["f_do"] == 1.0
+    assert air["required_y_o2"] > Y_O2_AIR
+    enriched = compute_dissolved_oxygen_state(5.8, 85.0, 10.0, o2_enrichment_enabled=True)
+    assert enriched["do_real_pct"] == pytest.approx(85.0, rel=1e-12)
+    assert enriched["do_controller_saturated"] is False
+    assert enriched["required_y_o2"] == pytest.approx(air["required_y_o2"], rel=1e-12)
+
+    air_limit_xv = (C_STAR_O2_MMOL_L * (1 - 0.15)) * 10.0 / 0.1  # DO_real reaches 15 % (kLa 10, qO2 0.1 pmol/cell/h)
     for mode in ("static", "closed_loop"):
-        run = {
-            do: simulate_cho_fed_batch(ProcessDescription(mode=mode, do_setpoint_pct=do))
-            for do in (10.0, 30.0, 85.0)
-        }
-        ref30, low, high = run[30.0], run[10.0], run[85.0]
-        assert all(r == 1.0 for r in ref30["oxygen_supply_ratio"])
-        assert all(f == 1.0 for f in ref30["f_do_metabolic"])
-        assert max(low["lactate_g_L"]) > max(ref30["lactate_g_L"]), mode
-        assert low["lactate_g_L"][-1] > ref30["lactate_g_L"][-1], mode
-        assert low["final_viability_pct"] < ref30["final_viability_pct"], mode
-        assert low["final_titer_g_L"] < ref30["final_titer_g_L"], mode
-        assert high["min_oxygen_supply_ratio"] < 1.0, mode
-        assert high["final_titer_g_L"] < ref30["final_titer_g_L"], mode
+        sat = simulate_cho_fed_batch(ProcessDescription(mode=mode, do_setpoint_pct=85.0, o2_enrichment_enabled=False))
+        do_real = np.asarray(sat["do_real_pct"])
+        f_do = np.asarray(sat["f_do_metabolic"])
+        saturated = np.asarray(sat["do_controller_saturated"])
+        xv = np.asarray(sat["vcd"])
+        assert sat["do_controller_saturated_any"] is True
+        window = (do_real >= 55.0) & (do_real <= 75.0)
+        assert window.any() and saturated[window].all() and np.all(f_do[window] == 1.0), mode
+        assert np.all(f_do[do_real >= 15.0] == 1.0), mode
+        assert np.all(xv[do_real < 15.0] > air_limit_xv - 1e-9), mode
+
+        e30 = simulate_cho_fed_batch(ProcessDescription(mode=mode, do_setpoint_pct=30.0))
+        e85 = simulate_cho_fed_batch(ProcessDescription(mode=mode, do_setpoint_pct=85.0))
+        for run, sp in ((e30, 30.0), (e85, 85.0)):
+            assert run["do_controller_saturated_any"] is False
+            assert np.allclose(run["do_real_pct"], sp, rtol=0, atol=1e-9)
+            assert all(f == 1.0 for f in run["f_do_metabolic"])
+            assert run["peak_vcd"] > 20.0
+            assert Y_O2_AIR < run["max_required_y_o2"] <= 1.0
+        assert e85["final_titer_g_L"] == e30["final_titer_g_L"], mode
+        assert sat["final_titer_g_L"] < e30["final_titer_g_L"], mode
+
+        # Real hypoxia: DO_sp 5 % held by the controller (DO_real < 10 %).
+        hyp = simulate_cho_fed_batch(ProcessDescription(mode=mode, do_setpoint_pct=5.0))
+        assert np.allclose(hyp["do_real_pct"], 5.0, rtol=0, atol=1e-9)
+        assert all(f == pytest.approx(do_hypoxia_factor(5.0), rel=1e-12) for f in hyp["f_do_metabolic"])
+        assert hyp["peak_lactate_g_L"] > e30["peak_lactate_g_L"], mode
+        assert hyp["final_titer_g_L"] < e30["final_titer_g_L"], mode
+        assert hyp["peak_vcd"] < e30["peak_vcd"], mode
+        # Critical (air-limited) O2 transfer also reaches DO_real < 10 % at high density.
+        air30 = simulate_cho_fed_batch(ProcessDescription(mode=mode, do_setpoint_pct=30.0, o2_enrichment_enabled=False))
+        assert air30["min_do_real_pct"] < 10.0 and air30["min_f_do_metabolic"] < 1.0, mode
+        assert air30["final_titer_g_L"] < e30["final_titer_g_L"], mode
+
 
 def test_oq_07_fft_nyquist_sampling_validation():
     """FFT/Nyquist: a 2.9 cph fridge signal is resolved at 5 min, aliased if coarser.
@@ -550,6 +919,68 @@ def test_oq_08_gorsky_spc_tolerance_and_capability():
     assert cap["is_normal"] is True
 
 
+def test_oq_08b_spc_control_stability_and_tost_equivalence():
+    """I-MR Rule 1 stability before capability, and formal TOST + Levene equivalence (Gorsky p.131).
+
+    Gorsky Table 6-2 has no point outside the within limits, is normal and therefore meets
+    the capability assumptions; a drifting process that still passes Shapiro-Wilk fails
+    Rule 1. TOST (two one-sided Welch tests) is recomputed independently with scipy.stats.t
+    and agrees with its 90 % confidence interval: groups that a Welch t-test calls
+    different can still be equivalent within a wider margin. Levene rejects equivalence when
+    the spreads differ even if the means are equivalent.
+    """
+    cap = compute_process_capability(GORSKY_TABLE_6_2_TORQUE_N30, lsl=5.0, usl=12.0)
+    data = np.asarray(GORSKY_TABLE_6_2_TORQUE_N30)
+    mr_bar = np.mean(np.abs(np.diff(data)))
+    ucl, lcl = data.mean() + 3 * mr_bar / 1.128, data.mean() - 3 * mr_bar / 1.128
+    assert cap["n_out_of_control_points"] == int(np.sum((data > ucl) | (data < lcl))) == 0
+    assert cap["in_statistical_control"] is True
+    assert cap["capability_assumptions_met"] is True
+    assert cap["ppk"] == pytest.approx(0.51, abs=0.01)  # existing keys unchanged
+
+    drift = [round(5.0 + 0.25 * i, 2) for i in range(30)]
+    drift_cap = compute_process_capability(drift, lsl=5.0, usl=12.0)
+    assert drift_cap["is_normal"] is True
+    assert drift_cap["n_out_of_control_points"] > 0
+    assert drift_cap["in_statistical_control"] is False
+    assert drift_cap["capability_assumptions_met"] is False
+
+    a = [8.1, 7.9, 8.4, 8.0, 8.3, 7.8]
+    b = [8.6, 8.9, 9.1, 8.7, 9.0, 8.8]
+    assert compare_bioreactor_equivalence_ttest(a, b)["statistically_significant_diff"] is True
+    for margin, expected in ((0.5, False), (1.0, True)):
+        res = compare_bioreactor_equivalence_tost(a, b, equiv_margin=margin)
+        xa, xb = np.asarray(a), np.asarray(b)
+        va, vb = xa.var(ddof=1) / xa.size, xb.var(ddof=1) / xb.size
+        se = np.sqrt(va + vb)
+        df = (va + vb) ** 2 / (va ** 2 / (xa.size - 1) + vb ** 2 / (xb.size - 1))
+        d = xa.mean() - xb.mean()
+        p_lower = stats.t.sf((d + margin) / se, df)
+        p_upper = stats.t.cdf((d - margin) / se, df)
+        assert res["p_tost"] == pytest.approx(max(p_lower, p_upper), rel=1e-12)
+        half = stats.t.ppf(0.95, df) * se
+        assert res["ci_90_low"] == pytest.approx(d - half, rel=1e-12)
+        assert res["ci_90_high"] == pytest.approx(d + half, rel=1e-12)
+        assert res["means_equivalent"] is expected
+        assert res["ci_within_margin"] is expected
+        assert res["levene_p_value"] == pytest.approx(stats.levene(a, b).pvalue, rel=1e-12)
+        assert res["variances_compatible"] is True
+        assert res["statistically_equivalent"] is expected
+
+    tight = [8.0, 8.1, 7.9, 8.0, 8.1, 7.9, 8.0, 8.05]
+    spread = [6.5, 9.5, 7.0, 9.0, 6.8, 9.2, 8.0, 8.0]
+    res = compare_bioreactor_equivalence_tost(tight, spread, equiv_margin=2.0)
+    assert res["means_equivalent"] is True
+    assert res["variances_compatible"] is False
+    assert res["statistically_equivalent"] is False
+
+    for bad in (dict(equiv_margin=0.0), dict(equiv_margin=1.0, alpha=0.6)):
+        with pytest.raises(ValueError):
+            compare_bioreactor_equivalence_tost(a, b, **bad)
+    with pytest.raises(ValueError):
+        compare_bioreactor_equivalence_tost([8.0], b, equiv_margin=1.0)
+
+
 def test_oq_09_part11_audit_trail_and_annex22_guardrail():
     """Part 11 / Annex 22: human-in-the-loop guardrail and tamper evidence."""
     logger = AuditTrailLogger()
@@ -607,9 +1038,38 @@ def test_oq_09b_part11_human_approved_mutation_breaks_chain():
 
 
 def test_exploratory_10_invalid_pydantic_inputs():
-    """Error-guessing: out-of-range CPPs must be rejected by the schema."""
+    """Error-guessing: out-of-range CPPs and inconsistent set-point combinations are rejected.
+
+    v1.4.0: also probes the cross-field validators (glucose trigger below the refill
+    target, temperature shift not after the end of the run), the new fields
+    (initial_fill_fraction, max_o2_mole_fraction, glucose_feedback_in_static) and the
+    binary mode contract (static / closed_loop).
+    """
     with pytest.raises(pydantic.ValidationError):
         ProcessDescription(vessel_volume_L=-5.0, ph_setpoint=14.5)
+    # Cross-field: trigger must be strictly below the target.
+    for g_min, g_target in ((5.0, 5.0), (6.0, 5.0), (10.0, 2.0)):
+        with pytest.raises(pydantic.ValidationError, match="glucose_min_threshold_g_L"):
+            ProcessDescription(glucose_min_threshold_g_L=g_min, glucose_refill_target_g_L=g_target)
+    assert ProcessDescription(glucose_min_threshold_g_L=4.99, glucose_refill_target_g_L=5.0)
+    # Cross-field: the shift cannot be scheduled after the end of the run.
+    for shift, duration in ((7.5, 7), (14.0, 5), (10.0, 9)):
+        with pytest.raises(pydantic.ValidationError, match="temp_shift_day"):
+            ProcessDescription(temp_shift_day=shift, duration_days=duration)
+    assert ProcessDescription(temp_shift_day=5.0, duration_days=5).temp_shift_day == 5.0
+    # New fields: bounds and literal values.
+    for bad in (
+        dict(initial_fill_fraction=0.19), dict(initial_fill_fraction=0.96),
+        dict(max_o2_mole_fraction=0.20), dict(max_o2_mole_fraction=1.01),
+        dict(mode="perfusion"), dict(mode="bionova_baseline"), dict(do_setpoint_pct=4.9),
+    ):
+        with pytest.raises(pydantic.ValidationError):
+            ProcessDescription(**bad)
+    cfg = ProcessDescription()
+    assert (cfg.initial_fill_fraction, cfg.o2_enrichment_enabled, cfg.max_o2_mole_fraction) == (0.70, True, 1.0)
+    # mode keeps its binary contract; the Bionova protocol is static + glucose feedback.
+    assert ProcessDescription.model_fields["mode"].annotation.__args__ == ("static", "closed_loop")
+    assert cfg.glucose_feedback_in_static is False
 
 
 def test_exploratory_11_audit_trail_requires_reason():

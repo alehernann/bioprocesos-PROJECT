@@ -14,6 +14,150 @@ retoman los tags anotados. Entre 1.1.2 y 1.3.1 `__version__` no se actualizó y 
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-20
+
+Candidato de release en la rama `feat/v1.4.0-mechanistic-validation` (Draft PR hacia `main`). El tag
+`v1.4.0` se crea solo después de la auditoría externa. Modelo mecanístico calibrado contra Bionova
+NISTCHO (2026), validado fuera de muestra y verificado numéricamente en todo el dominio de los
+sliders, con el marco ASME V&V 40 / FDA CSA. `evaluate_amab_design_space`, el payload SHA-256 de
+`audit_trail_part11.py` y las ecuaciones de `thermal_vtb_mkt.py` no cambian.
+
+### Added
+- `data/bionova_nistcho_2026.json`: protocolo exacto y valores del día 14 impresos (`printed_exact`,
+  pp. 3-4 y p.10), series digitalizadas de las Figs. 1-4 (`digitized_figure_approx`, con
+  incertidumbre declarada) para Stratyx 30 W/m³ (calibración) y 19 W/m³ (validación fuera de
+  muestra), y muestreo `pre_feed_daily`.
+- `src/model_validation.py`: `load_bionova_reference_dataset`, `bionova_process_description`,
+  `run_parameter_calibration` (`least_squares` TRF, 9 parámetros libres de la variante B9_base, 60
+  puntos), `compute_validation_metrics` (R², RMSE, NRMSE, error del día 14),
+  `compute_jacobian_identifiability` (valores singulares, cond(J), pares |r| > 0.90, RSE),
+  `compare_calibration_variants` (A, B9_base y B9_causal con la regla de adopción de la auditoría),
+  `run_multistart_calibration`, `profile_mu_max_34_0`, `shift_day_sweep` y
+  `check_numerical_convergence`.
+- Término de inhibición de qp por NH3, qp / (1 + k_p_NH3 · max(0, NH3 − 5)²), con k_p_NH3 = 0 en la
+  calibración adoptada; el nombre de calibración `qp_0` fija las dos anclas de temperatura de qp a un
+  mismo valor (`TIED_PARAMETERS`). Los dos solo se usan en la variante B9_causal.
+- Gemelo de 6 estados (Xv, Xd, G, L, NH3, título) más volumen, integrado por tramos entre eventos con
+  `solve_ivp` RK45 (rtol 1e-6, atol 1e-9) y respaldo automático Radau; `daily_pre_feed` (estado
+  exacto antes de cada bolo), series de NH3, células muertas, DO real, saturación del controlador y
+  fracción de O2 requerida; diagnóstico del solver.
+- Amonio: producción específica, inhibición K_I_NH3/(K_I_NH3 + NH3), muerte por encima de 5 mM y
+  dilución exacta en cada bolo. Lisis de células muertas.
+- `compute_dissolved_oxygen_state` y `compute_hydrodynamic_stress` en `bioreactor_twin.py`;
+  `CHOKineticParameters`, `CALIBRATED_KINETICS`, `CALIBRATED_PARAMETER_NAMES` y `PARAMETER_BOUNDS`.
+- `Y_O2_AIR`, `C_STAR_PURE_O2_MMOL_L` y el argumento `o2_mole_fraction` (por defecto aire) en
+  `compute_scale_up_engineering`, con las claves `o2_mole_fraction` y `c_star_gas_mmol_L`.
+- `ProcessDescription`: validadores cruzados (`glucose_min_threshold_g_L < glucose_refill_target_g_L`,
+  `temp_shift_day <= duration_days`), `initial_fill_fraction` (0.70 por defecto, 0.20–0.95),
+  `o2_enrichment_enabled` (True), `max_o2_mole_fraction` (1.0) y `glucose_feedback_in_static`
+  (False). `mode` mantiene su contrato binario (`static` / `closed_loop`); el protocolo exacto de
+  Bionova es `mode="static"` con `glucose_feedback_in_static=True`.
+- `spc_six_sigma.py`: `n_out_of_control_points`, `in_statistical_control` y
+  `capability_assumptions_met` en `compute_process_capability`; `compare_bioreactor_equivalence_tost`
+  (TOST de Schuirmann con Welch, IC 90 %, Levene).
+- Pruebas OQ `test_oq_03f_rk45_convergence_and_nh3_decline`, `test_oq_03g_bionova_validation_fit_and_oos`,
+  `test_oq_03h_slider_domain_physical_stability` y `test_oq_08b_spc_control_stability_and_tost_equivalence`
+  (24 pruebas OQ en total).
+- `tests/conftest.py`: `pytest_sessionstart` vacía la lista de resultados al inicio de cada sesión.
+- Tablero, pestaña 1: gráficas de NH3 y de DO real con avisos de saturación del controlador frente a
+  hipoxia real, slider de duración (5–21 d), interruptor de enriquecimiento con O2 y bloque de
+  validación contra Bionova (puntos impresos y digitalizados sobre las curvas, tabla de R² y RMSE).
+  Pestaña 4: estabilidad I-MR y equivalencia TOST + Levene con margen editable. Pestaña 2: el aviso
+  de oxígeno insuficiente muestra el OTR con O2 puro.
+- `tests_app`: 4 pruebas nuevas (NH3 y DO real, bloque Bionova, duración y ajuste del cambio
+  térmico, TOST y estabilidad); 17 pruebas en total, todas con `DeprecationWarning` como error.
+- URS-16 (credibilidad del modelo), NFR-06 (estabilidad numérica) y NFR-07 (desempeño); sección 9 de
+  docs/02 (ASME V&V 40) y sección 11 de docs/03 (evidencia de calibración y validación); Ref. 21
+  (ASME V&V 40-2018) en docs/05 y README.
+- Nota documental en `VTB_CALIBRATION_TABLE` sobre la anomalía física del rótulo "300 mL (Bulk)"
+  (tau ≈ 35.2 h frente a ≈ 2.2 h de "600 mL"); valores y lógica sin cambios.
+
+### Ajustes de auditoría (Draft PR #5, antes del merge)
+- Ajuste 1: se retiró el modo `bionova_baseline`; `mode` vuelve a `Literal["static", "closed_loop"]`
+  y la regla de glucosa se arma con `mode == "closed_loop" or glucose_feedback_in_static`. La
+  calibración de entonces (A) se reprodujo bit a bit (costo 34.406880773658735).
+- Ajuste 2: experimento K_I,L = 10 g/L fijo y m_G libre en [0.03, 0.25] (escenario B, 10 libres):
+  cond(J) 398.8 → 45.2 y sin pares |r| > 0.90, pero μmax(34) quedó AT_BOUND (0.35) y la regla de
+  entonces (cada R² y RMSE dentro de un 1 %) falló en tres métricas. No se adoptó.
+- Ajuste 3: barrido del día de cambio (4, 7, 10, 14), explicación de qp(36.5) > qp(34.0) en
+  `bioreactor_twin.py`, URS-02 y README, sensibilidad direccional en `test_oq_03h`, slider de DO
+  desde 5 % (leído del esquema) y verificación de 6 bolos en 14 d (`test_oq_03b`).
+- Ajuste 4: docs/01, 02, 03, README, CHANGELOG y el cuerpo del PR sincronizados.
+- Escenario B' (cota de μmax(34) en 0.55): μmax(34) llegó a la cota desde 14 arranques; con la cota en
+  1.50 también. No se adoptó y no se cambió código.
+- Cierre técnico (decisión de la auditoría): el punto de VCD del día 7 se confirmó contra la Figura 1
+  original de Bionova y no se modificó. El perfil de verosimilitud de μmax(34.0) es plano por encima
+  de 0.35 (SSR(0.35) − mínimo = 2.94 < χ²(1, 0.95) = 3.84), así que K_I,L se fija en 10.0 g/L y
+  μmax(34.0) en 0.35 1/d, con 9 parámetros libres. Entre B9_base (qp(T)) y B9_causal (qp sin efecto
+  de la temperatura e inhibido por NH3), B9_causal ajusta mejor el título (RMSE 0.027 frente a
+  0.093 g/L) pero falla cond(J) < 60 (72.7; k_p_NH3 con RSE 64 %), así que la regla adopta B9_base.
+  Sus 9 parámetros quedan en el interior, cond(J) 28.5, máximo |r| 0.886, todo RMSE ≤ 2σ y la regla
+  2 → 5 g/L se dispara sola el día 12 en el protocolo Bionova. La confusión causal temperatura–edad de
+  qp(T) queda documentada en el código, URS-02, docs/02 (9.4), docs/03 (11.2), README y la leyenda
+  del día de cambio del tablero. `test_oq_03`, `03g` y `03h` y dos pruebas de `tests_app` se
+  actualizaron (docs/03, sección 10).
+
+### Changed
+- `__version__` pasa a `1.4.0`; docs/01, 02, 03 y 05 a la versión 1.4.0 con su historial.
+- Cotas de m_G: [0.03, 0.25] g/(1e9 cél·d).
+- Tablero: el slider de DO cubre 5–90 % (antes 10–90 %); la leyenda del día de cambio advierte que
+  fuera del día 7 el título es extrapolación.
+- Parámetros calibrados (B9_base; antes supuestos): μmax(36.5) 0.802235 1/d, G_BOOST_CONC 82.2171 g/L
+  (antes 12), X_max 38.1368e6 cél/mL, q_L,max 0.304419, q_NH3 0.0584053, kd_NH3 0.0167158,
+  qp(36.5) 0.0148635, qp(34.0) 0.00900473 y m_G 0.0610218 (antes 0.05 fijo). Fijados por la
+  auditoría: K_I_L 10.0 g/L (antes 2.5) y μmax(34.0) 0.35 1/d.
+- Lactato: producción de desborde ligada al flujo glucolítico de crecimiento y consumo reprimido por
+  la fracción de crecimiento máximo; el pico pasa del día 7 (escalón térmico) al día 5 y el lactato
+  baja a 0.38 g/L el día 7, también con el cambio térmico en los días 10 o 14.
+- Oxígeno: se eliminó DO_eff = DO × ratio y la doble penalización por ratio. El DO real sale de
+  C_L = min(C_sp, max(0, C*_max − OUR/kLa)) con enriquecimiento de O2; f_do depende solo del DO
+  real (exactamente 1.0 desde 15 %, K_DO 1.5 %), con efecto Pasteur bajo 15 % y muerte hipóxica bajo
+  10 %. Límite inferior de `do_setpoint_pct`: 5 % (antes 10 %).
+- Cizalla: la alarma conservadora de 47.6 W/m³ OR 0.15 vvm no entra en la cinética; las ecuaciones
+  penalizan el burbujeo sobre 0.15 vvm y el impulsor solo sobre 476 W/m³ (fuera del esquema). Se
+  retiró el factor `fPV` (1.08 a ≥ 30 W/m³), sin fuente y contradicho por Bionova (1.896 frente a
+  1.88 g/L entre 30 y 19 W/m³).
+- Tren de bolos: sin bolo el día de cosecha (los días de alimentación < duración).
+- Pruebas revisadas bajo control de cambios (docs/03, sección 10): `test_oq_03`, `03b`, `03c`, `03e`,
+  `04b`, `06b`, `test_exploratory_10`; `test_oq_03d_lactate_profile_v131` se reemplazó por
+  `test_oq_03d_lactate_switch_state_governed`.
+- URS-06, 07, 08, 09 y 15 actualizados; URS-08 pasa a exigir la ventaja en masa cosechada y viabilidad
+  y a reportar la diferencia en g/L sin forzar su signo.
+- Tablero: la re-ejecución OQ copia también `data/`; textos de P/V, sparge y DO alineados con el
+  modelo nuevo.
+
+### Fixed
+- Hipoxia falsa a DO 85 % con aire (v1.3.2: f_do 0.545 con un DO físico de ~72 %).
+- Techo artificial de 14.7e6 cél/mL a DO 30 % por la fuerza impulsora solo con aire.
+- `P/V` de 50–60 W/m³ ya no recorta qp (v1.3.2: −24 % de título a 60 W/m³).
+- Integrador: el Euler explícito de v1.3.2 (dt 0.1 d, con recorte de positividad) se reemplazó por
+  RK45/Radau; aplicado al modelo nuevo, ese Euler tiene un error máximo de 10.4 % frente a la
+  referencia (lactato), y RK45 de 1.94e-6.
+
+### Hallazgos reportados sin maquillar ecuaciones
+- A 14 d el lazo cerrado no supera a la receta estática en g/L (−3.32 %), por dilución; sí en masa
+  (+2.35 %) y viabilidad (+0.75 puntos). A 21 d: +9.50 % en g/L y +15.91 % en masa.
+- Con la regla 2 → 5 g/L la reposición de glucosa se dispara sola el día 12 en el protocolo Bionova
+  (glucosa pre-feed 1.757 g/L), pero no el día 10 (2.52 g/L), donde Bionova ya midió 1.2 g/L. En
+  closed_loop por defecto no se dispara: los bolos de Ark mantienen la glucosa pre-feed en 3.41 g/L o
+  más.
+- Confusión causal temperatura–edad de qp(T): qp(36.5 °C) > qp(34.0 °C) absorbe la desaceleración
+  tardía de la producción de NISTCHO (título por IVCD de 0.0118 a 0.0028 g/(1e9 cél·d)), que sigue a
+  la edad del cultivo y al NH3. En el barrido del día de cambio, no enfriar da +65.3 % de título sobre
+  el día 7, al revés que A-Mab Tabla 3.12 (p. 73); es un artefacto de extrapolación. La variante
+  B9_causal lo reduce a +4.8 %, pero no cumple cond(J) < 60. Trabajo futuro para v1.5.0: retardo τ_T
+  de la respuesta del ciclo celular, con corridas con cambio en los días 3–4 y pulsos de lactato de
+  2–6 g/L.
+- K_I_L y μmax(34.0) no son identificables con una sola corrida (libres, quedaban en sus cotas:
+  K_I_L con RSE 65.5 % y cond(J) 398.8; μmax(34.0) en toda cota superior probada); se fijaron en
+  valores de literatura.
+- El modelo no tiene efecto de P/V entre 19 y 30 W/m³ y sobrestima la VCD tardía a 19 W/m³
+  (+3.33e6 cél/mL el día 14), dentro del criterio de 2σ para la serie.
+- Lactato tardío por debajo de lo medido (0.02 frente a 0.2–0.3 g/L).
+- No se encontró mojibake ni BOM: todos los archivos versionados (y la historia de git) son UTF-8
+  válido sin BOM. Lo que se ve como mojibake es UTF-8 correcto leído como Windows-1252 (por ejemplo,
+  la «ó» se guarda como los bytes C3 B3 y un visor en Windows-1252 los muestra como dos caracteres).
+
 ## [1.3.2] - 2026-11-14
 
 Incluye b0fa17d y 99116f9 (Bloques 1 y 2: textos, versión, CHANGELOG y CI), cb5a484 (Bloque 3:
@@ -225,6 +369,7 @@ constancia de lo que no describen bien:
   lactato quedara en una banda objetivo, no por ajuste a mediciones.
 
 [Unreleased]: https://github.com/alehernann/bioprocesos-PROJECT/compare/v1.3.2...main
+[1.4.0]: https://github.com/alehernann/bioprocesos-PROJECT/compare/v1.3.2...feat/v1.4.0-mechanistic-validation
 [1.3.2]: https://github.com/alehernann/bioprocesos-PROJECT/releases/tag/v1.3.2
 [1.3.1]: https://github.com/alehernann/bioprocesos-PROJECT/commit/14cdd5984aab64df489fc8a920b0e71bb5bf7661
 [1.3.0]: https://github.com/alehernann/bioprocesos-PROJECT/commit/6d8c509bb10fab29cdde5543e3fa96853a08e2e6

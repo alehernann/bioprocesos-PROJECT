@@ -4,15 +4,16 @@
 |-------|-------|
 | **ID del documento** | BIB-BRX-001 |
 | **Título** | Referencias Bibliográficas y Marco Regulatorio (References) |
-| **Versión** | 1.3.2 |
-| **Alcance** | Modelamiento de bioprocesos, escalamiento, QbD, gemelos digitales, estadística de validación de procesos, termodinámica de cadena de frío, procesamiento de señales, Quality 4.0 y guías regulatorias y de sistemas computarizados. |
+| **Versión** | 1.4.0 |
+| **Alcance** | Modelamiento de bioprocesos, escalamiento, QbD, gemelos digitales, estadística de validación de procesos, termodinámica de cadena de frío, procesamiento de señales, Quality 4.0, guías regulatorias y de sistemas computarizados y credibilidad de modelos computacionales. |
 
 ---
 
 ## Referencias Bibliográficas y Marco Regulatorio (References)
 
 Esta bibliografía es la lista de referencias oficial y literal que respalda todo el paquete de
-validación. Las cuatro secciones temáticas (A–D) agrupan las veinte referencias por tema. Cada
+validación. Las cuatro secciones temáticas (A–D) agrupan las veinte referencias originales por
+tema; la sección E (v1.4.0) añade la referencia 21 bajo control de cambios. Cada
 entrada se reproduce exactamente como se entregó, incluidos los símbolos de marca (™, ®), los guiones
 medios (–), los acentos y los DOI. Los documentos 01, 02 y 03 citan las fuentes casi siempre por
 nombre (por ejemplo "A-Mab", "Bionova", "Ark", "ASME BPE-2014"); cuando citan por número (por
@@ -77,6 +78,12 @@ correspondencia del final enlaza cada número con su uso.
 
 ---
 
+### E. Credibilidad de Modelos Computacionales (añadida en v1.4.0)
+
+21. ASME V&V 40-2018, Assessing Credibility of Computational Modeling through Verification and Validation: Application to Medical Devices, The American Society of Mechanical Engineers, New York, NY, 2018.
+
+---
+
 ## Correspondencia de citas con los documentos de validación
 
 La tabla siguiente resume cómo se usan las referencias anteriores en el paquete de validación
@@ -86,11 +93,11 @@ referencia.
 | Ref # | Uso principal en el paquete |
 |-------|------------------------|
 | 1 | Proceso de referencia del A-Mab Design Space (URS-13, `amab_design_space.py`); forma de la ley de kLa, Ec. 4 y punto de 15,000 L de la Tabla 3.22, kLa medido por escala de la Tabla 3.22 y densidades celulares demostradas de la Tabla 3.23 (URS-06); P/V máximo de 47.6 W/m³ demostrado aceptable a 2 L, Tabla 3.22 (URS-09/10). |
-| 2 | Base de cultivo en micro-escala Stratyx™ / Bionova: escala de 0.25 L con volumen inicial de 190 mL (alcance de URS-BRX-001, `models.py`); perfil 36.5 → 34 °C en el día 7 con NISTCHO, CHO-K1 (URS-01/02); P/V de 19 y 30 W/m³ (URS-06); glucosa medida pre-feed en los días de alimentación (URS-07); sparge 0.5 mL/min / 190 mL = 0.00263 vvm (Bionova, Ref. 2, pp. 3-4; `models.py`). |
+| 2 | Base de cultivo en micro-escala Stratyx™ / Bionova: escala de 0.25 L con volumen inicial de 190 mL (alcance de URS-BRX-001, `models.py`); perfil 36.5 → 34 °C en el día 7 con NISTCHO, CHO-K1 (URS-01/02); P/V de 19 y 30 W/m³ (URS-06); glucosa medida pre-feed en los días de alimentación (URS-07); sparge 0.5 mL/min / 190 mL = 0.00263 vvm (Bionova, Ref. 2, pp. 3-4; `models.py`). Desde v1.4.0, protocolo exacto (pp. 3-4), valores impresos del día 14 (p.10) y series digitalizadas de las Figs. 1-4 en `data/bionova_nistcho_2026.json`: calibración con Stratyx 30 W/m³ y validación fuera de muestra con 19 W/m³ (URS-16, `model_validation.py`). |
 | 3 | Optimización en lazo cerrado en tiempo real / ganancia de título (URS-07/08). |
 | 4 | Caracterización de la línea celular de referencia NISTCHO. |
 | 5 | Práctica de investigación de contaminación en biorreactores (justificación de CIP/SIP). |
-| 6 | Sensibilidad celular a la cizalla hidrodinámica (URS-09/10, límite P/V). |
+| 6 | Sensibilidad celular a la cizalla hidrodinámica (URS-09/10, límite P/V). En v1.4.0 respalda el desacople de la alarma de 47.6 W/m³ respecto de la cinética: el inicio del daño por impulsor del gemelo (476 W/m³) queda órdenes de magnitud por debajo del daño mecánico documentado. |
 | 7 | Contexto de bioprocesamiento continuo integrado. |
 | 8 | Contexto de perfusión CHO de alta densidad. |
 | 9 | Estadística de validación de procesos de Gorsky (URS-15, `spc_six_sigma.py`). |
@@ -105,6 +112,7 @@ referencia.
 | 18 | GAMP 5 y Pharma 4.0™ (categorización, documento 01/02). |
 | 19 | Diseño higiénico ASME BPE-2014 / velocidad de CIP (URS-11). |
 | 20 | Annex 11 / Draft Annex 22, guías ICH, Decreto 1782/2014 y Resolución 1160/2016 de Colombia (URS-15). |
+| 21 | Marco de credibilidad de modelos (verificación frente a validación, contexto de uso, riesgo del modelo), aplicado por analogía al gemelo digital (URS-16, documento 02 sección 9, `model_validation.py`). |
 
 ---
 
@@ -144,9 +152,17 @@ orientan la categorización del software. ASME BPE-2014 (Ref. 19) fija el criter
 de CIP de 1.52 m/s (URS-11). Annex 11, Draft Annex 22, el conjunto de guías ICH, el Decreto 1782 de 2014 (medicamentos biológicos) y la Resolución 1160 de 2016 (BPM) de Colombia (Ref. 20) rigen
 los registros electrónicos, el guardrail de AI y la aplicabilidad regulatoria local del Audit Trail (URS-15).
 
+### Sección E — Credibilidad de modelos computacionales (v1.4.0)
+ASME V&V 40-2018 (Ref. 21) aporta el marco basado en riesgo para decidir cuánta evidencia de
+verificación y validación necesita un modelo según su contexto de uso. En este paquete separa la
+verificación del software (OQ: balances, convergencia y estabilidad numérica) de la validación del
+modelo biológico frente a los datos de Bionova (Ref. 2), y fija la meta de credibilidad descrita en
+el documento 02, sección 9. Se usa por analogía: la norma es para dispositivos médicos.
+
 ## Declaración de integridad literal
 
-Las veinte referencias (1–20) se reproducen exactamente como se entregaron, preservando:
+Las veinte referencias originales (1–20) se reproducen exactamente como se entregaron (v1.4.0 no
+modificó ningún byte de esas entradas), preservando:
 - las marcas comerciales y registradas: STRATYX™, wave bioreactor™, GAMP®, ISPE Baseline®, Pharma 4.0™;
 - los guiones medios en rangos de páginas y fechas (por ejemplo, pp. 115–136 y pp. 959–975);
 - los acentos y diacríticos del español (Estadística, Termodinámica, Guías, Resolución, Protección);
@@ -154,14 +170,15 @@ Las veinte referencias (1–20) se reproducen exactamente como se entregaron, pr
 
 Ninguna referencia se ha abreviado, reordenado, fusionado ni parafraseado. Cualquier edición futura
 de esta bibliografía debe preservar byte a byte las veinte entradas de referencia bajo control de
-cambios formal.
+cambios formal. La referencia 21 (ASME V&V 40-2018) se añadió en v1.4.0 bajo ese control de cambios;
+la norma se escribió para dispositivos médicos y aquí se usa por analogía.
 
 ## Control del documento
 
 | Atributo | Valor |
 |-----------|-------|
-| Total de referencias | 20 |
-| Secciones temáticas | 4 (A, B, C, D) |
+| Total de referencias | 21 (20 originales + 1 añadida en v1.4.0) |
+| Secciones temáticas | 5 (A, B, C, D, E) |
 | Documentos que citan esta bibliografía | 01 (URS), 02 (CSA Risk Assessment), 03 (RTM) |
 | Política de modificación | El texto literal de las referencias está congelado; solo el comentario que lo rodea puede revisarse bajo control de cambios. |
 
@@ -175,5 +192,6 @@ Historial de versiones del documento. Las versiones son las del software (`src/_
 | 1.2.0 | 2026-11-10 | 98ffe46: evidencia por módulo. |
 | 1.3.0 | 2026-11-11 | 664efca: traducción al español (texto literal de las referencias sin cambios). |
 | 1.3.2 | 2026-11-14 | b0fa17d y 99116f9 (Bloques 1 y 2): textos alineados con el código y la evidencia bibliográfica; versión del documento alineada con el software; historial añadido. cb5a484 (Bloque 3): sin cambios en este documento. 9c9ab7d (Bloque 4): Ref. 1 con el kLa medido de la Tabla 3.22 y las densidades celulares de la Tabla 3.23. |
+| 1.4.0 | 2026-11-20 | Sección E con la Ref. 21 (ASME V&V 40-2018); usos de las Refs. 2 (dataset de calibración y validación) y 6 (desacople de cizalla); las entradas 1–20 no cambian. |
 
 *Fin del documento BIB-BRX-001.*

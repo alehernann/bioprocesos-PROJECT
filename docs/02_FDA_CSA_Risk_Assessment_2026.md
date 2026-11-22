@@ -4,9 +4,9 @@
 |-------|-------|
 | **ID del documento** | CSA-RA-2026-001 |
 | **Título** | Evaluación de riesgo bajo FDA CSA para software de producción y del sistema de calidad |
-| **Versión** | 1.3.2 |
+| **Versión** | 1.4.0 |
 | **Guía principal** | FDA *Computer Software Assurance for Production and Quality Management System Software*, CDRH/CBER/CDER, Feb 3, 2026 |
-| **Normas de soporte** | ISO 13485:2016, 21 CFR Part 820 (QMSR, vigente desde 2026-02-02), GAMP 5 (2nd ed.), 21 CFR Part 11, EudraLex Annex 11, Draft Annex 22 (AI) |
+| **Normas de soporte** | ISO 13485:2016, 21 CFR Part 820 (QMSR, vigente desde 2026-02-02), GAMP 5 (2nd ed.), ASME V&V 40-2018 (credibilidad de modelos, por analogía), 21 CFR Part 11, EudraLex Annex 11, Draft Annex 22 (AI) |
 | **Sistema evaluado** | Sistema de control del biorreactor CHO-K1 fed-batch (gemelo digital) |
 
 ---
@@ -78,7 +78,8 @@ La evaluación sigue los cuatro pasos de CSA:
 | 3 | **Cálculo de MKT** (térmica de cadena de frío) | `thermal_vtb_mkt.py` | Determina si las excursiones de almacenamiento o transporte comprometen el producto. | Pérdida de potencia o estabilidad no detectada, disposición equivocada. | **High Process Risk** | **Robust Scripted Testing** |
 | 4 | **Ecuaciones del Design Space** (centro/bordes de A-Mab) | `amab_design_space.py` | Define la región operativa aceptable multivariada (ICH Q8). | Operación fuera del espacio validado, incumplimiento regulatorio. | **High Process Risk** | **Robust Scripted Testing** |
 | 5 | **Audit Trail** (21 CFR Part 11) | `audit_trail_part11.py` | Crea registros GxP atribuibles y con evidencia de manipulación. | Brecha de integridad de datos, pérdida de confiabilidad de los registros. | **High Process Risk** | **Robust Scripted Testing** |
-| 6 | **Capacidad SPC / Six Sigma** (Cpk, intervalos de tolerancia) | `spc_six_sigma.py` | Decisiones estadísticas de liberación y monitoreo sobre datos de proceso. | Conclusión de capacidad incorrecta que alimenta la disposición. | **High Process Risk** | **Robust Scripted Testing** |
+| 6 | **Capacidad SPC / Six Sigma** (Cpk, intervalos de tolerancia, estabilidad I-MR, equivalencia TOST + Levene) | `spc_six_sigma.py` | Decisiones estadísticas de liberación y monitoreo sobre datos de proceso. | Conclusión de capacidad o de equivalencia incorrecta que alimenta la disposición. | **High Process Risk** | **Robust Scripted Testing** |
+| 6b | **Gemelo mecanístico calibrado y su validación** (6 estados, solver RK45/Radau, calibración e identificabilidad) | `bioreactor_twin.py`, `model_validation.py`, `data/bionova_nistcho_2026.json` | Comparar estrategias de alimentación con un modelo calibrado contra Bionova NISTCHO (2026). | Una predicción no creíble podría orientar mal el desarrollo del proceso; un error numérico daría resultados no físicos. | **High Process Risk** | **Robust Scripted Testing** (verificación y validación, sección 9) |
 | 7 | **Validación de entradas** (modelos tipados Pydantic) | `models.py` | Protege el núcleo High-Risk de entradas mal formadas. | Propaga datos erróneos a la lógica de control y de registros. | **High Process Risk** | **Robust Scripted Testing** |
 | 8 | **Gráficas** (figuras Plotly) | capa de visualización | Representación visual de datos ya calculados y validados. | Solo cosmético o de presentación; los datos subyacentes no se afectan. | **Not High Process Risk** | **Unscripted Exploratory / Error-Guessing Testing** |
 | 9 | **Diseño y navegación de la UI** (widgets de Streamlit) | capa de visualización | Ergonomía y presentación para el operador. | Incomodidad; sin impacto directo en calidad, seguridad o datos. | **Not High Process Risk** | **Unscripted Exploratory / Error-Guessing Testing** |
@@ -130,7 +131,17 @@ AI del Annex 22 (`test_oq_09`) y la protección por hash del indicador `human_ap
 **SPC / Six Sigma.** El cálculo de capacidad de proceso y de intervalos de tolerancia (metodología
 de Gorsky) alimenta decisiones estadísticas de liberación y monitoreo. Un Cpk o unos intervalos de
 tolerancia incorrectos corrompen las decisiones de calidad, por lo que se requiere scripted testing
-(`test_oq_08`).
+(`test_oq_08`). Desde v1.4.0 la capacidad solo se declara interpretable si el proceso está en control
+estadístico (regla 1 de Shewhart en la carta I-MR) y es normal, y la comparación entre biorreactores
+dispone de una prueba formal de equivalencia (TOST + Levene; Gorsky 2020, p.131), porque una prueba t
+no significativa no demuestra equivalencia (`test_oq_08b`).
+
+**Gemelo mecanístico calibrado.** El gemelo de 6 estados (Xv, Xd, G, L, NH3, título más el volumen)
+se integra por tramos con RK45 y cambio automático a Radau. Un error numérico (estado negativo, NaN,
+pérdida de masa en un bolo) daría resultados no físicos de forma silenciosa, y una calibración no
+documentada daría predicciones sin respaldo. Por eso la verificación del software (`test_oq_03b`,
+`test_oq_03f`, `test_oq_03h`) y la validación del modelo frente a datos medidos (`test_oq_03g`) son
+scripted; el marco de credibilidad se detalla en la sección 9.
 
 **Validación de entradas.** Los modelos tipados Pydantic (`models.py`) son el filtro que impide que
 datos mal formados lleguen al núcleo High-Risk. Aunque su función es defensiva, un hueco en la
@@ -184,10 +195,13 @@ código a la medida (GAMP Category 5), en línea con el principio least-burdenso
   corresponden con las pruebas unscripted `test_exploratory_10_invalid_pydantic_inputs`,
   `test_exploratory_11_audit_trail_requires_reason` y
   `test_exploratory_12_welch_ttest_identical_groups_not_significant`.
-- La suite cubre 20 pruebas: 17 pruebas scripted (`test_oq_01` a `test_oq_09`, incluidas
-  `test_oq_03b`, `test_oq_03c`, `test_oq_03d`, `test_oq_03e`, `test_oq_04b`,
-  `test_oq_05b_amab_scale_up_kla_pilot_commercial_range`,
-  `test_oq_06b` y `test_oq_09b_part11_human_approved_mutation_breaks_chain`) y 3 pruebas exploratorias
+- La suite cubre 24 pruebas: 21 pruebas scripted (`test_oq_01` a `test_oq_09`, incluidas
+  `test_oq_03b`, `test_oq_03c`, `test_oq_03d_lactate_switch_state_governed`, `test_oq_03e`,
+  `test_oq_03f_rk45_convergence_and_nh3_decline`, `test_oq_03g_bionova_validation_fit_and_oos`,
+  `test_oq_03h_slider_domain_physical_stability`, `test_oq_04b`,
+  `test_oq_05b_amab_scale_up_kla_pilot_commercial_range`, `test_oq_06b`,
+  `test_oq_08b_spc_control_stability_and_tost_equivalence` y
+  `test_oq_09b_part11_human_approved_mutation_breaks_chain`) y 3 pruebas exploratorias
   (`test_exploratory_10` a `test_exploratory_12`).
 - La trazabilidad completa hacia adelante y hacia atrás se mantiene en `03_RTM_Traceability_Matrix.md`.
 
@@ -195,11 +209,86 @@ código a la medida (GAMP Category 5), en línea con el principio least-burdenso
 
 Al aplicar FDA CSA (2026), ISO 13485:2016 y 21 CFR Part 820 (QMSR), los set-points de control y la lógica de
 actuación, los interlocks de seguridad, el cálculo de MKT, las ecuaciones del Design Space, la
-capacidad SPC, el Audit Trail y la validación de entradas se clasifican como **High Process Risk** y
-se verifican con **Robust Scripted Testing**. Las gráficas y la UI se clasifican como **Not High
+capacidad SPC, el Audit Trail, la validación de entradas y el gemelo mecanístico calibrado se
+clasifican como **High Process Risk** y se verifican con **Robust Scripted Testing**; la credibilidad
+del modelo se evalúa además con el marco de ASME V&V 40 (sección 9). Las gráficas y la UI se clasifican como **Not High
 Process Risk** y se aseguran con **Unscripted Exploratory / Error-Guessing Testing**. Esta asignación
 concentra el aseguramiento donde una falla afectaría más la calidad del producto, la seguridad y la
 integridad de los datos.
+
+## 9. Credibilidad del modelo mecanístico (ASME V&V 40 / FDA CSA)
+
+ASME V&V 40-2018 (Ref. 21 del documento 05) se escribió para modelos computacionales de dispositivos
+médicos; aquí se aplica por analogía al gemelo de bioproceso. FDA CSA gobierna el aseguramiento del
+software (secciones 1 a 8). V&V 40 añade la pregunta de si el **modelo** es creíble para su uso, y
+separa dos actividades que este paquete mantiene separadas:
+
+- **Verificación del software (OQ):** ¿el código resuelve correctamente las ecuaciones documentadas?
+- **Validación del modelo biológico:** ¿las ecuaciones calibradas reproducen datos medidos con la
+  exactitud que pide el contexto de uso?
+
+### 9.1 Pregunta de interés, contexto de uso y riesgo del modelo
+
+| Elemento | Definición para este gemelo |
+|----------|-----------------------------|
+| Pregunta de interés | ¿Qué estrategia de alimentación (static, static con regla de glucosa como en Bionova, closed_loop) y qué set-points conviene probar primero en el laboratorio? |
+| Contexto de uso | Cribado en desarrollo de proceso con NISTCHO (CHO-K1) en fed-batch de 14 d; los resultados se confirman siempre con un experimento. No se usa para liberar lotes ni para fijar especificaciones. |
+| Influencia del modelo | Baja: la decisión final se toma con datos experimentales. |
+| Consecuencia de una decisión errónea | Media: un mal cribado cuesta corridas de laboratorio; no llega al paciente. |
+| Riesgo del modelo | Bajo a medio. |
+| Meta de credibilidad | RMSE ≤ 2 × incertidumbre declarada en cada variable dentro de muestra y en VCD fuera de muestra; cada punto fuera de muestra dentro de 2 × su incertidumbre (`CREDIBILITY_RMSE_OVER_SIGMA_MAX` en `src/model_validation.py`). |
+
+### 9.2 Actividades de credibilidad y evidencia
+
+| Actividad (V&V 40) | Evidencia | Prueba |
+|--------------------|-----------|--------|
+| Verificación del código | Balance de masa exacto de Xv, Xd, G, L, NH3 y título en cada bolo; regla de glucosa evento por evento; balance de O2 cuasi estacionario; desacople alarma–cinética. | `test_oq_03b`, `test_oq_03`, `test_oq_06b`, `test_oq_04b` |
+| Verificación del cálculo | RK45 (rtol 1e-6) frente a RK45 y Radau con rtol 1e-9: error máximo 1.94e-6 relativo a la magnitud de cada serie; RK45 1e-9 frente a Radau 1e-9: 1.47e-8; el cambio automático a Radau reproduce RK45; el Euler de v1.3.2 (dt 0.1 d) tiene error 1.04e-1 (lactato). | `test_oq_03f` |
+| Robustez en el dominio de uso | 256 esquinas del dominio de los sliders (DO 5–90 %): sin NaN ni Inf, concentraciones ≥ 0, viabilidad en [0, 100] %, V(t) ≤ recipiente; 4.4 ms de media y 13.8 ms de máximo por corrida. | `test_oq_03h` |
+| Validación: comparador | Bionova Stratyx 30 W/m³ (calibración, 60 puntos pre-feed) y 19 W/m³ (fuera de muestra). | `test_oq_03g` |
+| Validación: calibración e identificabilidad | 9 parámetros libres por `least_squares` (TRF), todos en el interior e identificables (RSE de 3.0 a 23.9 %); cond(J) 28.5 y ningún par con \|r\| > 0.90 (máximo 0.886). El prior documentado y 8 arranques aleatorios llegan al mismo óptimo, y las constantes del código reproducen una calibración nueva. | `test_oq_03g` |
+| Validación: constantes fijadas por falta de identificabilidad | K_I,L = 10.0 g/L: punto medio del rango CHO de literatura de 5–15 g/L (cotas de la especificación v1.4.0). Bionova no pasa de 1.4 g/L de lactato y, libre, K_I,L quedaba en la cota de 5 g/L (RSE 65.5 %, \|r\| hasta 0.979, cond(J) 398.8). μmax(34.0) = 0.35 1/d: extremo superior del rango de la especificación [0.10, 0.35], 44 % de μmax(36.5) (hipotermia leve). Con un solo día de cambio, el perfil de verosimilitud es plano por encima de 0.35 (SSR(0.35) − mínimo = 2.94 < χ²(1, 0.95) = 3.84) y, libre, llegaba a toda cota superior probada (0.35, 0.55 y 1.50). Los dos se fijaron por decisión de la auditoría del Draft PR #5; el resto de los supuestos fijos está en el documento 03, sección 11. | `test_oq_03g` |
+| Validación: selección entre variantes | `compare_calibration_variants` evalúa, desde el mismo prior, A (primer candidato, 10 libres), B9_base y B9_causal (9 libres; qp sin efecto de la temperatura e inhibido por NH3) con una regla fijada antes de calibrar: 9 parámetros en el interior, cond(J) < 60 sin pares con \|r\| > 0.90, RMSE ≤ 2σ con RMSE de título no peor que B9_base, y reposición natural de glucosa en Bionova. B9_causal ajusta mejor el título (RMSE 0.027 frente a 0.093 g/L) pero falla cond(J) (72.7; k_p,NH3 con RSE 64 %), así que se adoptó B9_base (documento 03, sección 11.1). | `test_oq_03g` |
+| Sensibilidad direccional | sparge 0.25 frente a 0.10 vvm baja título y viabilidad; 21 frente a 14 d sube NH3 y baja viabilidad; cambio térmico en el día 4 frente al día 10 baja la VCD pico. Limitación documentada: con qp(36.5) > qp(34.0), el título sube con el día de cambio (sección 9.4). | `test_oq_03h` |
+| Aplicabilidad | El comparador cubre NISTCHO, 0.25 L Stratyx, 14 d, DO 30 %, P/V 19–30 W/m³. Escalas, duraciones y set-points fuera de ese rango son extrapolación del modelo. | — |
+
+### 9.3 Resultado frente a la meta de credibilidad
+
+Dentro de muestra (30 W/m³) las seis variables cumplen la meta (RMSE/σ: VCD 0.78, viabilidad 0.63,
+glucosa 1.37, lactato 1.13, NH3 1.21, título 1.16). Fuera de muestra (19 W/m³) la serie de VCD cumple
+(RMSE/σ 1.71) y los cinco puntos quedan dentro de 2σ (el mayor, título del día 14, a 1.47σ). En el
+protocolo Bionova la regla 2 → 5 g/L se dispara sola el día 12. El detalle está en el documento 03,
+sección 11.
+
+### 9.4 Limitaciones conocidas (se reportan, no se corrigen ajustando ecuaciones)
+
+- K_I,L y μmax(34.0) no son identificables con una sola corrida de Bionova (lactato ≤ 1.4 g/L y un
+  solo día de cambio); están fijos en 10.0 g/L y 0.35 1/d (sección 9.2). μmax(34.0) responde sobre
+  todo al salto de VCD entre los días 7 y 8 (17.8 → 23.5e6 cél/mL); la auditoría confirmó ese punto
+  contra la Figura 1 original de Bionova (p. 6) y no se modificó.
+- **Confusión causal temperatura–edad de qp(T).** qp(36.5 °C) = 0.01486 > qp(34.0 °C) = 0.00900
+  g/(1e9 cél·d) no es un efecto térmico medido: en NISTCHO el título por IVCD sigue en 0.0108 en los
+  días 8–10, ya a 34 °C, y cae a 0.0028 en los días 12–14 con el NH3 en 10.2–10.5 mM. Con una sola
+  corrida y un solo día de cambio, las anclas de temperatura absorben la senescencia tardía. En el
+  barrido del día de cambio, no enfriar da +65.3 % de título sobre el día 7, al revés que A-Mab Tabla
+  3.12 (p. 73), donde la temperatura más baja dio mayor productividad específica y mayor título. Es un
+  artefacto de extrapolación y el gemelo no debe usarse para elegir el día de cambio. La variante
+  causal B9_causal reduce la diferencia a +4.8 % y ajusta mejor el título, pero no se adoptó porque
+  su cond(J) es 72.7 (> 60) y k_p,NH3 queda con RSE 64 % (4 puntos de título).
+- El modelo no tiene un efecto de P/V entre 19 y 30 W/m³: a 19 W/m³ predice la misma curva que a
+  30 W/m³ y sobrestima la VCD tardía (+3.3e6 cél/mL el día 14).
+- El lactato tardío queda por debajo de lo medido (0.02 frente a 0.2–0.3 g/L entre los días 8 y 14).
+  La regla 2 → 5 g/L se dispara el día 12 en el modelo, pero no el día 10, donde Bionova ya midió
+  1.2 g/L.
+- Los parámetros de hipoxia, cizalla por burbujeo, inanición, lisis, rendimientos fijos y K_I_NH3 son
+  supuestos no calibrados (no hay datos en la bibliografía del proyecto que los activen).
+- Sin aminoácidos ni otros nutrientes, los bolos extra de Ark solo diluyen y aportan glucosa no
+  limitante; el modelo no reproduce el +43 % de Ark.
+
+**Trabajo futuro (v1.5.0, decisión de la auditoría):** un retardo τ_T de la respuesta del ciclo
+celular a la temperatura, con el diseño experimental que lo identifica: corridas con cambio temprano
+(días 3–4) y pulsos de lactato de 2–6 g/L (para K_I,L). Con pulsos de NH4Cl y título diario, la
+estructura B9_causal podría reevaluarse con k_p,NH3 identificable.
 
 ## Historial de versiones
 
@@ -212,5 +301,6 @@ Historial de versiones del documento. Las versiones son las del software (`src/_
 | 1.3.0 | 2026-11-11 | 664efca: traducción al español. 6d8c509: compuerta OR de cizalla y pruebas nuevas. |
 | 1.3.1 | 2026-11-11 | fd01ad7: lista de pruebas OQ actualizada (20 pruebas). |
 | 1.3.2 | 2026-11-14 | b0fa17d y 99116f9 (Bloques 1 y 2): textos alineados con el código y la evidencia bibliográfica; versión del documento alineada con el software; historial añadido. cb5a484 (Bloque 3): casos negativos y de frontera de `test_oq_04` (ya no pendientes). 9c9ab7d (Bloque 4): 21 CFR Part 820 de QSR a QMSR. |
+| 1.4.0 | 2026-11-20 | Fila 6b (gemelo calibrado y su validación) y SPC con estabilidad I-MR y TOST + Levene. Nueva sección 9: credibilidad del modelo según ASME V&V 40 (por analogía) junto a FDA CSA, con contexto de uso, riesgo del modelo, verificación, validación y limitaciones. Lista de pruebas: 24 (21 scripted, 3 exploratorias). Ajustes de auditoría (PR #5): sensibilidad direccional en la sección 9.2. Cierre técnico: calibración B9_base adoptada (9 libres, K_I,L = 10 g/L y μmax(34.0) = 0.35 1/d fijos) con la trazabilidad de las constantes fijadas y la regla de selección entre variantes (9.2), metas de credibilidad con los valores nuevos (9.3), confusión causal temperatura–edad de qp(T) y trabajo futuro de v1.5.0 (9.4). |
 
 *Fin del documento CSA-RA-2026-001.*
