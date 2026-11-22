@@ -14,6 +14,59 @@ retoman los tags anotados. Entre 1.1.2 y 1.3.1 `__version__` no se actualizó y 
 
 ## [Unreleased]
 
+Infraestructura de aseguramiento y pruebas de propiedades sobre `v1.4.0`. Sin cambios en `src/`,
+`app/`, `data/`, `tests/` ni `docs/04_Automated_OQ_Execution_Log.md`: los resultados del modelo y
+de la OQ son los de 1.4.0, y `__version__` sigue en `1.4.0`.
+
+### Added
+- `.kiro/steering/`: `gxp-scientific-integrity.md` (siempre incluido), `bioprocess-numerics.md`
+  (al trabajar en `src/` y `tests_pbt/`) y `gxp-docs-traceability.md` (en `docs/`, `tests/` y
+  `CHANGELOG.md`).
+- `.kiro/agents/gxp-auditor.md`: auditor adversarial de solo lectura (herramientas `read` y
+  `shell`, escritura de archivos denegada) con un checklist de 10 puntos y dictamen `PASS`,
+  `PASS WITH OBSERVATIONS` o `BLOCK` con archivo y línea.
+- `.kiro/hooks/gxp-guards-after-edit.json` (PostToolUse sobre las escrituras del agente:
+  `python scripts/verify_gxp_guards.py --hook`) y `.kiro/hooks/gxp-checklist-on-stop.json` (Stop:
+  checklist GxP de cierre). Los dos disparadores corren en Kiro IDE, CLI V3 y Web.
+- `scripts/verify_gxp_guards.py`: guardas estáticas con la biblioteca estándar, sin escrituras
+  (unos 0.05 s): sintaxis y constantes finitas en `src/`; `config.mode` y
+  `glucose_feedback_in_static` fuera de `_build_rhs` y de las funciones cinéticas (AST con análisis
+  de flujo de datos y de control sobre los argumentos de `_build_rhs`); UTF-8 sin BOM en `.py`,
+  `.md`, `.json` y `.yml`; JSON estricto en `.kiro/` y `data/`; esquema v1 de los hooks y front
+  matter de steering y agentes. `--frozen-base REF` compara el AST sin docstrings de
+  `evaluate_amab_design_space`, `AuditTrailLogger` y `src/thermal_vtb_mkt.py` con `REF`.
+- `tests_pbt/test_gxp_invariants_pbt.py`: 7 propiedades de Hypothesis con
+  `@settings(max_examples=60, deadline=None, derandomize=True)` (420 ejemplos, unos 3 s), trazadas
+  a URS-03/04/05/06/07/13/14/15 y NFR-01/03/04/06. Vive fuera de `tests/`, como `tests_app/`, para
+  no reescribir docs/04.
+- `scripts/mutation_check_pbt.py`: 11 mutantes aplicados en memoria (sin escribir `src/`, con
+  SHA-256 antes y después); cada propiedad mata al menos uno, incluidos los tres de la
+  especificación (exclusión mutua de pH, `human_approved` fuera del payload SHA-256 y recorte de
+  volumen).
+- `hypothesis>=6.100.0` en `requirements.txt` (verificado con 6.100.0 y 6.170.17, Python 3.11).
+
+### Changed
+- CI (`csa_validation.yml`): `python scripts/verify_gxp_guards.py` justo después de instalar las
+  dependencias y `python -m pytest -v tests_pbt/` como último paso del job `oq-validation`.
+- README: sección del arnés `.kiro/`, tabla de las propiedades y comandos de las guardas, de
+  `tests_pbt/` y de la verificación de mutantes.
+
+### Hallazgos de v1.4.0 encontrados al preparar las propiedades (se reportan; `src/` no cambia)
+- `apply_vtb_filter`: una traza constante no se conserva bit a bit. La actualización convexa
+  deriva entre 1 y 7 ULP (en 20 000 trazas al azar; por ejemplo 59.9 °C → 59.900000000000006 con
+  "20 mL (Glycol Ref)"), y una meseta en el máximo puede superar `max(aire)` por esa misma cantidad.
+  La propiedad usa la cota a priori de redondeo 4·n·u·max|T| (≤ 3.2e-12 °C). Escribir la recursión
+  como `vtb[k-1] + alpha * (air[k] - vtb[k-1])` conservaría las constantes de forma exacta; el
+  módulo está congelado y queda para un cambio controlado.
+- `compare_bioreactor_equivalence_tost`: con n = 2 por grupo, Levene es 0/0 (p = NaN, con
+  `RuntimeWarning`) y la equivalencia nunca se declara, aun con grupos idénticos y un margen de
+  100. Con grupos idénticos la equivalencia exige margen > t(0.95, 2(n − 1))·√(2s²/n): con
+  [0, 1, 2] frente a [0, 1, 2] y margen 0.1, p_TOST = 0.454. La propiedad usa n ≥ 3 y esa
+  dualidad TOST / IC 90 %.
+- `AuditTrailLogger`: el payload SHA-256 cubre `str(valor)`, así que un cambio solo de tipo con
+  el mismo texto (1 → "1", o un NaN por otro NaN) no rompe la cadena. El gemelo y el formulario del
+  tablero registran texto, por lo que no afecta los registros que produce hoy el sistema.
+
 ## [1.4.0] - 2026-11-22
 
 Liberada y etiquetada: tras la aprobación de la auditoría, el PR #5 se integró en `main` con el
